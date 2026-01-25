@@ -2,7 +2,7 @@
   <a href="https://convex.dev">
     <img src=".github/assets/convex-icon.svg" alt="Convex" height="80">
   </a>
-  <span>&nbsp;&nbsp;&nbsp;&nbsp;</span>
+  &nbsp;&nbsp;&nbsp;<strong style="font-size: 2em; color: #666;">×</strong>&nbsp;&nbsp;&nbsp;
   <a href="https://www.revenuecat.com">
     <img src=".github/assets/revenuecat-icon.svg" alt="RevenueCat" height="80">
   </a>
