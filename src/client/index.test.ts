@@ -405,13 +405,17 @@ describe("RevenueCat client", () => {
   });
 
   describe("API methods", () => {
+    // Note: These tests use `ctx as any` because they test validation errors
+    // that occur BEFORE ctx.runAction() would be called. The MutationCtx from
+    // t.run() is sufficient since runAction is never reached.
+
     test("grantEntitlementViaApi throws without API key", async () => {
       const t = initConvexTest();
       const revenuecat = new RevenueCat(components.revenuecat);
 
       await expect(
         t.run(async (ctx) => {
-          await revenuecat.grantEntitlementViaApi(ctx, {
+          await revenuecat.grantEntitlementViaApi(ctx as any, {
             appUserId: "user_api",
             entitlementId: "premium",
           });
@@ -425,7 +429,7 @@ describe("RevenueCat client", () => {
 
       await expect(
         t.run(async (ctx) => {
-          await revenuecat.revokeEntitlementViaApi(ctx, {
+          await revenuecat.revokeEntitlementViaApi(ctx as any, {
             appUserId: "user_api",
             entitlementId: "premium",
           });
@@ -439,7 +443,7 @@ describe("RevenueCat client", () => {
 
       await expect(
         t.run(async (ctx) => {
-          await revenuecat.getCustomerFromApi(ctx, {
+          await revenuecat.getCustomerFromApi(ctx as any, {
             appUserId: "user_api",
           });
         }),
@@ -454,7 +458,7 @@ describe("RevenueCat client", () => {
 
       await expect(
         t.run(async (ctx) => {
-          await revenuecat.getCustomerFromApi(ctx, {
+          await revenuecat.getCustomerFromApi(ctx as any, {
             appUserId: "user_api",
           });
         }),
@@ -467,7 +471,7 @@ describe("RevenueCat client", () => {
 
       await expect(
         t.run(async (ctx) => {
-          await revenuecat.deleteCustomerViaApi(ctx, {
+          await revenuecat.deleteCustomerViaApi(ctx as any, {
             appUserId: "user_api",
           });
         }),
@@ -480,7 +484,7 @@ describe("RevenueCat client", () => {
 
       await expect(
         t.run(async (ctx) => {
-          await revenuecat.updateAttributesViaApi(ctx, {
+          await revenuecat.updateAttributesViaApi(ctx as any, {
             appUserId: "user_api",
             attributes: {
               custom_field: { value: "test" },
@@ -496,7 +500,7 @@ describe("RevenueCat client", () => {
 
       await expect(
         t.run(async (ctx) => {
-          await revenuecat.getOfferingsViaApi(ctx, {
+          await revenuecat.getOfferingsViaApi(ctx as any, {
             appUserId: "user_api",
           });
         }),

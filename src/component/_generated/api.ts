@@ -11,6 +11,7 @@
 import type * as api_ from "../api.js";
 import type * as customers from "../customers.js";
 import type * as entitlements from "../entitlements.js";
+import type * as experiments from "../experiments.js";
 import type * as handlers from "../handlers.js";
 import type * as subscriptions from "../subscriptions.js";
 import type * as webhooks from "../webhooks.js";
@@ -22,6 +23,7 @@ const fullApi: ApiFromModules<{
   api: typeof api_;
   customers: typeof customers;
   entitlements: typeof entitlements;
+  experiments: typeof experiments;
   handlers: typeof handlers;
   subscriptions: typeof subscriptions;
   webhooks: typeof webhooks;
