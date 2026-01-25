@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query, mutation } from "./_generated/server.js";
 import { components } from "./_generated/api.js";
-import { RevenueCat } from "convex-revenuecat-component";
+import { RevenueCat } from "convex-revenuecat";
 
 // Initialize the RevenueCat client
 const revenuecat = new RevenueCat(components.revenuecat, {

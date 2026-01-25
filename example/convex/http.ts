@@ -1,5 +1,5 @@
 import { httpRouter } from "convex/server";
-import { RevenueCat } from "convex-revenuecat-component";
+import { RevenueCat } from "convex-revenuecat";
 import { components } from "./_generated/api";
 
 const http = httpRouter();

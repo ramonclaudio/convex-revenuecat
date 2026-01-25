@@ -15,7 +15,7 @@ A [Convex](https://convex.dev) component for [RevenueCat](https://www.revenuecat
 ## Installation
 
 ```bash
-npm install convex-revenuecat-component
+npm install convex-revenuecat
 ```
 
 ## Setup
@@ -26,7 +26,7 @@ Create or update `convex/convex.config.ts`:
 
 ```typescript
 import { defineApp } from "convex/server";
-import revenuecat from "convex-revenuecat-component/convex.config";
+import revenuecat from "convex-revenuecat/convex.config";
 
 const app = defineApp();
 app.use(revenuecat);
@@ -40,7 +40,7 @@ Create or update `convex/http.ts`:
 
 ```typescript
 import { httpRouter } from "convex/server";
-import { RevenueCat } from "convex-revenuecat-component";
+import { RevenueCat } from "convex-revenuecat";
 import { components } from "./_generated/api";
 
 const http = httpRouter();
@@ -74,7 +74,7 @@ In your RevenueCat project settings:
 ```typescript
 import { query } from "./_generated/server";
 import { components } from "./_generated/api";
-import { RevenueCat } from "convex-revenuecat-component";
+import { RevenueCat } from "convex-revenuecat";
 import { v } from "convex/values";
 
 const revenuecat = new RevenueCat(components.revenuecat);
@@ -214,7 +214,7 @@ Register the component in your tests using the provided helper:
 
 ```typescript
 import { convexTest } from "convex-test";
-import revenuecatTest from "convex-revenuecat-component/test";
+import revenuecatTest from "convex-revenuecat/test";
 
 function initConvexTest() {
   const t = convexTest();
