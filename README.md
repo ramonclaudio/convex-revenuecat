@@ -1,16 +1,19 @@
-# Convex RevenueCat Component
+# Convex RevenueCat
+
+[![npm version](https://img.shields.io/npm/v/convex-revenuecat)](https://www.npmjs.com/package/convex-revenuecat)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 A [Convex](https://convex.dev) component for [RevenueCat](https://www.revenuecat.com) subscription management. Receives webhooks, stores subscription/entitlement state, and provides reactive queries for access control.
 
 ## Features
 
-- **Webhook Processing**: Idempotent handling of all 18 RevenueCat webhook events
-- **Reactive Queries**: Real-time entitlement and subscription state
-- **Correct Edge Cases**: Handles cancellation, pause, expiration, and transfer events properly
-- **RevenueCat API Integration**: Full REST API support (entitlements, customers, offerings)
-- **Subscriber Attributes**: Stores and merges customer attributes from webhooks
-- **Experiment Tracking**: Tracks A/B test enrollments from RevenueCat experiments
-- **Type-Safe**: Full TypeScript support with exported types
+- **Webhook Processing** — Idempotent handling of all 18 RevenueCat webhook events
+- **Reactive Queries** — Real-time entitlement and subscription state
+- **Correct Edge Cases** — Handles cancellation, pause, expiration, and transfer events properly
+- **RevenueCat API Integration** — Full REST API support (entitlements, customers, offerings)
+- **Subscriber Attributes** — Stores and merges customer attributes from webhooks
+- **Experiment Tracking** — Tracks A/B test enrollments from RevenueCat experiments
+- **Type-Safe** — Full TypeScript support with exported types
 
 ## Installation
 
@@ -18,13 +21,12 @@ A [Convex](https://convex.dev) component for [RevenueCat](https://www.revenuecat
 npm install convex-revenuecat
 ```
 
-## Setup
+## Quick Start
 
 ### 1. Configure the Component
 
-Create or update `convex/convex.config.ts`:
-
 ```typescript
+// convex/convex.config.ts
 import { defineApp } from "convex/server";
 import revenuecat from "convex-revenuecat/convex.config";
 
@@ -36,9 +38,8 @@ export default app;
 
 ### 2. Mount the Webhook Handler
 
-Create or update `convex/http.ts`:
-
 ```typescript
+// convex/http.ts
 import { httpRouter } from "convex/server";
 import { RevenueCat } from "convex-revenuecat";
 import { components } from "./_generated/api";
@@ -46,7 +47,6 @@ import { components } from "./_generated/api";
 const http = httpRouter();
 
 const revenuecat = new RevenueCat(components.revenuecat, {
-  // Optional: Verify webhook authorization header
   REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
 });
 
@@ -61,11 +61,12 @@ export default http;
 
 ### 3. Configure RevenueCat Dashboard
 
-In your RevenueCat project settings:
-
 1. Go to **Integrations** → **Webhooks**
 2. Add your Convex deployment URL: `https://your-deployment.convex.site/webhooks/revenuecat`
-3. Optionally set an **Authorization header** value and add it to your Convex environment variables
+3. Set an **Authorization header** value and add it to your Convex environment variables
+
+> [!TIP]
+> Use the RevenueCat dashboard's "Send Test Event" button to verify your webhook is working.
 
 ## Usage
 
@@ -127,27 +128,23 @@ export const grantTrial = action({
 
 ## API Reference
 
-### RevenueCat Class
+### Constructor Options
 
 ```typescript
 const revenuecat = new RevenueCat(components.revenuecat, {
-  // Secret API key for API calls (grant/revoke entitlements, fetch customer)
-  REVENUECAT_API_KEY?: string,
-
-  // Project ID - required for getCustomerFromApi
-  REVENUECAT_PROJECT_ID?: string,
-
-  // Webhook authorization header for verifying incoming webhooks
-  REVENUECAT_WEBHOOK_AUTH?: string,
+  REVENUECAT_API_KEY?: string,      // Secret API key for API calls
+  REVENUECAT_PROJECT_ID?: string,   // Required for getCustomerFromApi
+  REVENUECAT_WEBHOOK_AUTH?: string, // Webhook authorization header
 });
 ```
 
-Get your API key from: RevenueCat Dashboard → Project Settings → API Keys
+> [!NOTE]
+> Get your API key from: **RevenueCat Dashboard** → **Project Settings** → **API Keys**
 
 ### Query Methods
 
 | Method | Description |
-|--------|-------------|
+|:-------|:------------|
 | `hasEntitlement(ctx, { appUserId, entitlementId })` | Check if user has active entitlement |
 | `getActiveEntitlements(ctx, { appUserId })` | Get all active entitlements |
 | `getAllEntitlements(ctx, { appUserId })` | Get all entitlements (active and inactive) |
@@ -155,30 +152,31 @@ Get your API key from: RevenueCat Dashboard → Project Settings → API Keys
 | `getAllSubscriptions(ctx, { appUserId })` | Get all subscriptions |
 | `getCustomer(ctx, { appUserId })` | Get customer record |
 
-### Mutation Methods (Local Database)
+### Mutation Methods
 
 | Method | Description |
-|--------|-------------|
+|:-------|:------------|
 | `grantEntitlement(ctx, args)` | Grant entitlement locally |
 | `revokeEntitlement(ctx, args)` | Revoke entitlement locally |
 
 ### Action Methods (RevenueCat API)
 
 | Method | Description |
-|--------|-------------|
+|:-------|:------------|
 | `grantEntitlementViaApi(ctx, args)` | Grant promotional entitlement |
 | `revokeEntitlementViaApi(ctx, args)` | Revoke promotional entitlement |
-| `getCustomerFromApi(ctx, { appUserId })` | Fetch customer data (requires projectId) |
-| `deleteCustomerViaApi(ctx, { appUserId })` | Delete customer (GDPR compliance) |
+| `getCustomerFromApi(ctx, { appUserId })` | Fetch customer data |
+| `deleteCustomerViaApi(ctx, { appUserId })` | Delete customer (GDPR) |
 | `updateAttributesViaApi(ctx, args)` | Update customer attributes |
-| `getOfferingsViaApi(ctx, args)` | Get offerings for server-rendered paywalls |
+| `getOfferingsViaApi(ctx, args)` | Get offerings for paywalls |
 
 ## Webhook Events
 
-The component handles all 18 RevenueCat webhook events:
+<details>
+<summary><strong>View all 18 supported webhook events</strong></summary>
 
 | Event | Behavior |
-|-------|----------|
+|:------|:---------|
 | `INITIAL_PURCHASE` | Creates subscription, grants entitlements |
 | `RENEWAL` | Extends entitlement expiration |
 | `CANCELLATION` | **Keeps** entitlements until expiration |
@@ -188,29 +186,36 @@ The component handles all 18 RevenueCat webhook events:
 | `SUBSCRIPTION_EXTENDED` | Extends expiration (customer support) |
 | `TRANSFER` | Moves entitlements between users |
 | `UNCANCELLATION` | Clears cancellation status |
-| `PRODUCT_CHANGE` | Updates subscription product (informational) |
+| `PRODUCT_CHANGE` | Updates subscription product |
 | `NON_RENEWING_PURCHASE` | Grants entitlements for one-time purchase |
 | `TEMPORARY_ENTITLEMENT_GRANT` | Grants temp access during store outage |
 | `REFUND_REVERSED` | Restores entitlements after refund undone |
 | `TEST` | Dashboard test event (logged only) |
-| `INVOICE_ISSUANCE` | Web Billing invoice created (logged) |
-| `VIRTUAL_CURRENCY_TRANSACTION` | Virtual currency adjustment (logged) |
+| `INVOICE_ISSUANCE` | Web Billing invoice created |
+| `VIRTUAL_CURRENCY_TRANSACTION` | Virtual currency adjustment |
 | `EXPERIMENT_ENROLLMENT` | A/B test enrollment (tracked) |
-| `SUBSCRIBER_ALIAS` | User alias created (deprecated, logged) |
+| `SUBSCRIBER_ALIAS` | User alias created (deprecated) |
+
+</details>
+
+> [!IMPORTANT]
+> `CANCELLATION` does **not** revoke entitlements — users keep access until `EXPIRATION`.
 
 ## Database Schema
 
 The component creates five tables:
 
-- **customers**: User identity, aliases, and subscriber attributes
-- **subscriptions**: Purchase records with product and payment details
-- **entitlements**: Access control state (active/inactive, expiration)
-- **experiments**: A/B test enrollments from RevenueCat experiments
-- **webhookEvents**: Event log for idempotency and debugging
+| Table | Purpose |
+|:------|:--------|
+| `customers` | User identity, aliases, and subscriber attributes |
+| `subscriptions` | Purchase records with product and payment details |
+| `entitlements` | Access control state (active/inactive, expiration) |
+| `experiments` | A/B test enrollments from RevenueCat experiments |
+| `webhookEvents` | Event log for idempotency and debugging |
 
 ## Testing
 
-Register the component in your tests using the provided helper:
+Register the component in your tests:
 
 ```typescript
 import { convexTest } from "convex-test";
@@ -239,4 +244,4 @@ npm run build      # Build for production
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE)
