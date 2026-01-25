@@ -13,19 +13,30 @@
 </p>
 
 <p align="center">
-  A <a href="https://convex.dev">Convex</a> component for <a href="https://www.revenuecat.com">RevenueCat</a> subscription management.<br>
-  Receives webhooks, stores subscription/entitlement state, and provides reactive queries for access control.
+  Webhook-driven subscription state for <a href="https://convex.dev">Convex</a> apps using <a href="https://www.revenuecat.com">RevenueCat</a>.<br>
+  Stores entitlements and subscriptions in your Convex database for reactive, real-time access control.
 </p>
+
+## What This Component Does
+
+This component **receives RevenueCat webhooks** and maintains subscription state in your Convex database. Use it to:
+
+- Check if users have active entitlements (e.g., "premium" access)
+- Query subscription status with Convex's real-time reactivity
+- Grant/revoke promotional entitlements via the RevenueCat API
+
+> [!NOTE]
+> This is not a replacement for the [RevenueCat SDK](https://www.revenuecat.com/docs/getting-started/installation). Use their SDK in your client app for purchases. This component handles the **server-side state** that webhooks provide.
 
 ## Features
 
 - **Webhook Processing** — Idempotent handling of all 18 RevenueCat webhook events
-- **Reactive Queries** — Real-time entitlement and subscription state
-- **Correct Edge Cases** — Handles cancellation, pause, expiration, and transfer events properly
-- **RevenueCat API Integration** — Full REST API support (entitlements, customers, offerings)
-- **Subscriber Attributes** — Stores and merges customer attributes from webhooks
-- **Experiment Tracking** — Tracks A/B test enrollments from RevenueCat experiments
-- **Type-Safe** — Full TypeScript support with exported types
+- **Reactive Queries** — Real-time entitlement and subscription state in Convex
+- **Correct Edge Cases** — Cancellation keeps access until expiration, pause doesn't revoke, etc.
+- **Promotional Entitlements** — Grant/revoke promos via RevenueCat API
+- **Subscriber Attributes** — Stores customer attributes from webhooks
+- **Experiment Tracking** — Tracks A/B test enrollments
+- **Type-Safe** — Full TypeScript support
 
 ## Prerequisites
 
