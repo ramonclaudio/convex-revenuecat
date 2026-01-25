@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  Webhook-driven subscription state for <a href="https://convex.dev">Convex</a> apps using <a href="https://www.revenuecat.com">RevenueCat</a>.<br>
-  Stores entitlements and subscriptions in your Convex database for reactive, real-time access control.
+  A <a href="https://convex.dev">Convex</a> component for webhook-driven <a href="https://www.revenuecat.com">RevenueCat</a> subscription state.<br>
+  Stores entitlements in your database for reactive, real-time access control.
 </p>
 
 ## What This Component Does
