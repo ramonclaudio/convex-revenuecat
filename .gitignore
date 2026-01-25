@@ -1,15 +1,28 @@
-.DS_Store
-.idea
-*.local
-*.log
-/.vscode/
-/docs/.vitepress/cache
+# Dependencies
+node_modules
+
+# Build output
 dist
 dist-ssr
-explorations
-node_modules
-.eslintcache
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+*.local
+
+# IDE
+.DS_Store
+.idea
+.vscode
+
+# Logs
+*.log
 
 # npm pack output
 *.tgz
-*.tsbuildinfo
+
+# Cache
+.eslintcache
+/docs/.vitepress/cache
+explorations

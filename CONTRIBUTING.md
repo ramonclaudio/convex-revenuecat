@@ -1,18 +1,23 @@
-# Developing guide
+# Contributing
 
-## Running locally
+## Development
 
-```sh
-npm i
+```bash
+npm install
 npm run dev
 ```
 
 ## Testing
 
-```sh
-npm ci
-npm run clean
-npm run typecheck
-npm run lint
-npm run test
+```bash
+npm run test        # Run tests
+npm run typecheck   # Type check
+npm run lint        # Lint
+```
+
+## Building
+
+```bash
+npm run build         # Build
+npm run build:clean   # Clean build
 ```
