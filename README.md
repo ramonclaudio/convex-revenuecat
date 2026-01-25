@@ -1,9 +1,24 @@
-# Convex RevenueCat
+<p align="center">
+  <a href="https://convex.dev">
+    <img src=".github/assets/convex-icon.svg" alt="Convex" height="80">
+  </a>
+  <span>&nbsp;&nbsp;&nbsp;&nbsp;</span>
+  <a href="https://www.revenuecat.com">
+    <img src=".github/assets/revenuecat-icon.svg" alt="RevenueCat" height="80">
+  </a>
+</p>
 
-[![npm version](https://img.shields.io/npm/v/convex-revenuecat)](https://www.npmjs.com/package/convex-revenuecat)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+<h1 align="center">Convex RevenueCat</h1>
 
-A [Convex](https://convex.dev) component for [RevenueCat](https://www.revenuecat.com) subscription management. Receives webhooks, stores subscription/entitlement state, and provides reactive queries for access control.
+<p align="center">
+  <a href="https://www.npmjs.com/package/convex-revenuecat"><img src="https://img.shields.io/npm/v/convex-revenuecat" alt="npm version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License"></a>
+</p>
+
+<p align="center">
+  A <a href="https://convex.dev">Convex</a> component for <a href="https://www.revenuecat.com">RevenueCat</a> subscription management.<br>
+  Receives webhooks, stores subscription/entitlement state, and provides reactive queries for access control.
+</p>
 
 ## Features
 
