@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/convex-revenuecat"><img src="https://img.shields.io/npm/v/convex-revenuecat" alt="npm version"></a>
+  <a href="https://github.com/ramonclaudio/convex-revenuecat/actions"><img src="https://github.com/ramonclaudio/convex-revenuecat/actions/workflows/test.yml/badge.svg" alt="Build Status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License"></a>
 </p>
 
@@ -25,6 +26,11 @@
 - **Subscriber Attributes** — Stores and merges customer attributes from webhooks
 - **Experiment Tracking** — Tracks A/B test enrollments from RevenueCat experiments
 - **Type-Safe** — Full TypeScript support with exported types
+
+## Prerequisites
+
+- [Convex](https://convex.dev) project (v1.31.6 or later)
+- [RevenueCat](https://www.revenuecat.com) account with webhook access
 
 ## Installation
 
@@ -244,14 +250,22 @@ test("check premium access", async () => {
 });
 ```
 
-## Development
+## Example
 
-```bash
-npm install
-npm run dev        # Start development server
-npm run test       # Run tests (89 tests)
-npm run build      # Build for production
-```
+See the [`example/`](./example) directory for a complete working example with:
+- Component registration
+- Webhook handler setup
+- Query and mutation examples
+
+## Resources
+
+- [Convex Documentation](https://docs.convex.dev)
+- [RevenueCat Webhooks](https://www.revenuecat.com/docs/webhooks)
+- [RevenueCat API Reference](https://www.revenuecat.com/docs/api-v1)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
 
 ## License
 
