@@ -1,15 +1,15 @@
 # Example App
 
-This directory contains an example Convex backend that demonstrates usage of the RevenueCat component.
+This directory contains an example Convex backend demonstrating the RevenueCat component.
 
 ## Structure
 
 ```
 example/convex/
-├── convex.config.ts  # Registers the RevenueCat component
-├── http.ts           # Mounts the webhook handler
-├── subscriptions.ts  # Example queries and mutations
-└── *.test.ts         # Integration tests
+├── convex.config.ts   # Registers the component
+├── http.ts            # Mounts webhook handler
+├── subscriptions.ts   # Example queries/mutations
+└── *.test.ts          # Integration tests
 ```
 
 ## Running
@@ -17,12 +17,17 @@ example/convex/
 From the repo root:
 
 ```bash
-npm run dev    # Starts Convex dev server with codegen
-npm run test   # Runs all tests including example app tests
+npm run dev    # Starts Convex dev server
+npm run test   # Runs all tests
 ```
 
 ## Key Files
 
-- **convex.config.ts**: Shows how to register the component with `app.use(revenuecat)`
-- **http.ts**: Shows how to mount the webhook handler with auth
-- **subscriptions.ts**: Shows how to use the `RevenueCat` client class
+| File | Purpose |
+|:-----|:--------|
+| `convex.config.ts` | Register with `app.use(revenuecat)` |
+| `http.ts` | Mount webhook handler with auth |
+| `subscriptions.ts` | Use the `RevenueCat` client class |
+
+> [!TIP]
+> Check `subscriptions.ts` for complete usage examples including entitlement checks, subscription queries, and API integrations.
