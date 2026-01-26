@@ -321,10 +321,7 @@ The webhook URL is incorrect or the HTTP handler isn't mounted.
    npx convex logs
    ```
 
-2. Query the `webhookEvents` table to see processed events:
-   ```bash
-   npx convex run --component revenuecat webhooks:list
-   ```
+2. Check the `webhookEvents` table in the [Convex Dashboard](https://dashboard.convex.dev) to see processed events
 
 3. Verify `app_user_id` in RevenueCat matches what you're querying
 
