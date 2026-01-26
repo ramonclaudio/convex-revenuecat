@@ -24,6 +24,13 @@ This component **receives RevenueCat webhooks** and maintains subscription state
 - Check if users have active entitlements (e.g., "premium" access)
 - Query subscription status with Convex's real-time reactivity
 
+```mermaid
+graph LR
+    A[RevenueCat] -->|webhook| B[Component]
+    B -->|stores| C[(Convex DB)]
+    C -->|reactive| D[Your Queries]
+```
+
 > [!NOTE]
 > This is not a replacement for the [RevenueCat SDK](https://www.revenuecat.com/docs/getting-started/installation). Use their SDK in your client app for purchases. This component handles the **server-side state** that webhooks provide.
 
