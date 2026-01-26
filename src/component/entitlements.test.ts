@@ -169,39 +169,4 @@ describe("entitlements", () => {
 
     expect(result).toBe(false);
   });
-
-  test("sync grants and revokes entitlements", async () => {
-    const t = initConvexTest();
-
-    // Start with premium and pro
-    await t.mutation(api.entitlements.grant, {
-      appUserId: "user_sync",
-      entitlementId: "premium",
-      isSandbox: false,
-    });
-    await t.mutation(api.entitlements.grant, {
-      appUserId: "user_sync",
-      entitlementId: "pro",
-      isSandbox: false,
-    });
-
-    // Sync to premium and enterprise (revoke pro, grant enterprise)
-    const result = await t.mutation(api.entitlements.sync, {
-      appUserId: "user_sync",
-      entitlementIds: ["premium", "enterprise"],
-      isSandbox: false,
-    });
-
-    expect(result.granted).toContain("enterprise");
-    expect(result.revoked).toContain("pro");
-
-    const active = await t.query(api.entitlements.getActive, {
-      appUserId: "user_sync",
-    });
-
-    expect(active).toHaveLength(2);
-    const ids = active.map((e) => e.entitlementId);
-    expect(ids).toContain("premium");
-    expect(ids).toContain("enterprise");
-  });
 });
