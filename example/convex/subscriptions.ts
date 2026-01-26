@@ -4,11 +4,7 @@ import { components } from "./_generated/api.js";
 import { RevenueCat } from "convex-revenuecat";
 
 // Initialize the RevenueCat client
-const revenuecat = new RevenueCat(components.revenuecat, {
-  // API keys would come from environment in production
-  // REVENUECAT_API_KEY: process.env.REVENUECAT_API_KEY,
-  // REVENUECAT_PROJECT_ID: process.env.REVENUECAT_PROJECT_ID,
-});
+const revenuecat = new RevenueCat(components.revenuecat);
 
 // Validators for RevenueCat types
 const storeValidator = v.union(
@@ -147,7 +143,7 @@ export const getCustomer = query({
 
 /**
  * Grant a promotional entitlement (local database only)
- * For production, use grantEntitlementViaApi to sync with RevenueCat
+ * For production, call RevenueCat API directly and let webhooks sync.
  */
 export const grantPromoEntitlement = mutation({
   args: {

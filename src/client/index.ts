@@ -4,24 +4,8 @@ import type { ComponentApi } from "../component/_generated/component.js";
 
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
 type MutationCtx = Pick<GenericActionCtx<GenericDataModel>, "runMutation">;
-type ActionCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery" | "runMutation" | "runAction">;
 
 export interface RevenueCatOptions {
-  /**
-   * RevenueCat secret API key - used for all API calls
-   * Get from: RevenueCat Dashboard → Project Settings → API Keys
-   *
-   * Note: This key works with both v1 (promotional) and v2 (customer data) endpoints.
-   * The component automatically uses the correct API version for each operation.
-   */
-  REVENUECAT_API_KEY?: string;
-
-  /**
-   * RevenueCat Project ID - required for v2 API calls (getCustomerFromApi)
-   * Find in: RevenueCat Dashboard → Project Settings
-   */
-  REVENUECAT_PROJECT_ID?: string;
-
   /**
    * Webhook authorization header value for verifying incoming webhooks
    * Set in: RevenueCat Dashboard → Integrations → Webhooks → Authorization header
@@ -182,12 +166,14 @@ export class RevenueCat {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Mutations - for manual entitlement management
+  // Mutations - for manual entitlement management (local database only)
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
    * Grant an entitlement to a user (local database only)
-   * Use grantEntitlementViaApi() to sync with RevenueCat
+   *
+   * Use for testing or manual overrides. For production promotional
+   * entitlements, call the RevenueCat API directly and let webhooks sync.
    */
   async grantEntitlement(
     ctx: MutationCtx,
@@ -210,197 +196,15 @@ export class RevenueCat {
 
   /**
    * Revoke an entitlement from a user (local database only)
-   * Use revokeEntitlementViaApi() to sync with RevenueCat
+   *
+   * Use for testing or manual overrides. For production, revoke via
+   * the RevenueCat API and let webhooks sync.
    */
   async revokeEntitlement(
     ctx: MutationCtx,
     args: { appUserId: string; entitlementId: string },
   ): Promise<boolean> {
     return await ctx.runMutation(this.component.entitlements.revoke, args);
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // Actions - for RevenueCat API integration
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /**
-   * Grant a promotional entitlement via RevenueCat API
-   *
-   * Uses the v1 API endpoint (v2 does not support promotional entitlements).
-   * Requires REVENUECAT_API_KEY.
-   *
-   * @see https://www.revenuecat.com/docs/api-v1#tag/entitlements/operation/grant-a-promotional-entitlement
-   */
-  async grantEntitlementViaApi(
-    ctx: ActionCtx,
-    args: {
-      appUserId: string;
-      entitlementId: string;
-      duration?:
-        | "daily"
-        | "three_day"
-        | "weekly"
-        | "monthly"
-        | "two_month"
-        | "three_month"
-        | "six_month"
-        | "yearly"
-        | "lifetime";
-    },
-  ): Promise<unknown> {
-    const { REVENUECAT_API_KEY } = this.options;
-    if (!REVENUECAT_API_KEY) {
-      throw new Error(
-        "REVENUECAT_API_KEY is required for API calls. " +
-          "Get it from: RevenueCat Dashboard → Project Settings → API Keys.",
-      );
-    }
-
-    return await ctx.runAction(this.component.api.grantEntitlement, {
-      apiKey: REVENUECAT_API_KEY,
-      appUserId: args.appUserId,
-      entitlementId: args.entitlementId,
-      duration: args.duration ?? "lifetime",
-    });
-  }
-
-  /**
-   * Revoke a promotional entitlement via RevenueCat API
-   *
-   * Uses the v1 API endpoint (v2 does not support promotional entitlements).
-   * Requires REVENUECAT_API_KEY.
-   *
-   * @see https://www.revenuecat.com/docs/api-v1#tag/entitlements/operation/revoke-promotional-entitlements
-   */
-  async revokeEntitlementViaApi(
-    ctx: ActionCtx,
-    args: { appUserId: string; entitlementId: string },
-  ): Promise<unknown> {
-    const { REVENUECAT_API_KEY } = this.options;
-    if (!REVENUECAT_API_KEY) {
-      throw new Error(
-        "REVENUECAT_API_KEY is required for API calls. " +
-          "Get it from: RevenueCat Dashboard → Project Settings → API Keys.",
-      );
-    }
-
-    return await ctx.runAction(this.component.api.revokeEntitlement, {
-      apiKey: REVENUECAT_API_KEY,
-      appUserId: args.appUserId,
-      entitlementId: args.entitlementId,
-    });
-  }
-
-  /**
-   * Get customer info from RevenueCat API
-   *
-   * Uses the v2 API endpoint.
-   * Requires REVENUECAT_API_KEY and REVENUECAT_PROJECT_ID.
-   */
-  async getCustomerFromApi(ctx: ActionCtx, args: { appUserId: string }): Promise<unknown> {
-    const { REVENUECAT_API_KEY, REVENUECAT_PROJECT_ID } = this.options;
-    if (!REVENUECAT_API_KEY) {
-      throw new Error(
-        "REVENUECAT_API_KEY is required for API calls. " +
-          "Get it from: RevenueCat Dashboard → Project Settings → API Keys.",
-      );
-    }
-    if (!REVENUECAT_PROJECT_ID) {
-      throw new Error(
-        "REVENUECAT_PROJECT_ID is required for getCustomerFromApi. " +
-          "Find it in: RevenueCat Dashboard → Project Settings.",
-      );
-    }
-
-    return await ctx.runAction(this.component.api.getCustomer, {
-      apiKey: REVENUECAT_API_KEY,
-      projectId: REVENUECAT_PROJECT_ID,
-      appUserId: args.appUserId,
-    });
-  }
-
-  /**
-   * Delete a customer from RevenueCat (GDPR compliance)
-   *
-   * WARNING: This permanently deletes the customer and all their data.
-   * This action cannot be undone.
-   *
-   * Requires REVENUECAT_API_KEY.
-   */
-  async deleteCustomerViaApi(
-    ctx: ActionCtx,
-    args: { appUserId: string },
-  ): Promise<{ deleted: boolean; app_user_id: string }> {
-    const { REVENUECAT_API_KEY } = this.options;
-    if (!REVENUECAT_API_KEY) {
-      throw new Error(
-        "REVENUECAT_API_KEY is required for API calls. " +
-          "Get it from: RevenueCat Dashboard → Project Settings → API Keys.",
-      );
-    }
-
-    return await ctx.runAction(this.component.api.deleteCustomer, {
-      apiKey: REVENUECAT_API_KEY,
-      appUserId: args.appUserId,
-    });
-  }
-
-  /**
-   * Update customer attributes via RevenueCat API
-   *
-   * Attribute keys starting with $ are reserved (e.g., $email, $displayName).
-   * Custom attribute keys must not start with $.
-   *
-   * Requires REVENUECAT_API_KEY.
-   */
-  async updateAttributesViaApi(
-    ctx: ActionCtx,
-    args: {
-      appUserId: string;
-      attributes: Record<string, { value: string | null; updated_at_ms?: number }>;
-    },
-  ): Promise<{ success: boolean }> {
-    const { REVENUECAT_API_KEY } = this.options;
-    if (!REVENUECAT_API_KEY) {
-      throw new Error(
-        "REVENUECAT_API_KEY is required for API calls. " +
-          "Get it from: RevenueCat Dashboard → Project Settings → API Keys.",
-      );
-    }
-
-    return await ctx.runAction(this.component.api.updateAttributes, {
-      apiKey: REVENUECAT_API_KEY,
-      appUserId: args.appUserId,
-      attributes: args.attributes,
-    });
-  }
-
-  /**
-   * Get offerings for a customer via RevenueCat API
-   *
-   * Useful for server-rendered paywalls or backend offering logic.
-   * Requires REVENUECAT_API_KEY.
-   */
-  async getOfferingsViaApi(
-    ctx: ActionCtx,
-    args: {
-      appUserId: string;
-      platform?: "ios" | "android" | "amazon" | "macos" | "uikitformac";
-    },
-  ): Promise<unknown> {
-    const { REVENUECAT_API_KEY } = this.options;
-    if (!REVENUECAT_API_KEY) {
-      throw new Error(
-        "REVENUECAT_API_KEY is required for API calls. " +
-          "Get it from: RevenueCat Dashboard → Project Settings → API Keys.",
-      );
-    }
-
-    return await ctx.runAction(this.component.api.getOfferings, {
-      apiKey: REVENUECAT_API_KEY,
-      appUserId: args.appUserId,
-      platform: args.platform,
-    });
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
