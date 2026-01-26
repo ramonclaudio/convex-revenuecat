@@ -92,14 +92,56 @@ http.route({
 export default http;
 ```
 
-### 3. Configure RevenueCat Dashboard
+### 3. Set Up Environment Variables
 
-1. Go to **Integrations** → **Webhooks**
-2. Add your Convex deployment URL: `https://your-deployment.convex.site/webhooks/revenuecat`
-3. Set an **Authorization header** value and add it to your Convex environment variables
+Generate a secure random string for webhook authorization:
+
+```bash
+openssl rand -base64 32
+```
+
+Add it to your Convex deployment:
+
+```bash
+npx convex env set REVENUECAT_WEBHOOK_AUTH "your-generated-secret"
+```
 
 > [!TIP]
-> Use the RevenueCat dashboard's "Send Test Event" button to verify your webhook is working.
+> For local development, add to your `.env.local` file instead.
+
+### 4. Configure RevenueCat Webhooks
+
+1. Open the [RevenueCat Dashboard](https://app.revenuecat.com)
+2. Select your project
+3. Go to **Project Settings** → **Integrations** → **Webhooks**
+4. Click **+ New**
+5. Configure the webhook:
+
+| Field | Value |
+|:------|:------|
+| Name | `Convex` (or any identifier) |
+| Webhook URL | `https://<your-deployment>.convex.site/webhooks/revenuecat` |
+| Authorization header | The secret you generated in step 3 |
+
+6. Click **Save**
+
+> [!NOTE]
+> Find your Convex deployment URL in the [Convex Dashboard](https://dashboard.convex.dev) under your project's **Settings** → **URL & Deploy Key**.
+
+### 5. Test the Webhook
+
+1. In RevenueCat, go to your webhook configuration
+2. Click **Send Test Event**
+3. Verify the event was received:
+
+```bash
+npx convex logs
+```
+
+You should see a log entry showing the `TEST` event was processed.
+
+> [!TIP]
+> If the test fails, check [Troubleshooting](#troubleshooting) below.
 
 ## Usage
 
@@ -238,6 +280,66 @@ See the [`example/`](./example) directory for a complete working example with:
 - Component registration
 - Webhook handler setup
 - Query and mutation examples
+
+## Troubleshooting
+
+<details>
+<summary><strong>Webhook returns 401 Unauthorized</strong></summary>
+
+The authorization header doesn't match.
+
+1. Verify the environment variable is set:
+   ```bash
+   npx convex env get REVENUECAT_WEBHOOK_AUTH
+   ```
+
+2. Ensure the value in RevenueCat matches exactly (no extra spaces)
+
+3. Redeploy after setting the variable:
+   ```bash
+   npx convex deploy
+   ```
+
+</details>
+
+<details>
+<summary><strong>Webhook returns 404 Not Found</strong></summary>
+
+The webhook URL is incorrect or the HTTP handler isn't mounted.
+
+1. Verify your `convex/http.ts` exports the router as default
+2. Check the path matches: `/webhooks/revenuecat`
+3. Confirm your deployment URL is correct (check Convex Dashboard)
+
+</details>
+
+<details>
+<summary><strong>Events received but entitlements not updating</strong></summary>
+
+1. Check the webhook event log:
+   ```bash
+   npx convex logs
+   ```
+
+2. Query the `webhookEvents` table to see processed events:
+   ```bash
+   npx convex run --component revenuecat webhooks:list
+   ```
+
+3. Verify `app_user_id` in RevenueCat matches what you're querying
+
+</details>
+
+<details>
+<summary><strong>User has entitlement in RevenueCat but not in Convex</strong></summary>
+
+The webhook may not have been received yet, or was received before the component was set up.
+
+**Option 1:** Trigger a new event (make a test purchase in sandbox)
+
+**Option 2:** Use the RevenueCat dashboard to resend historical webhooks
+
+</details>
 
 ## Resources
 
