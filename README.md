@@ -23,7 +23,6 @@ This component **receives RevenueCat webhooks** and maintains subscription state
 
 - Check if users have active entitlements (e.g., "premium" access)
 - Query subscription status with Convex's real-time reactivity
-- Grant/revoke promotional entitlements via the RevenueCat API
 
 > [!NOTE]
 > This is not a replacement for the [RevenueCat SDK](https://www.revenuecat.com/docs/getting-started/installation). Use their SDK in your client app for purchases. This component handles the **server-side state** that webhooks provide.
@@ -33,7 +32,6 @@ This component **receives RevenueCat webhooks** and maintains subscription state
 - **Webhook Processing** — Idempotent handling of all 18 RevenueCat webhook events
 - **Reactive Queries** — Real-time entitlement and subscription state in Convex
 - **Correct Edge Cases** — Cancellation keeps access until expiration, pause doesn't revoke, etc.
-- **Promotional Entitlements** — Grant/revoke promos via RevenueCat API
 - **Subscriber Attributes** — Stores customer attributes from webhooks
 - **Experiment Tracking** — Tracks A/B test enrollments
 - **Type-Safe** — Full TypeScript support
@@ -133,41 +131,15 @@ export const getSubscriptions = query({
 });
 ```
 
-### Grant Promotional Entitlements
-
-```typescript
-import { action } from "./_generated/server";
-
-const revenuecat = new RevenueCat(components.revenuecat, {
-  REVENUECAT_API_KEY: process.env.REVENUECAT_API_KEY,
-});
-
-export const grantTrial = action({
-  args: { appUserId: v.string() },
-  handler: async (ctx, args) => {
-    await revenuecat.grantEntitlementViaApi(ctx, {
-      appUserId: args.appUserId,
-      entitlementId: "premium",
-      duration: "weekly",
-    });
-  },
-});
-```
-
 ## API Reference
 
 ### Constructor Options
 
 ```typescript
 const revenuecat = new RevenueCat(components.revenuecat, {
-  REVENUECAT_API_KEY?: string,      // Secret API key for API calls
-  REVENUECAT_PROJECT_ID?: string,   // Required for getCustomerFromApi
   REVENUECAT_WEBHOOK_AUTH?: string, // Webhook authorization header
 });
 ```
-
-> [!NOTE]
-> Get your API key from: **RevenueCat Dashboard** → **Project Settings** → **API Keys**
 
 ### Query Methods
 
@@ -184,19 +156,11 @@ const revenuecat = new RevenueCat(components.revenuecat, {
 
 | Method | Description |
 |:-------|:------------|
-| `grantEntitlement(ctx, args)` | Grant entitlement locally |
-| `revokeEntitlement(ctx, args)` | Revoke entitlement locally |
+| `grantEntitlement(ctx, args)` | Grant entitlement locally (for testing/overrides) |
+| `revokeEntitlement(ctx, args)` | Revoke entitlement locally (for testing/overrides) |
 
-### Action Methods (RevenueCat API)
-
-| Method | Description |
-|:-------|:------------|
-| `grantEntitlementViaApi(ctx, args)` | Grant promotional entitlement |
-| `revokeEntitlementViaApi(ctx, args)` | Revoke promotional entitlement |
-| `getCustomerFromApi(ctx, { appUserId })` | Fetch customer data |
-| `deleteCustomerViaApi(ctx, { appUserId })` | Delete customer (GDPR) |
-| `updateAttributesViaApi(ctx, args)` | Update customer attributes |
-| `getOfferingsViaApi(ctx, args)` | Get offerings for paywalls |
+> [!NOTE]
+> For production promotional entitlements, call the [RevenueCat API](https://www.revenuecat.com/docs/api-v1) directly. The webhook will sync the state automatically.
 
 ## Webhook Events
 
