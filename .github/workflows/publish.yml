@@ -36,7 +36,7 @@ jobs:
           npm run lint
 
       - name: Audit dependencies
-        run: npm audit --audit-level=moderate
+        run: npm audit --audit-level=high
 
       - name: Verify dependency signatures
         run: npm audit signatures
