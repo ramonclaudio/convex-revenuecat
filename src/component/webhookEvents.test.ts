@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 import { describe, expect, it } from "vitest";
 import { api } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
@@ -7,7 +6,6 @@ describe("webhookEvents", () => {
   it("should get webhook event by event ID", async () => {
     const t = initConvexTest();
 
-    // Insert a test webhook event
     await t.run(async (ctx) => {
       await ctx.db.insert("webhookEvents", {
         eventId: "evt_123",
@@ -39,7 +37,6 @@ describe("webhookEvents", () => {
   it("should list webhook events by user", async () => {
     const t = initConvexTest();
 
-    // Insert events for multiple users
     await t.run(async (ctx) => {
       await ctx.db.insert("webhookEvents", {
         eventId: "evt_1",
@@ -80,7 +77,6 @@ describe("webhookEvents", () => {
   it("should list webhook events by type", async () => {
     const t = initConvexTest();
 
-    // Insert different event types
     await t.run(async (ctx) => {
       await ctx.db.insert("webhookEvents", {
         eventId: "evt_1",
@@ -118,7 +114,6 @@ describe("webhookEvents", () => {
   it("should list failed webhook events", async () => {
     const t = initConvexTest();
 
-    // Insert mixed status events
     await t.run(async (ctx) => {
       await ctx.db.insert("webhookEvents", {
         eventId: "evt_1",
@@ -164,7 +159,6 @@ describe("webhookEvents", () => {
   it("should respect limit parameter", async () => {
     const t = initConvexTest();
 
-    // Insert many events
     await t.run(async (ctx) => {
       for (let i = 0; i < 10; i++) {
         await ctx.db.insert("webhookEvents", {

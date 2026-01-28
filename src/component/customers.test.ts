@@ -4,7 +4,6 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
-// Test event payload matching RevenueCat webhook format
 const makeEventPayload = (overrides: Record<string, unknown> = {}) => ({
   type: "INITIAL_PURCHASE",
   id: `evt_${Date.now()}`,
@@ -60,7 +59,6 @@ describe("customers", () => {
   test("subsequent events update customer and merge aliases", async () => {
     const t = initConvexTest();
 
-    // Initial purchase
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: makeEventPayload({
         app_user_id: "user_456",
@@ -68,7 +66,6 @@ describe("customers", () => {
       }),
     });
 
-    // Renewal with new alias
     await t.mutation(internal.handlers.processRenewal, {
       event: makeEventPayload({
         app_user_id: "user_456",
@@ -126,7 +123,6 @@ describe("customers", () => {
       }),
     });
 
-    // Renewal later
     await t.mutation(internal.handlers.processRenewal, {
       event: makeEventPayload({
         app_user_id: "user_preserve",
@@ -158,13 +154,12 @@ describe("customers", () => {
       }),
     });
 
-    // Update with mixed timestamps
     await t.mutation(internal.handlers.processRenewal, {
       event: makeEventPayload({
         app_user_id: "user_attrs",
         subscriber_attributes: {
-          email: { value: "new@test.com", updated_at_ms: newTime }, // newer
-          name: { value: "Ignored Name", updated_at_ms: oldTime }, // older, ignored
+          email: { value: "new@test.com", updated_at_ms: newTime },
+          name: { value: "Ignored Name", updated_at_ms: oldTime },
         },
       }),
     });

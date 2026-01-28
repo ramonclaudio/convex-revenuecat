@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import { RevenueCat } from "./index.js";
 import { components, initConvexTest } from "./setup.test.js";
 
-// Helper to create a valid event payload
 function createEventPayload(
   overrides: Partial<{
     type: string;
@@ -55,7 +54,6 @@ describe("RevenueCat client", () => {
       const t = initConvexTest();
       const revenuecat = new RevenueCat(components.revenuecat);
 
-      // Create entitlement via webhook
       const payload = createEventPayload({
         id: "evt_client_1",
         app_user_id: "user_client_1",
@@ -104,7 +102,6 @@ describe("RevenueCat client", () => {
       const t = initConvexTest();
       const revenuecat = new RevenueCat(components.revenuecat);
 
-      // Create entitlement via webhook
       const payload = createEventPayload({
         id: "evt_client_2",
         app_user_id: "user_client_2",
@@ -140,7 +137,6 @@ describe("RevenueCat client", () => {
       const t = initConvexTest();
       const revenuecat = new RevenueCat(components.revenuecat);
 
-      // Create subscription via webhook
       const payload = createEventPayload({
         id: "evt_client_3",
         app_user_id: "user_client_3",
@@ -176,7 +172,6 @@ describe("RevenueCat client", () => {
       const t = initConvexTest();
       const revenuecat = new RevenueCat(components.revenuecat);
 
-      // Grant entitlement via INITIAL_PURCHASE webhook
       const purchasePayload = createEventPayload({
         id: "evt_all_ent_1",
         app_user_id: "user_all_ent",
@@ -196,7 +191,6 @@ describe("RevenueCat client", () => {
         });
       });
 
-      // Expire one entitlement via EXPIRATION webhook
       const expirationPayload = {
         ...purchasePayload,
         id: "evt_all_ent_2",
@@ -218,7 +212,6 @@ describe("RevenueCat client", () => {
         });
       });
 
-      // getAllEntitlements should return both
       const all = await t.run(async (ctx) => {
         return await revenuecat.getAllEntitlements(ctx, {
           appUserId: "user_all_ent",
@@ -227,7 +220,6 @@ describe("RevenueCat client", () => {
 
       expect(all.length).toBe(2);
 
-      // getActiveEntitlements should only return active one
       const active = await t.run(async (ctx) => {
         return await revenuecat.getActiveEntitlements(ctx, {
           appUserId: "user_all_ent",
@@ -244,7 +236,6 @@ describe("RevenueCat client", () => {
       const t = initConvexTest();
       const revenuecat = new RevenueCat(components.revenuecat);
 
-      // Create active subscription
       const activePayload = createEventPayload({
         id: "evt_all_subs_1",
         app_user_id: "user_all_subs",
@@ -265,13 +256,12 @@ describe("RevenueCat client", () => {
         });
       });
 
-      // Create expired subscription (different transaction)
       const expiredPayload = {
         ...createEventPayload({
           id: "evt_all_subs_2",
           app_user_id: "user_all_subs",
           product_id: "yearly_basic",
-          expiration_at_ms: Date.now() - 1000, // expired
+          expiration_at_ms: Date.now() - 1000,
         }),
         original_transaction_id: "txn_expired_123",
         transaction_id: "txn_expired_123",
@@ -290,7 +280,6 @@ describe("RevenueCat client", () => {
         });
       });
 
-      // getAllSubscriptions should return both
       const all = await t.run(async (ctx) => {
         return await revenuecat.getAllSubscriptions(ctx, {
           appUserId: "user_all_subs",
@@ -299,7 +288,6 @@ describe("RevenueCat client", () => {
 
       expect(all.length).toBe(2);
 
-      // getActiveSubscriptions should only return active one
       const active = await t.run(async (ctx) => {
         return await revenuecat.getActiveSubscriptions(ctx, {
           appUserId: "user_all_subs",
@@ -329,7 +317,6 @@ describe("RevenueCat client", () => {
       const t = initConvexTest();
       const revenuecat = new RevenueCat(components.revenuecat);
 
-      // Create customer via webhook
       const payload = createEventPayload({
         id: "evt_client_4",
         app_user_id: "user_client_4",

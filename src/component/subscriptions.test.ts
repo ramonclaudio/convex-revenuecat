@@ -1,10 +1,8 @@
-/// <reference types="vite/client" />
 
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
-// Test event payload matching RevenueCat webhook format
 const makeEventPayload = (overrides: Record<string, unknown> = {}) => ({
   type: "INITIAL_PURCHASE",
   id: `evt_${Date.now()}`,
@@ -58,7 +56,6 @@ describe("subscriptions", () => {
   test("processRenewal updates existing subscription", async () => {
     const t = initConvexTest();
 
-    // Initial purchase with trial
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: makeEventPayload({
         app_user_id: "user_456",
@@ -67,7 +64,6 @@ describe("subscriptions", () => {
       }),
     });
 
-    // Renewal converts to normal
     await t.mutation(internal.handlers.processRenewal, {
       event: makeEventPayload({
         app_user_id: "user_456",
@@ -90,7 +86,6 @@ describe("subscriptions", () => {
   test("getActive filters expired subscriptions", async () => {
     const t = initConvexTest();
 
-    // Active subscription
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: makeEventPayload({
         app_user_id: "user_789",
@@ -99,7 +94,6 @@ describe("subscriptions", () => {
       }),
     });
 
-    // Expired subscription (different product)
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: makeEventPayload({
         app_user_id: "user_789",
@@ -173,7 +167,6 @@ describe("subscriptions", () => {
     expect(subs[0].cancelReason).toBe("CUSTOMER_SUPPORT");
     expect(subs[0].autoRenewStatus).toBe(false);
 
-    // Entitlements should still be active until EXPIRATION
     const entitlements = await t.query(api.entitlements.getActive, {
       appUserId: "user_cancel",
     });
@@ -207,7 +200,6 @@ describe("subscriptions", () => {
   test("getActive includes subscription in grace period", async () => {
     const t = initConvexTest();
 
-    // Create subscription with normal expiration in the past
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: makeEventPayload({
         app_user_id: "user_grace_sub",
@@ -216,7 +208,6 @@ describe("subscriptions", () => {
       }),
     });
 
-    // Billing issue extends deadline via grace period
     await t.mutation(internal.handlers.processBillingIssue, {
       event: makeEventPayload({
         app_user_id: "user_grace_sub",
@@ -237,7 +228,6 @@ describe("subscriptions", () => {
     const pastExpiration = Date.now() - 10000;
     const pastGracePeriod = Date.now() - 1000;
 
-    // Create subscription with past expiration
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: makeEventPayload({
         app_user_id: "user_grace_expired",
@@ -246,8 +236,6 @@ describe("subscriptions", () => {
       }),
     });
 
-    // Billing issue with grace period that's ALSO expired
-    // IMPORTANT: Must also set expiration_at_ms to keep it in the past
     await t.mutation(internal.handlers.processBillingIssue, {
       event: makeEventPayload({
         app_user_id: "user_grace_expired",
@@ -261,7 +249,6 @@ describe("subscriptions", () => {
       appUserId: "user_grace_expired",
     });
 
-    // Both expirationAtMs and gracePeriodExpirationAtMs are in the past
     expect(active).toHaveLength(0);
   });
 
@@ -284,7 +271,6 @@ describe("subscriptions", () => {
       }),
     });
 
-    // Payment recovered - renewal clears billing issue state
     await t.mutation(internal.handlers.processRenewal, {
       event: makeEventPayload({
         app_user_id: "user_recovered",

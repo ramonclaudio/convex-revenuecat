@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api.js";
@@ -98,14 +97,12 @@ describe("entitlements", () => {
   test("getActive returns only active non-expired entitlements", async () => {
     const t = initConvexTest();
 
-    // Active entitlement
     await t.mutation(internal.entitlements.grant, {
       appUserId: "user_active",
       entitlementId: "premium",
       isSandbox: false,
     });
 
-    // Expired entitlement
     await t.mutation(internal.entitlements.grant, {
       appUserId: "user_active",
       entitlementId: "trial",
@@ -113,7 +110,6 @@ describe("entitlements", () => {
       isSandbox: false,
     });
 
-    // Revoked entitlement
     await t.mutation(internal.entitlements.grant, {
       appUserId: "user_active",
       entitlementId: "promo",
@@ -180,14 +176,12 @@ describe("entitlements", () => {
       isSandbox: false,
     });
 
-    // Simulate billing issue (set by processBillingIssue handler)
     await t.run(async (ctx) => {
       await ctx.db.patch(entId, {
         billingIssueDetectedAt: Date.now() - 500,
       });
     });
 
-    // Should still be active - waiting for EXPIRATION event
     const result = await t.query(api.entitlements.check, {
       appUserId: "user_billing",
       entitlementId: "premium",
@@ -199,7 +193,6 @@ describe("entitlements", () => {
   test("EXPIRATION clears billingIssueDetectedAt - no dirty state", async () => {
     const t = initConvexTest();
 
-    // Use actual webhook handlers for realistic test
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: {
         type: "INITIAL_PURCHASE",
@@ -220,7 +213,6 @@ describe("entitlements", () => {
       },
     });
 
-    // Billing issue sets the flag
     await t.mutation(internal.handlers.processBillingIssue, {
       event: {
         type: "BILLING_ISSUE",
@@ -242,7 +234,6 @@ describe("entitlements", () => {
       },
     });
 
-    // EXPIRATION revokes and clears state
     await t.mutation(internal.handlers.processExpiration, {
       event: {
         type: "EXPIRATION",
@@ -275,7 +266,6 @@ describe("entitlements", () => {
   test("RENEWAL after billing issue clears state", async () => {
     const t = initConvexTest();
 
-    // Initial purchase
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: {
         type: "INITIAL_PURCHASE",
@@ -296,7 +286,6 @@ describe("entitlements", () => {
       },
     });
 
-    // Billing issue
     await t.mutation(internal.handlers.processBillingIssue, {
       event: {
         type: "BILLING_ISSUE",
@@ -318,7 +307,6 @@ describe("entitlements", () => {
       },
     });
 
-    // User fixes payment - RENEWAL clears billing issue
     await t.mutation(internal.handlers.processRenewal, {
       event: {
         type: "RENEWAL",

@@ -1,10 +1,8 @@
-/// <reference types="vite/client" />
 
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
-// Helper to create a valid event payload
 function createEventPayload(
   overrides: Partial<{
     type: string;
@@ -108,12 +106,9 @@ describe("webhooks", () => {
       payload,
     });
 
-    // Unknown event types are logged but not processed
-    // processed=false indicates no handler ran
     expect(result.processed).toBe(false);
     expect(result.eventId).toBe("evt_unknown_1");
 
-    // Verify event was still logged (idempotency check should prevent re-processing)
     const secondResult = await t.mutation(api.webhooks.process, {
       event: {
         id: payload.id,
@@ -124,7 +119,6 @@ describe("webhooks", () => {
       payload,
     });
 
-    // Should still return false since it was already logged
     expect(secondResult.processed).toBe(false);
   });
 });
