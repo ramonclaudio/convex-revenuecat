@@ -3,10 +3,8 @@ import { query } from "./_generated/server.js";
 import { components } from "./_generated/api.js";
 import { RevenueCat } from "convex-revenuecat";
 
-// Initialize the RevenueCat client
 const revenuecat = new RevenueCat(components.revenuecat);
 
-// Validators for RevenueCat types
 const storeValidator = v.union(
   v.literal("AMAZON"),
   v.literal("APP_STORE"),
@@ -88,9 +86,6 @@ const customerValidator = v.object({
   updatedAt: v.number(),
 });
 
-/**
- * Check if a user has premium access
- */
 export const checkPremium = query({
   args: { appUserId: v.string() },
   returns: v.boolean(),
@@ -102,9 +97,6 @@ export const checkPremium = query({
   },
 });
 
-/**
- * Get all active entitlements for a user
- */
 export const getActiveEntitlements = query({
   args: { appUserId: v.string() },
   returns: v.array(entitlementValidator),
@@ -115,9 +107,6 @@ export const getActiveEntitlements = query({
   },
 });
 
-/**
- * Get all active subscriptions for a user
- */
 export const getActiveSubscriptions = query({
   args: { appUserId: v.string() },
   returns: v.array(subscriptionValidator),
@@ -128,9 +117,6 @@ export const getActiveSubscriptions = query({
   },
 });
 
-/**
- * Get customer info
- */
 export const getCustomer = query({
   args: { appUserId: v.string() },
   returns: v.union(customerValidator, v.null()),
