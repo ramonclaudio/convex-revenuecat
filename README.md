@@ -26,9 +26,9 @@ This component **receives RevenueCat webhooks** and maintains subscription state
 
 ```mermaid
 graph LR
-    A[RevenueCat] -->|webhook| B[Component]
-    B -->|stores| C[(Convex DB)]
-    C -->|reactive| D[Your Queries]
+    A[RevenueCat] -->|webhooks| B[Component]
+    B -->|writes| C[(Convex DB)]
+    C -->|queries| D[Your App]
 ```
 
 > [!NOTE]
@@ -39,6 +39,7 @@ graph LR
 - **Webhook Processing** — Idempotent handling of all 18 RevenueCat webhook events
 - **Reactive Queries** — Real-time entitlement and subscription state in Convex
 - **Correct Edge Cases** — Cancellation keeps access until expiration, pause doesn't revoke, etc.
+- **Rate Limiting** — Built-in protection against webhook abuse (100 req/min per app)
 - **Subscriber Attributes** — Stores customer attributes from webhooks
 - **Experiment Tracking** — Tracks A/B test enrollments
 - **Type-Safe** — Full TypeScript support
@@ -200,16 +201,12 @@ const revenuecat = new RevenueCat(components.revenuecat, {
 | `getActiveSubscriptions(ctx, { appUserId })` | Get all active subscriptions |
 | `getAllSubscriptions(ctx, { appUserId })` | Get all subscriptions |
 | `getCustomer(ctx, { appUserId })` | Get customer record |
-
-### Mutation Methods
-
-| Method | Description |
-|:-------|:------------|
-| `grantEntitlement(ctx, args)` | Grant entitlement locally (for testing/overrides) |
-| `revokeEntitlement(ctx, args)` | Revoke entitlement locally (for testing/overrides) |
+| `getWebhookEvent(ctx, { eventId })` | Get webhook event by RevenueCat event ID |
+| `getWebhookEventsByUser(ctx, { appUserId })` | Get webhook events for a user |
+| `getFailedWebhookEvents(ctx, { limit? })` | Get failed webhook events for debugging |
 
 > [!NOTE]
-> For production promotional entitlements, call the [RevenueCat API](https://www.revenuecat.com/docs/api-v1) directly. The webhook will sync the state automatically.
+> This component is a **read-only sync layer**. To grant promotional entitlements, use the [RevenueCat API](https://www.revenuecat.com/docs/api-v1) directly — the webhook will sync the state automatically.
 
 ## Webhook Events
 
@@ -244,7 +241,7 @@ const revenuecat = new RevenueCat(components.revenuecat, {
 
 ## Database Schema
 
-The component creates five tables:
+The component creates six tables:
 
 | Table | Purpose |
 |:------|:--------|
@@ -252,7 +249,8 @@ The component creates five tables:
 | `subscriptions` | Purchase records with product and payment details |
 | `entitlements` | Access control state (active/inactive, expiration) |
 | `experiments` | A/B test enrollments from RevenueCat experiments |
-| `webhookEvents` | Event log for idempotency and debugging |
+| `webhookEvents` | Event log for idempotency and debugging (30-day retention) |
+| `rateLimits` | Webhook endpoint rate limiting (100 req/min per app) |
 
 ## Testing
 
