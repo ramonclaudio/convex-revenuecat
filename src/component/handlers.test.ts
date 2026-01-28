@@ -1128,8 +1128,8 @@ describe("handlers", () => {
       expect(customer).not.toBeNull();
       expect(customer?.attributes).toBeDefined();
       // Note: $ is encoded as __dollar__ for Convex compatibility
-      expect(customer?.attributes.__dollar__email?.value).toBe("test@example.com");
-      expect(customer?.attributes.custom_plan?.value).toBe("enterprise");
+      expect(customer?.attributes?.__dollar__email?.value).toBe("test@example.com");
+      expect(customer?.attributes?.custom_plan?.value).toBe("enterprise");
     });
 
     test("merges newer subscriber_attributes", async () => {
@@ -1202,8 +1202,8 @@ describe("handlers", () => {
       });
 
       // Note: $ is encoded as __dollar__ for Convex compatibility
-      expect(customer?.attributes.__dollar__email?.value).toBe("new@example.com"); // newer
-      expect(customer?.attributes.plan?.value).toBe("starter"); // older kept
+      expect(customer?.attributes?.__dollar__email?.value).toBe("new@example.com"); // newer
+      expect(customer?.attributes?.plan?.value).toBe("starter"); // older kept
     });
   });
 
