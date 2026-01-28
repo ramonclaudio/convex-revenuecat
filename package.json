@@ -7,7 +7,11 @@
     "url": "https://github.com/ramonclaudio/convex-revenuecat/issues"
   },
   "version": "0.1.0",
+  "author": "Ray <github@ramonclaudio>",
   "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
   "keywords": [
     "convex",
     "component",
@@ -72,20 +76,19 @@
   "devDependencies": {
     "@convex-dev/eslint-plugin": "^1.1.1",
     "@edge-runtime/vm": "^5.0.0",
-    "@eslint/eslintrc": "^3.3.3",
     "@eslint/js": "9.39.2",
     "@types/node": "^24.10.9",
     "chokidar-cli": "3.0.0",
     "convex": "1.31.6",
     "convex-test": "0.0.41",
     "eslint": "9.39.2",
-    "globals": "^17.1.0",
+    "globals": "^17.2.0",
     "npm-run-all2": "8.0.4",
     "path-exists-cli": "2.0.0",
     "pkg-pr-new": "^0.0.62",
     "prettier": "3.8.1",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.53.1",
+    "typescript-eslint": "^8.54.0",
     "vitest": "4.0.18"
   },
   "types": "./dist/client/index.d.ts",
