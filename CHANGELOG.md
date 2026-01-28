@@ -2,9 +2,11 @@
 
 ## 0.1.0
 
-- Initial release
-- Webhook processing for all 18 RevenueCat events
+- Webhook processing for all 18 RevenueCat event types
 - Customer, subscription, entitlement, and experiment tracking
-- RevenueCat REST API integration (grant/revoke entitlements, customer management)
-- Full TypeScript support with exported types
-- 89 tests with complete coverage
+- Idempotent event processing with deduplication
+- Rate limiting (100 req/min per app)
+- Webhook event audit log with 30-day retention
+- Client SDK with 8 query methods and HTTP webhook handler
+- Test helpers for convex-test integration
+- 113 tests
