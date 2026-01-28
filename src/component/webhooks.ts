@@ -1,13 +1,15 @@
-import { v } from "convex/values";
-import { mutation } from "./_generated/server.js";
+import { v, ConvexError } from "convex/values";
+import { internalMutation, mutation } from "./_generated/server.js";
 import { internal } from "./_generated/api.js";
 import { environmentValidator, storeValidator } from "./schema.js";
 
+// Rate limiting configuration
+const RATE_LIMIT_MAX_REQUESTS = 100;
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+const RATE_LIMIT_KEY_PREFIX = "webhook";
+
 // Event type to handler mapping
-// All 17 RevenueCat webhook event types supported
-// @see https://www.revenuecat.com/docs/integrations/webhooks/event-types-and-fields
 const EVENT_HANDLERS = {
-  // Subscription lifecycle events
   INITIAL_PURCHASE: internal.handlers.processInitialPurchase,
   RENEWAL: internal.handlers.processRenewal,
   CANCELLATION: internal.handlers.processCancellation,
@@ -21,16 +23,48 @@ const EVENT_HANDLERS = {
   TRANSFER: internal.handlers.processTransfer,
   TEMPORARY_ENTITLEMENT_GRANT: internal.handlers.processTemporaryEntitlementGrant,
   REFUND_REVERSED: internal.handlers.processRefundReversed,
-  // Informational events
   TEST: internal.handlers.processTest,
   INVOICE_ISSUANCE: internal.handlers.processInvoiceIssuance,
   VIRTUAL_CURRENCY_TRANSACTION: internal.handlers.processVirtualCurrencyTransaction,
   EXPERIMENT_ENROLLMENT: internal.handlers.processExperimentEnrollment,
-  // Deprecated events (still handled for backwards compatibility)
   SUBSCRIBER_ALIAS: internal.handlers.processSubscriberAlias,
 } as const;
 
 type EventType = keyof typeof EVENT_HANDLERS;
+
+export const checkRateLimit = internalMutation({
+  args: { key: v.string() },
+  returns: v.object({
+    allowed: v.boolean(),
+    remaining: v.number(),
+    resetAt: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Count current window requests (cleanup handled by cron)
+    const currentRequests = await ctx.db
+      .query("rateLimits")
+      .withIndex("by_key_and_time", (q) =>
+        q.eq("key", args.key).gte("timestamp", now - RATE_LIMIT_WINDOW_MS),
+      )
+      .collect();
+
+    const remaining = Math.max(0, RATE_LIMIT_MAX_REQUESTS - currentRequests.length);
+    const allowed = remaining > 0;
+
+    if (allowed) {
+      await ctx.db.insert("rateLimits", { key: args.key, timestamp: now });
+    }
+
+    const oldestRequest = currentRequests[0];
+    const resetAt = oldestRequest
+      ? oldestRequest.timestamp + RATE_LIMIT_WINDOW_MS
+      : now + RATE_LIMIT_WINDOW_MS;
+
+    return { allowed, remaining: remaining - (allowed ? 1 : 0), resetAt };
+  },
+});
 
 export const process = mutation({
   args: {
@@ -43,12 +77,41 @@ export const process = mutation({
       store: v.optional(storeValidator),
     }),
     payload: v.any(),
+    _skipRateLimit: v.optional(v.boolean()),
   },
-  returns: v.object({ processed: v.boolean(), eventId: v.string() }),
+  returns: v.object({
+    processed: v.boolean(),
+    eventId: v.string(),
+    rateLimited: v.optional(v.boolean()),
+  }),
   handler: async (ctx, args) => {
     const { event, payload } = args;
+    const now = Date.now();
 
-    // Idempotency check - skip if already processed
+    if (!event.id?.trim()) {
+      throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event ID is required" });
+    }
+    if (!event.type?.trim()) {
+      throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event type is required" });
+    }
+
+    // Rate limit check
+    if (!args._skipRateLimit) {
+      const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? "global"}`;
+      const rateCheck = await ctx.runMutation(internal.webhooks.checkRateLimit, {
+        key: rateLimitKey,
+      });
+
+      if (!rateCheck.allowed) {
+        throw new ConvexError({
+          code: "RATE_LIMITED",
+          message: `Rate limit exceeded. Try again after ${new Date(rateCheck.resetAt).toISOString()}`,
+          data: { resetAt: rateCheck.resetAt, remaining: rateCheck.remaining },
+        });
+      }
+    }
+
+    // Idempotency check
     const existing = await ctx.db
       .query("webhookEvents")
       .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
@@ -58,7 +121,7 @@ export const process = mutation({
       return { processed: false, eventId: event.id };
     }
 
-    // Determine status based on event type
+    // Process event
     const eventType = event.type as EventType;
     const handler = EVENT_HANDLERS[eventType];
     let status: "processed" | "failed" | "ignored" = "ignored";
@@ -66,16 +129,39 @@ export const process = mutation({
 
     if (handler) {
       try {
-        // Dispatch to the appropriate handler
         await ctx.runMutation(handler, { event: payload });
         status = "processed";
       } catch (e) {
         status = "failed";
         error = e instanceof Error ? e.message : String(e);
+
+        // Log failed event then re-throw all errors
+        // This ensures RevenueCat gets proper error response and retries
+        await ctx.db.insert("webhookEvents", {
+          eventId: event.id,
+          eventType: event.type,
+          appId: event.app_id,
+          appUserId: event.app_user_id,
+          environment: event.environment,
+          store: event.store,
+          payload,
+          processedAt: now,
+          status: "failed",
+          error,
+        });
+
+        if (e instanceof ConvexError) {
+          throw e;
+        }
+        // Wrap non-ConvexError in ConvexError for consistent HTTP response
+        throw new ConvexError({
+          code: "INTERNAL_ERROR",
+          message: `Handler failed: ${error}`,
+        });
       }
     }
 
-    // Log the event
+    // Only reached on success or ignored (no handler)
     await ctx.db.insert("webhookEvents", {
       eventId: event.id,
       eventType: event.type,
@@ -84,7 +170,7 @@ export const process = mutation({
       environment: event.environment,
       store: event.store,
       payload,
-      processedAt: Date.now(),
+      processedAt: now,
       status,
       error,
     });

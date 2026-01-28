@@ -24,14 +24,31 @@ export const periodTypeValidator = v.union(
   v.literal("PREPAID"),
 );
 
+// Subscriber attribute from RevenueCat
+// Keys are user-defined attribute names, values have this structure
+export const subscriberAttributeValidator = v.object({
+  value: v.string(),
+  updated_at_ms: v.number(),
+});
+
+export const subscriberAttributesValidator = v.record(v.string(), subscriberAttributeValidator);
+
 export default defineSchema({
+  // Rate limiting for webhook endpoint protection
+  rateLimits: defineTable({
+    key: v.string(),
+    timestamp: v.number(),
+  })
+    .index("by_key_and_time", ["key", "timestamp"])
+    .index("by_timestamp", ["timestamp"]),
+
   customers: defineTable({
     appUserId: v.string(),
     originalAppUserId: v.string(),
     aliases: v.array(v.string()),
     firstSeenAt: v.number(),
     lastSeenAt: v.optional(v.number()),
-    attributes: v.optional(v.any()),
+    attributes: v.optional(subscriberAttributesValidator),
     updatedAt: v.number(),
   })
     .index("by_app_user_id", ["appUserId"])
@@ -89,6 +106,9 @@ export default defineSchema({
     .index("by_app_user_entitlement", ["appUserId", "entitlementId"])
     .index("by_active", ["isActive"]),
 
+  // Audit log of webhook events for debugging and replay
+  // payload uses v.any() intentionally: validated by eventPayloadValidator before storage,
+  // kept loose for forward compatibility when RevenueCat adds new fields
   webhookEvents: defineTable({
     eventId: v.string(),
     eventType: v.string(),
@@ -103,7 +123,8 @@ export default defineSchema({
   })
     .index("by_event_id", ["eventId"])
     .index("by_type", ["eventType"])
-    .index("by_app_user", ["appUserId"]),
+    .index("by_app_user", ["appUserId"])
+    .index("by_status", ["status"]),
 
   // Track A/B experiment enrollments from RevenueCat
   experiments: defineTable({

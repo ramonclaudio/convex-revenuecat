@@ -97,6 +97,23 @@ interface ExperimentDoc {
   updatedAt: number;
 }
 
+type WebhookEventStatus = "processed" | "failed" | "ignored";
+
+interface WebhookEventDoc {
+  _id: string;
+  _creationTime: number;
+  eventId: string;
+  eventType: string;
+  appId?: string;
+  appUserId?: string;
+  environment: Environment;
+  store?: Store;
+  payload: any;
+  processedAt: number;
+  status: WebhookEventStatus;
+  error?: string;
+}
+
 type Duration =
   | "daily"
   | "three_day"
@@ -348,8 +365,16 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           store?: Store;
         };
         payload: any;
+        _skipRateLimit?: boolean;
       },
-      { processed: boolean; eventId: string },
+      { processed: boolean; eventId: string; rateLimited?: boolean },
+      Name
+    >;
+    checkRateLimit: FunctionReference<
+      "mutation",
+      "internal",
+      { key: string },
+      { allowed: boolean; remaining: number; resetAt: number },
       Name
     >;
   };
@@ -369,5 +394,29 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       ExperimentDoc[],
       Name
     >;
+  };
+  webhookEvents: {
+    getByEventId: FunctionReference<
+      "query",
+      "internal",
+      { eventId: string },
+      WebhookEventDoc | null,
+      Name
+    >;
+    listByUser: FunctionReference<
+      "query",
+      "internal",
+      { appUserId: string; limit?: number },
+      WebhookEventDoc[],
+      Name
+    >;
+    listByType: FunctionReference<
+      "query",
+      "internal",
+      { eventType: string; limit?: number },
+      WebhookEventDoc[],
+      Name
+    >;
+    listFailed: FunctionReference<"query", "internal", { limit?: number }, WebhookEventDoc[], Name>;
   };
 };
