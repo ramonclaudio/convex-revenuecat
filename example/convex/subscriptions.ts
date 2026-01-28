@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, mutation } from "./_generated/server.js";
+import { query } from "./_generated/server.js";
 import { components } from "./_generated/api.js";
 import { RevenueCat } from "convex-revenuecat";
 
@@ -138,40 +138,5 @@ export const getCustomer = query({
     return await revenuecat.getCustomer(ctx, {
       appUserId: args.appUserId,
     });
-  },
-});
-
-/**
- * Grant a promotional entitlement (local database only)
- * For production, call RevenueCat API directly and let webhooks sync.
- */
-export const grantPromoEntitlement = mutation({
-  args: {
-    appUserId: v.string(),
-    entitlementId: v.string(),
-    expiresAtMs: v.optional(v.number()),
-  },
-  returns: v.string(),
-  handler: async (ctx, args) => {
-    return await revenuecat.grantEntitlement(ctx, {
-      appUserId: args.appUserId,
-      entitlementId: args.entitlementId,
-      expiresAtMs: args.expiresAtMs,
-      isSandbox: true,
-    });
-  },
-});
-
-/**
- * Revoke an entitlement (local database only)
- */
-export const revokeEntitlement = mutation({
-  args: {
-    appUserId: v.string(),
-    entitlementId: v.string(),
-  },
-  returns: v.boolean(),
-  handler: async (ctx, args) => {
-    return await revenuecat.revokeEntitlement(ctx, args);
   },
 });
