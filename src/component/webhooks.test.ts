@@ -1,6 +1,5 @@
-
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
 function createEventPayload(
@@ -34,6 +33,61 @@ function createEventPayload(
     is_family_share: false,
   };
 }
+
+describe("webhook validation", () => {
+  test("throws when event ID is empty", async () => {
+    const t = initConvexTest();
+
+    const payload = createEventPayload({ id: "   " });
+
+    await expect(
+      t.mutation(api.webhooks.process, {
+        event: {
+          id: "   ",
+          type: payload.type,
+          environment: payload.environment,
+        },
+        payload,
+      }),
+    ).rejects.toThrow("Event ID is required");
+  });
+
+  test("throws when event type is empty", async () => {
+    const t = initConvexTest();
+
+    const payload = createEventPayload({ id: "evt_valid_id" });
+
+    await expect(
+      t.mutation(api.webhooks.process, {
+        event: {
+          id: "evt_valid_id",
+          type: "   ",
+          environment: payload.environment,
+        },
+        payload,
+      }),
+    ).rejects.toThrow("Event type is required");
+  });
+});
+
+describe("webhook rate limiting", () => {
+  test("throws after exceeding rate limit", async () => {
+    const t = initConvexTest();
+
+    for (let i = 0; i < 100; i++) {
+      await t.mutation(internal.webhooks.checkRateLimit, {
+        key: "webhook:app_rate_test",
+      });
+    }
+
+    const result = await t.mutation(internal.webhooks.checkRateLimit, {
+      key: "webhook:app_rate_test",
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.remaining).toBe(0);
+  });
+});
 
 describe("webhooks", () => {
   test("process logs event and returns processed=true", async () => {
