@@ -6,13 +6,11 @@ import {
   subscriberAttributesValidator,
 } from "./schema.js";
 
-// Infer types from validators - single source of truth
 export type Store = Infer<typeof storeValidator>;
 export type Environment = Infer<typeof environmentValidator>;
 export type PeriodType = Infer<typeof periodTypeValidator>;
 export type SubscriberAttributes = Infer<typeof subscriberAttributesValidator>;
 
-// Document types with system fields
 export type Entitlement = {
   _id: string;
   _creationTime: number;

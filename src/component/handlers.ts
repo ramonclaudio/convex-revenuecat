@@ -9,11 +9,8 @@ import {
   subscriberAttributesValidator,
 } from "./schema.js";
 
-// Type alias for mutation context with our data model
 type MutationCtx = GenericMutationCtx<DataModel>;
 
-// RevenueCat webhook event payload validator
-// See: https://www.revenuecat.com/docs/integrations/webhooks/event-types-and-fields
 const eventPayloadValidator = v.object({
   type: v.string(),
   id: v.string(),
@@ -53,16 +50,13 @@ const eventPayloadValidator = v.object({
   experiment_variant: v.optional(v.string()),
   offering_id: v.optional(v.string()),
   experiment_enrolled_at_ms: v.optional(v.number()),
-  // adjustments array structure is undocumented by RevenueCat, using v.any()
   adjustments: v.optional(v.array(v.any())),
   virtual_currency_transaction_id: v.optional(v.string()),
   source: v.optional(v.string()),
   invoice_id: v.optional(v.string()),
-  // Additional fields from RevenueCat docs
   metadata: v.optional(v.any()),
   product_display_name: v.optional(v.string()),
   purchase_environment: v.optional(environmentValidator),
-  // Google Play Subscriptions with Add-ons (beta) - items array
   items: v.optional(v.array(v.any())),
   subscriber_attributes: v.optional(subscriberAttributesValidator),
   experiments: v.optional(
@@ -76,12 +70,9 @@ const eventPayloadValidator = v.object({
   ),
 });
 
-// Infer type from validator - single source of truth
 type EventPayload = Infer<typeof eventPayloadValidator>;
 
-// Helper: upsert customer from event data
 async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<void> {
-  // Skip if no app_user_id (e.g., TRANSFER events)
   if (!event.app_user_id) return;
 
   const appUserId = event.app_user_id;
@@ -94,8 +85,6 @@ async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<vo
   const aliases = event.aliases ?? [];
   const originalAppUserId = event.original_app_user_id ?? appUserId;
 
-  // Merge subscriber_attributes (keep newer values based on updated_at_ms)
-  // Note: Keys with $ prefix are pre-encoded to __dollar__ by the HTTP handler
   const mergedAttributes = existing?.attributes ?? {};
   if (event.subscriber_attributes) {
     for (const [key, attr] of Object.entries(event.subscriber_attributes)) {
@@ -128,7 +117,6 @@ async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<vo
   }
 }
 
-// Helper: upsert subscription from event data
 async function upsertSubscription(
   ctx: MutationCtx,
   event: EventPayload,
@@ -141,11 +129,9 @@ async function upsertSubscription(
     autoRenewStatus: boolean | undefined;
   }>,
 ): Promise<void> {
-  // Skip if missing required fields for subscription
   if (!event.app_user_id || !event.original_transaction_id || !event.product_id) return;
   if (!event.store || !event.environment || !event.period_type) return;
 
-  // Extract validated fields
   const appUserId = event.app_user_id;
   const originalTransactionId = event.original_transaction_id;
   const productId = event.product_id;
@@ -195,7 +181,6 @@ async function upsertSubscription(
   }
 }
 
-// Helper: grant entitlements from event
 async function grantEntitlements(ctx: MutationCtx, event: EventPayload): Promise<void> {
   if (!event.entitlement_ids?.length || !event.app_user_id) return;
 
@@ -238,7 +223,6 @@ async function grantEntitlements(ctx: MutationCtx, event: EventPayload): Promise
   }
 }
 
-// Helper: revoke entitlements for user
 async function revokeEntitlements(
   ctx: MutationCtx,
   appUserId: string,
@@ -253,7 +237,6 @@ async function revokeEntitlements(
   for (const ent of entitlements) {
     if (!entitlementIds || entitlementIds.includes(ent.entitlementId)) {
       if (ent.isActive) {
-        // Clear ALL transient state on revocation - don't leave dirty flags
         await ctx.db.patch(ent._id, {
           isActive: false,
           billingIssueDetectedAt: undefined,
@@ -264,7 +247,6 @@ async function revokeEntitlements(
   }
 }
 
-// Helper: extend entitlements expiration
 async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promise<void> {
   if (!event.entitlement_ids?.length || !event.app_user_id) return;
 
@@ -289,7 +271,6 @@ async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promis
   }
 }
 
-// Helper: transfer entitlements between users
 async function transferEntitlements(
   ctx: MutationCtx,
   fromUserId: string,
@@ -298,7 +279,6 @@ async function transferEntitlements(
 ): Promise<void> {
   const now = Date.now();
 
-  // Get source user's entitlements
   const sourceEntitlements = await ctx.db
     .query("entitlements")
     .withIndex("by_app_user", (q) => q.eq("appUserId", fromUserId))
@@ -306,13 +286,11 @@ async function transferEntitlements(
 
   for (const ent of sourceEntitlements) {
     if (!entitlementIds || entitlementIds.includes(ent.entitlementId)) {
-      // Revoke from source
       await ctx.db.patch(ent._id, {
         isActive: false,
         updatedAt: now,
       });
 
-      // Grant to destination
       const destExisting = await ctx.db
         .query("entitlements")
         .withIndex("by_app_user_entitlement", (q) =>
@@ -347,7 +325,6 @@ async function transferEntitlements(
   }
 }
 
-// Helper: upsert experiment enrollments from event
 async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise<void> {
   if (!event.experiments?.length || !event.app_user_id) return;
 
@@ -362,7 +339,6 @@ async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise
       .first();
 
     if (existing) {
-      // Update if variant changed or enrollment time is newer
       if (
         existing.variant !== exp.experiment_variant ||
         (exp.enrolled_at_ms && exp.enrolled_at_ms > existing.enrolledAtMs)
@@ -385,10 +361,6 @@ async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise
   }
 }
 
-/**
- * INITIAL_PURCHASE: New subscription started
- * → Create customer, subscription, grant entitlements
- */
 export const processInitialPurchase = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -402,10 +374,6 @@ export const processInitialPurchase = internalMutation({
   },
 });
 
-/**
- * RENEWAL: Subscription renewed
- * → Update subscription, extend entitlements
- */
 export const processRenewal = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -422,10 +390,6 @@ export const processRenewal = internalMutation({
   },
 });
 
-/**
- * CANCELLATION: Subscription cancelled (will not renew)
- * → Update subscription with cancel_reason, KEEP entitlements active until EXPIRATION
- */
 export const processCancellation = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -436,15 +400,10 @@ export const processCancellation = internalMutation({
       cancelReason: event.cancel_reason,
       autoRenewStatus: false,
     });
-    // DO NOT revoke entitlements - they remain active until EXPIRATION
     return null;
   },
 });
 
-/**
- * UNCANCELLATION: Subscription re-enabled
- * → Clear cancel_reason, restore auto_renew
- */
 export const processUncancellation = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -459,10 +418,6 @@ export const processUncancellation = internalMutation({
   },
 });
 
-/**
- * EXPIRATION: Subscription expired
- * → Update subscription, REVOKE entitlements
- */
 export const processExpiration = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -479,10 +434,6 @@ export const processExpiration = internalMutation({
   },
 });
 
-/**
- * BILLING_ISSUE: Payment failed, grace period started
- * → Update subscription with grace period, KEEP entitlements during grace period
- */
 export const processBillingIssue = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -494,7 +445,6 @@ export const processBillingIssue = internalMutation({
       gracePeriodExpirationAtMs: event.grace_period_expiration_at_ms,
     });
 
-    // Mark entitlements with billing issue but keep active
     if (event.entitlement_ids?.length && event.app_user_id) {
       const now = Date.now();
       for (const entitlementId of event.entitlement_ids) {
@@ -516,10 +466,6 @@ export const processBillingIssue = internalMutation({
   },
 });
 
-/**
- * SUBSCRIPTION_PAUSED: Subscription paused (Android only)
- * → Update subscription with auto_resume, DO NOT revoke entitlements
- */
 export const processSubscriptionPaused = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -529,15 +475,10 @@ export const processSubscriptionPaused = internalMutation({
     await upsertSubscription(ctx, event, {
       autoResumeAtMs: event.auto_resume_at_ms,
     });
-    // DO NOT revoke entitlements - they remain active until EXPIRATION
     return null;
   },
 });
 
-/**
- * SUBSCRIPTION_EXTENDED: Subscription extended (e.g., customer support)
- * → Update subscription expiration, extend entitlements
- */
 export const processSubscriptionExtended = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -550,10 +491,6 @@ export const processSubscriptionExtended = internalMutation({
   },
 });
 
-/**
- * PRODUCT_CHANGE: User changed subscription product
- * → Update subscription with new product, informational only
- */
 export const processProductChange = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -561,15 +498,10 @@ export const processProductChange = internalMutation({
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
     await upsertSubscription(ctx, event);
-    // Entitlements will be updated by subsequent RENEWAL event
     return null;
   },
 });
 
-/**
- * NON_RENEWING_PURCHASE: One-time purchase or consumable
- * → Create subscription record, grant entitlements
- */
 export const processNonRenewingPurchase = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -583,25 +515,15 @@ export const processNonRenewingPurchase = internalMutation({
   },
 });
 
-/**
- * TRANSFER: Entitlements transferred between users
- * → Move entitlements from source to destination user
- *
- * Note: TRANSFER events use transferred_from[] and transferred_to[] arrays
- * instead of app_user_id. The webhook is only sent for destination users.
- * @see https://www.revenuecat.com/docs/integrations/webhooks/event-types-and-fields
- */
 export const processTransfer = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
 
-    // TRANSFER events don't have app_user_id - they use transferred_from/transferred_to
     const sourceUsers = event.transferred_from ?? [];
     const destUsers = event.transferred_to ?? [];
 
-    // For each source → destination pair, transfer all entitlements
     for (const sourceUserId of sourceUsers) {
       for (const destUserId of destUsers) {
         await transferEntitlements(ctx, sourceUserId, destUserId, event.entitlement_ids);
@@ -612,10 +534,6 @@ export const processTransfer = internalMutation({
   },
 });
 
-/**
- * TEMPORARY_ENTITLEMENT_GRANT: Store outage compensation
- * → Grant temporary entitlements
- */
 export const processTemporaryEntitlementGrant = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -627,10 +545,6 @@ export const processTemporaryEntitlementGrant = internalMutation({
   },
 });
 
-/**
- * REFUND_REVERSED: Refund was undone
- * → Restore entitlements
- */
 export const processRefundReversed = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -643,53 +557,34 @@ export const processRefundReversed = internalMutation({
   },
 });
 
-/**
- * TEST: Test event issued through RevenueCat dashboard
- * → Log only, no processing needed
- */
 export const processTest = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
   handler: async () => {
-    // Test events don't require any action
     return null;
   },
 });
 
-/**
- * INVOICE_ISSUANCE: Web Billing invoice created
- * → Log only, informational event
- */
 export const processInvoiceIssuance = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    // Update customer last seen if available
     await upsertCustomer(ctx, event);
     return null;
   },
 });
 
-/**
- * VIRTUAL_CURRENCY_TRANSACTION: Virtual currency adjustment
- * → Log only, informational event
- */
 export const processVirtualCurrencyTransaction = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    // Update customer last seen if available
     await upsertCustomer(ctx, event);
     return null;
   },
 });
 
-/**
- * EXPERIMENT_ENROLLMENT: Customer enrolled in experiment
- * → Track experiment enrollment
- */
 export const processExperimentEnrollment = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -697,8 +592,6 @@ export const processExperimentEnrollment = internalMutation({
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
 
-    // EXPERIMENT_ENROLLMENT events have experiment data in top-level fields
-    // Convert to experiments array format for upsertExperiments
     if (event.experiment_id && event.experiment_variant && event.app_user_id) {
       const experimentEvent = {
         ...event,
@@ -717,21 +610,14 @@ export const processExperimentEnrollment = internalMutation({
   },
 });
 
-/**
- * SUBSCRIBER_ALIAS: Customer aliased with another App User ID (DEPRECATED)
- * → Log only, aliases are now handled via the aliases array in other events
- * @deprecated This event type is deprecated per RevenueCat docs
- */
 export const processSubscriberAlias = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    // Update customer if available (merges aliases)
     await upsertCustomer(ctx, event);
     return null;
   },
 });
 
-// Export event payload validator for webhooks.ts
 export { eventPayloadValidator };

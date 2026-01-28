@@ -23,6 +23,7 @@
     "webhooks"
   ],
   "type": "module",
+  "sideEffects": false,
   "scripts": {
     "dev": "run-p -r 'dev:*'",
     "dev:backend": "convex dev --typecheck-components",

@@ -3,12 +3,10 @@ import { internalMutation, mutation } from "./_generated/server.js";
 import { internal } from "./_generated/api.js";
 import { environmentValidator, storeValidator } from "./schema.js";
 
-// Rate limiting configuration
 const RATE_LIMIT_MAX_REQUESTS = 100;
-const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+const RATE_LIMIT_WINDOW_MS = 60000;
 const RATE_LIMIT_KEY_PREFIX = "webhook";
 
-// Event type to handler mapping
 const EVENT_HANDLERS = {
   INITIAL_PURCHASE: internal.handlers.processInitialPurchase,
   RENEWAL: internal.handlers.processRenewal,
@@ -42,7 +40,6 @@ export const checkRateLimit = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
 
-    // Count current window requests (cleanup handled by cron)
     const currentRequests = await ctx.db
       .query("rateLimits")
       .withIndex("by_key_and_time", (q) =>
@@ -95,7 +92,6 @@ export const process = mutation({
       throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event type is required" });
     }
 
-    // Rate limit check
     if (!args._skipRateLimit) {
       const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? "global"}`;
       const rateCheck = await ctx.runMutation(internal.webhooks.checkRateLimit, {
@@ -111,7 +107,6 @@ export const process = mutation({
       }
     }
 
-    // Idempotency check
     const existing = await ctx.db
       .query("webhookEvents")
       .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
@@ -121,7 +116,6 @@ export const process = mutation({
       return { processed: false, eventId: event.id };
     }
 
-    // Process event
     const eventType = event.type as EventType;
     const handler = EVENT_HANDLERS[eventType];
     let status: "processed" | "failed" | "ignored" = "ignored";
@@ -135,8 +129,6 @@ export const process = mutation({
         status = "failed";
         error = e instanceof Error ? e.message : String(e);
 
-        // Log failed event then re-throw all errors
-        // This ensures RevenueCat gets proper error response and retries
         await ctx.db.insert("webhookEvents", {
           eventId: event.id,
           eventType: event.type,
@@ -153,7 +145,6 @@ export const process = mutation({
         if (e instanceof ConvexError) {
           throw e;
         }
-        // Wrap non-ConvexError in ConvexError for consistent HTTP response
         throw new ConvexError({
           code: "INTERNAL_ERROR",
           message: `Handler failed: ${error}`,
@@ -161,7 +152,6 @@ export const process = mutation({
       }
     }
 
-    // Only reached on success or ignored (no handler)
     await ctx.db.insert("webhookEvents", {
       eventId: event.id,
       eventType: event.type,

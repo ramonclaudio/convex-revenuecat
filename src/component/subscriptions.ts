@@ -33,10 +33,7 @@ export const getActive = query({
       .collect();
 
     return subscriptions.filter((s) => {
-      // No expiration = lifetime/non-expiring
       if (!s.expirationAtMs) return true;
-      // Use the later of normal expiration or grace period expiration
-      // During billing issues, gracePeriodExpirationAtMs extends the deadline
       const effectiveExpiration = Math.max(s.expirationAtMs, s.gracePeriodExpirationAtMs ?? 0);
       return effectiveExpiration > now;
     });
