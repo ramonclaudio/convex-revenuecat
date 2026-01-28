@@ -1,6 +1,7 @@
 import globals from "globals";
 import pluginJs from "@eslint/js";
 import tseslint from "typescript-eslint";
+import convexPlugin from "@convex-dev/eslint-plugin";
 
 export default [
   {
@@ -25,6 +26,17 @@ export default [
   },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
+  // Convex plugin for component and example
+  {
+    files: ["src/component/**/*.ts", "example/convex/**/*.ts"],
+    plugins: {
+      "@convex-dev": convexPlugin,
+    },
+    rules: {
+      "@convex-dev/no-old-registered-function-syntax": "error",
+      "@convex-dev/require-args-validator": "error",
+    },
+  },
   // Convex code - Worker environment
   {
     files: ["src/**/*.{ts,tsx}", "example/convex/**/*.{ts,tsx}"],
