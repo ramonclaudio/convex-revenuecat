@@ -1,4 +1,3 @@
-
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
@@ -1010,6 +1009,7 @@ describe("handlers", () => {
         environment: "PRODUCTION" as const,
         experiment_id: "exp_pricing_test",
         experiment_variant: "variant_b",
+        offering_id: "offering_premium",
         experiment_enrolled_at_ms: enrolledAt,
       };
 
@@ -1030,6 +1030,7 @@ describe("handlers", () => {
 
       expect(experiment).not.toBeNull();
       expect(experiment?.variant).toBe("variant_b");
+      expect(experiment?.offeringId).toBe("offering_premium");
       expect(experiment?.enrolledAtMs).toBe(enrolledAt);
     });
   });
