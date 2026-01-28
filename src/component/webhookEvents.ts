@@ -17,9 +17,6 @@ const webhookEventDoc = v.object({
   error: v.optional(v.string()),
 });
 
-/**
- * Get a webhook event by its RevenueCat event ID
- */
 export const getByEventId = query({
   args: {
     eventId: v.string(),
@@ -33,9 +30,6 @@ export const getByEventId = query({
   },
 });
 
-/**
- * List webhook events for a specific user
- */
 export const listByUser = query({
   args: {
     appUserId: v.string(),
@@ -52,9 +46,6 @@ export const listByUser = query({
   },
 });
 
-/**
- * List webhook events by type
- */
 export const listByType = query({
   args: {
     eventType: v.string(),
@@ -71,9 +62,6 @@ export const listByType = query({
   },
 });
 
-/**
- * List failed webhook events for debugging
- */
 export const listFailed = query({
   args: {
     limit: v.optional(v.number()),

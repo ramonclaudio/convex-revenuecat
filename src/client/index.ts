@@ -2,7 +2,6 @@ import { httpActionGeneric } from "convex/server";
 import type { GenericActionCtx, GenericDataModel } from "convex/server";
 import type { ComponentApi } from "../component/_generated/component.js";
 
-// Re-export types from component
 export type {
   Store,
   Environment,

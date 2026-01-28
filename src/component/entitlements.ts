@@ -25,13 +25,10 @@ export const check = query({
       return false;
     }
 
-    // During billing issues, EXPIRATION event will set isActive=false when grace period ends.
-    // Until then, trust the isActive flag - don't second-guess the webhook state machine.
     if (entitlement.billingIssueDetectedAt) {
       return true;
     }
 
-    // Normal expiration check
     if (entitlement.expiresAtMs && entitlement.expiresAtMs < Date.now()) {
       return false;
     }
@@ -67,17 +64,12 @@ export const getActive = query({
 
     return entitlements.filter((e) => {
       if (!e.isActive) return false;
-      // During billing issues, trust isActive until EXPIRATION clears it
       if (e.billingIssueDetectedAt) return true;
-      // Normal expiration check
       return !e.expiresAtMs || e.expiresAtMs > now;
     });
   },
 });
 
-/**
- * Grant entitlement - internal only, called by webhook handlers
- */
 export const grant = internalMutation({
   args: {
     appUserId: v.string(),
@@ -126,9 +118,6 @@ export const grant = internalMutation({
   },
 });
 
-/**
- * Revoke entitlement - internal only, called by webhook handlers
- */
 export const revoke = internalMutation({
   args: {
     appUserId: v.string(),

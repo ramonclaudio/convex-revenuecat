@@ -1,20 +1,10 @@
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server.js";
 
-// Rate limit window from webhooks.ts
-const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
-
-// Webhook events retention (30 days)
+const RATE_LIMIT_WINDOW_MS = 60000;
 const WEBHOOK_EVENTS_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-
-// Max events to delete per cron run (avoid timeout)
 const WEBHOOK_EVENTS_BATCH_SIZE = 500;
 
-/**
- * Clean up old rate limit entries
- * Entries older than the rate limit window are no longer needed for rate limiting
- * This runs hourly via cron to prevent unbounded table growth
- */
 export const rateLimits = internalMutation({
   args: {},
   returns: v.number(),
@@ -38,19 +28,12 @@ export const rateLimits = internalMutation({
   },
 });
 
-/**
- * Clean up old webhook events
- * Events older than retention period (30 days) are deleted
- * Runs daily via cron to prevent unbounded table growth
- */
 export const webhookEvents = internalMutation({
   args: {},
   returns: v.number(),
   handler: async (ctx) => {
     const cutoff = Date.now() - WEBHOOK_EVENTS_RETENTION_MS;
 
-    // Use _creationTime for cutoff since processedAt might not be indexed
-    // Take only batch size to avoid timeout
     const oldEvents = await ctx.db
       .query("webhookEvents")
       .order("asc")

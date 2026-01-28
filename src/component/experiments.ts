@@ -7,9 +7,6 @@ const experimentDoc = schema.tables.experiments.validator.extend({
   _creationTime: v.number(),
 });
 
-/**
- * Get all experiments for a customer
- */
 export const list = query({
   args: {
     appUserId: v.string(),
@@ -23,9 +20,6 @@ export const list = query({
   },
 });
 
-/**
- * Get a specific experiment enrollment for a customer
- */
 export const get = query({
   args: {
     appUserId: v.string(),
@@ -42,9 +36,6 @@ export const get = query({
   },
 });
 
-/**
- * Get all customers enrolled in a specific experiment
- */
 export const listByExperiment = query({
   args: {
     experimentId: v.string(),
