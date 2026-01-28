@@ -201,9 +201,8 @@ const revenuecat = new RevenueCat(components.revenuecat, {
 | `getActiveSubscriptions(ctx, { appUserId })` | Get all active subscriptions |
 | `getAllSubscriptions(ctx, { appUserId })` | Get all subscriptions |
 | `getCustomer(ctx, { appUserId })` | Get customer record |
-| `getWebhookEvent(ctx, { eventId })` | Get webhook event by RevenueCat event ID |
-| `getWebhookEventsByUser(ctx, { appUserId })` | Get webhook events for a user |
-| `getFailedWebhookEvents(ctx, { limit? })` | Get failed webhook events for debugging |
+| `getExperiment(ctx, { appUserId, experimentId })` | Get user's variant for a specific experiment |
+| `getExperiments(ctx, { appUserId })` | Get all experiments user is enrolled in |
 
 > [!NOTE]
 > This component is a **read-only sync layer**. To grant promotional entitlements, use the [RevenueCat API](https://www.revenuecat.com/docs/api-v1) directly — the webhook will sync the state automatically.
