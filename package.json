@@ -39,10 +39,12 @@
     "test:watch": "vitest --typecheck --clearScreen false",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:coverage": "vitest run --coverage --coverage.reporter=text",
-    "preversion": "npm ci && npm run build:clean && run-p test lint typecheck",
-    "prepublishOnly": "npm whoami || npm login",
-    "alpha": "npm version prerelease --preid alpha && npm publish --tag alpha && git push --follow-tags",
-    "release": "npm version patch && npm publish && git push --follow-tags",
+    "validate": "run-p test lint typecheck",
+    "prepack": "npm run validate",
+    "prepublishOnly": "npm run validate",
+    "preversion": "npm ci && npm run build:clean && npm run validate",
+    "alpha": "npm version prerelease --preid alpha && git push --follow-tags",
+    "release": "npm version patch && git push --follow-tags",
     "version": "vim -c 'normal o' -c 'normal o## '$npm_package_version CHANGELOG.md && prettier -w CHANGELOG.md && git add CHANGELOG.md"
   },
   "files": [
@@ -71,6 +73,11 @@
       "default": "./dist/component/convex.config.js"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "peerDependencies": {
     "convex": "^1.31.6"
   },
@@ -79,6 +86,7 @@
     "@edge-runtime/vm": "^5.0.0",
     "@eslint/js": "9.39.2",
     "@types/node": "^24.10.9",
+    "@vitest/coverage-v8": "^4.0.18",
     "chokidar-cli": "3.0.0",
     "convex": "1.31.6",
     "convex-test": "0.0.41",
