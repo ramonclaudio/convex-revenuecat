@@ -124,6 +124,7 @@ export default defineSchema({
     appUserId: v.string(),
     experimentId: v.string(),
     variant: v.string(),
+    offeringId: v.optional(v.string()),
     enrolledAtMs: v.number(),
     updatedAt: v.number(),
   })
