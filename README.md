@@ -256,6 +256,7 @@ The component creates six tables:
 
 - **No initial sync** — Existing subscribers before webhook setup won't appear until they trigger a new event (renewal, cancellation, etc.)
 - **Webhook-driven only** — Data comes exclusively from webhooks; no API polling or backfill mechanism
+- **Raw payload storage** — Webhook payloads are stored as-is for debugging. These may contain subscriber attributes or other data you've configured in RevenueCat. Events are auto-deleted after 30 days.
 
 ## Testing
 
