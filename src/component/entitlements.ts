@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server.js";
+import { query, internalMutation } from "./_generated/server.js";
 import schema, { storeValidator } from "./schema.js";
 
 const entitlementDoc = schema.tables.entitlements.validator.extend({
@@ -21,14 +21,17 @@ export const check = query({
       )
       .first();
 
-    if (!entitlement) {
+    if (!entitlement || !entitlement.isActive) {
       return false;
     }
 
-    if (!entitlement.isActive) {
-      return false;
+    // During billing issues, EXPIRATION event will set isActive=false when grace period ends.
+    // Until then, trust the isActive flag - don't second-guess the webhook state machine.
+    if (entitlement.billingIssueDetectedAt) {
+      return true;
     }
 
+    // Normal expiration check
     if (entitlement.expiresAtMs && entitlement.expiresAtMs < Date.now()) {
       return false;
     }
@@ -64,13 +67,18 @@ export const getActive = query({
 
     return entitlements.filter((e) => {
       if (!e.isActive) return false;
-      if (e.expiresAtMs && e.expiresAtMs < now) return false;
-      return true;
+      // During billing issues, trust isActive until EXPIRATION clears it
+      if (e.billingIssueDetectedAt) return true;
+      // Normal expiration check
+      return !e.expiresAtMs || e.expiresAtMs > now;
     });
   },
 });
 
-export const grant = mutation({
+/**
+ * Grant entitlement - internal only, called by webhook handlers
+ */
+export const grant = internalMutation({
   args: {
     appUserId: v.string(),
     entitlementId: v.string(),
@@ -118,7 +126,10 @@ export const grant = mutation({
   },
 });
 
-export const revoke = mutation({
+/**
+ * Revoke entitlement - internal only, called by webhook handlers
+ */
+export const revoke = internalMutation({
   args: {
     appUserId: v.string(),
     entitlementId: v.string(),
