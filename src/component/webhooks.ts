@@ -74,7 +74,6 @@ export const process = mutation({
       store: v.optional(storeValidator),
     }),
     payload: v.any(),
-    _skipRateLimit: v.optional(v.boolean()),
   },
   returns: v.object({
     processed: v.boolean(),
@@ -92,19 +91,17 @@ export const process = mutation({
       throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event type is required" });
     }
 
-    if (!args._skipRateLimit) {
-      const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? "global"}`;
-      const rateCheck = await ctx.runMutation(internal.webhooks.checkRateLimit, {
-        key: rateLimitKey,
-      });
+    const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? "global"}`;
+    const rateCheck = await ctx.runMutation(internal.webhooks.checkRateLimit, {
+      key: rateLimitKey,
+    });
 
-      if (!rateCheck.allowed) {
-        throw new ConvexError({
-          code: "RATE_LIMITED",
-          message: `Rate limit exceeded. Try again after ${new Date(rateCheck.resetAt).toISOString()}`,
-          data: { resetAt: rateCheck.resetAt, remaining: rateCheck.remaining },
-        });
-      }
+    if (!rateCheck.allowed) {
+      throw new ConvexError({
+        code: "RATE_LIMITED",
+        message: `Rate limit exceeded. Try again after ${new Date(rateCheck.resetAt).toISOString()}`,
+        data: { resetAt: rateCheck.resetAt, remaining: rateCheck.remaining },
+      });
     }
 
     const existing = await ctx.db
