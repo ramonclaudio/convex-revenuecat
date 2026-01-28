@@ -1,8 +1,30 @@
 /// <reference types="vite/client" />
 
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
+
+// Test event payload matching RevenueCat webhook format
+const makeEventPayload = (overrides: Record<string, unknown> = {}) => ({
+  type: "INITIAL_PURCHASE",
+  id: `evt_${Date.now()}`,
+  app_id: "app_123",
+  app_user_id: "user_123",
+  original_app_user_id: "user_123",
+  aliases: ["user_123"],
+  event_timestamp_ms: Date.now(),
+  product_id: "premium_monthly",
+  entitlement_ids: ["premium"],
+  period_type: "NORMAL" as const,
+  purchased_at_ms: Date.now(),
+  expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+  transaction_id: "txn_123",
+  original_transaction_id: "txn_123",
+  store: "APP_STORE" as const,
+  environment: "SANDBOX" as const,
+  is_family_share: false,
+  ...overrides,
+});
 
 describe("customers", () => {
   test("get returns null when customer not found", async () => {
@@ -15,40 +37,43 @@ describe("customers", () => {
     expect(result).toBeNull();
   });
 
-  test("upsert creates new customer", async () => {
+  test("processInitialPurchase creates customer", async () => {
     const t = initConvexTest();
 
-    const id = await t.mutation(api.customers.upsert, {
-      appUserId: "user_123",
-      originalAppUserId: "user_123",
-      aliases: ["user_123"],
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_new",
+        original_app_user_id: "user_new",
+        aliases: ["user_new"],
+      }),
     });
 
-    expect(id).toBeDefined();
-
     const customer = await t.query(api.customers.get, {
-      appUserId: "user_123",
+      appUserId: "user_new",
     });
 
     expect(customer).not.toBeNull();
-    expect(customer?.appUserId).toBe("user_123");
-    expect(customer?.aliases).toContain("user_123");
+    expect(customer?.appUserId).toBe("user_new");
+    expect(customer?.aliases).toContain("user_new");
   });
 
-  test("upsert updates existing customer and merges aliases", async () => {
+  test("subsequent events update customer and merge aliases", async () => {
     const t = initConvexTest();
 
-    await t.mutation(api.customers.upsert, {
-      appUserId: "user_456",
-      originalAppUserId: "user_456",
-      aliases: ["user_456"],
+    // Initial purchase
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_456",
+        aliases: ["user_456"],
+      }),
     });
 
-    // Update with new alias
-    await t.mutation(api.customers.upsert, {
-      appUserId: "user_456",
-      originalAppUserId: "user_456",
-      aliases: ["alias_1", "alias_2"],
+    // Renewal with new alias
+    await t.mutation(internal.handlers.processRenewal, {
+      event: makeEventPayload({
+        app_user_id: "user_456",
+        aliases: ["alias_1", "alias_2"],
+      }),
     });
 
     const customer = await t.query(api.customers.get, {
@@ -64,10 +89,11 @@ describe("customers", () => {
   test("getByOriginalId finds customer", async () => {
     const t = initConvexTest();
 
-    await t.mutation(api.customers.upsert, {
-      appUserId: "user_789",
-      originalAppUserId: "original_789",
-      aliases: ["user_789"],
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_789",
+        original_app_user_id: "original_789",
+      }),
     });
 
     const customer = await t.query(api.customers.getByOriginalId, {
@@ -88,23 +114,25 @@ describe("customers", () => {
     expect(customer).toBeNull();
   });
 
-  test("upsert preserves firstSeenAt on update", async () => {
+  test("firstSeenAt preserved on subsequent events", async () => {
     const t = initConvexTest();
 
     const firstSeenAt = Date.now() - 1000000;
 
-    await t.mutation(api.customers.upsert, {
-      appUserId: "user_preserve",
-      originalAppUserId: "user_preserve",
-      aliases: [],
-      firstSeenAt,
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_preserve",
+        event_timestamp_ms: firstSeenAt,
+      }),
     });
 
-    // Update without firstSeenAt
-    await t.mutation(api.customers.upsert, {
-      appUserId: "user_preserve",
-      originalAppUserId: "user_preserve",
-      aliases: ["new_alias"],
+    // Renewal later
+    await t.mutation(internal.handlers.processRenewal, {
+      event: makeEventPayload({
+        app_user_id: "user_preserve",
+        event_timestamp_ms: Date.now(),
+        aliases: ["new_alias"],
+      }),
     });
 
     const customer = await t.query(api.customers.get, {
@@ -112,5 +140,40 @@ describe("customers", () => {
     });
 
     expect(customer?.firstSeenAt).toBe(firstSeenAt);
+  });
+
+  test("subscriber_attributes merged with updated_at_ms priority", async () => {
+    const t = initConvexTest();
+
+    const oldTime = Date.now() - 10000;
+    const newTime = Date.now();
+
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_attrs",
+        subscriber_attributes: {
+          email: { value: "old@test.com", updated_at_ms: oldTime },
+          name: { value: "Old Name", updated_at_ms: newTime },
+        },
+      }),
+    });
+
+    // Update with mixed timestamps
+    await t.mutation(internal.handlers.processRenewal, {
+      event: makeEventPayload({
+        app_user_id: "user_attrs",
+        subscriber_attributes: {
+          email: { value: "new@test.com", updated_at_ms: newTime }, // newer
+          name: { value: "Ignored Name", updated_at_ms: oldTime }, // older, ignored
+        },
+      }),
+    });
+
+    const customer = await t.query(api.customers.get, {
+      appUserId: "user_attrs",
+    });
+
+    expect(customer?.attributes?.email?.value).toBe("new@test.com");
+    expect(customer?.attributes?.name?.value).toBe("Old Name");
   });
 });
