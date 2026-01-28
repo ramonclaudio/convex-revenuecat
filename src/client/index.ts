@@ -10,8 +10,7 @@ export type {
   Entitlement,
   Subscription,
   Customer,
-  WebhookEvent,
-  WebhookEventStatus,
+  Experiment,
 } from "../component/types.js";
 
 import type {
@@ -20,7 +19,7 @@ import type {
   Entitlement,
   Subscription,
   Customer,
-  WebhookEvent,
+  Experiment,
 } from "../component/types.js";
 
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
@@ -78,25 +77,15 @@ export class RevenueCat {
     return ctx.runQuery(this.component.customers.get, args) as Promise<Customer | null>;
   }
 
-  async getWebhookEvent(ctx: QueryCtx, args: { eventId: string }): Promise<WebhookEvent | null> {
-    return ctx.runQuery(
-      this.component.webhookEvents.getByEventId,
-      args,
-    ) as Promise<WebhookEvent | null>;
+  async getExperiment(
+    ctx: QueryCtx,
+    args: { appUserId: string; experimentId: string },
+  ): Promise<Experiment | null> {
+    return ctx.runQuery(this.component.experiments.get, args) as Promise<Experiment | null>;
   }
 
-  async getWebhookEventsByUser(
-    ctx: QueryCtx,
-    args: { appUserId: string; limit?: number },
-  ): Promise<WebhookEvent[]> {
-    return ctx.runQuery(this.component.webhookEvents.listByUser, args) as Promise<WebhookEvent[]>;
-  }
-
-  async getFailedWebhookEvents(
-    ctx: QueryCtx,
-    args: { limit?: number } = {},
-  ): Promise<WebhookEvent[]> {
-    return ctx.runQuery(this.component.webhookEvents.listFailed, args) as Promise<WebhookEvent[]>;
+  async getExperiments(ctx: QueryCtx, args: { appUserId: string }): Promise<Experiment[]> {
+    return ctx.runQuery(this.component.experiments.list, args) as Promise<Experiment[]>;
   }
 
   httpHandler() {
