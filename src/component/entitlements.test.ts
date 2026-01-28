@@ -1,4 +1,3 @@
-
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
@@ -126,6 +125,31 @@ describe("entitlements", () => {
 
     expect(active).toHaveLength(1);
     expect(active[0].entitlementId).toBe("premium");
+  });
+
+  test("getActive includes entitlement with billingIssueDetectedAt despite expiration", async () => {
+    const t = initConvexTest();
+
+    const entId = await t.mutation(internal.entitlements.grant, {
+      appUserId: "user_billing_active",
+      entitlementId: "premium",
+      expiresAtMs: Date.now() - 1000,
+      isSandbox: false,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(entId, {
+        billingIssueDetectedAt: Date.now() - 500,
+      });
+    });
+
+    const active = await t.query(api.entitlements.getActive, {
+      appUserId: "user_billing_active",
+    });
+
+    expect(active).toHaveLength(1);
+    expect(active[0].entitlementId).toBe("premium");
+    expect(active[0].billingIssueDetectedAt).toBeDefined();
   });
 
   test("grant updates existing entitlement", async () => {

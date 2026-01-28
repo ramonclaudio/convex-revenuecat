@@ -1,4 +1,3 @@
-
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
@@ -110,6 +109,25 @@ describe("subscriptions", () => {
 
     expect(active).toHaveLength(1);
     expect(active[0].productId).toBe("premium_monthly");
+  });
+
+  test("getActive includes subscription with no expirationAtMs (lifetime)", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_lifetime",
+        original_transaction_id: "txn_lifetime",
+        expiration_at_ms: undefined,
+      }),
+    });
+
+    const active = await t.query(api.subscriptions.getActive, {
+      appUserId: "user_lifetime",
+    });
+
+    expect(active).toHaveLength(1);
+    expect(active[0].expirationAtMs).toBeUndefined();
   });
 
   test("getByOriginalTransaction finds subscription", async () => {
