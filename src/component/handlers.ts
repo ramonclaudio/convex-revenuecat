@@ -64,6 +64,7 @@ const eventPayloadValidator = v.object({
       v.object({
         experiment_id: v.string(),
         experiment_variant: v.string(),
+        offering_id: v.optional(v.string()),
         enrolled_at_ms: v.optional(v.number()),
       }),
     ),
@@ -345,6 +346,7 @@ async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise
       ) {
         await ctx.db.patch(existing._id, {
           variant: exp.experiment_variant,
+          offeringId: exp.offering_id,
           enrolledAtMs: exp.enrolled_at_ms ?? existing.enrolledAtMs,
           updatedAt: now,
         });
@@ -354,6 +356,7 @@ async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise
         appUserId: event.app_user_id,
         experimentId: exp.experiment_id,
         variant: exp.experiment_variant,
+        offeringId: exp.offering_id,
         enrolledAtMs: exp.enrolled_at_ms ?? event.event_timestamp_ms,
         updatedAt: now,
       });
@@ -599,6 +602,7 @@ export const processExperimentEnrollment = internalMutation({
           {
             experiment_id: event.experiment_id,
             experiment_variant: event.experiment_variant,
+            offering_id: event.offering_id,
             enrolled_at_ms: event.experiment_enrolled_at_ms,
           },
         ],
