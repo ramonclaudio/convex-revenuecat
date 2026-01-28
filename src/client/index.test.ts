@@ -172,30 +172,49 @@ describe("RevenueCat client", () => {
   });
 
   describe("getAllEntitlements", () => {
-    test("returns all entitlements including inactive", async () => {
+    test("returns all entitlements including inactive via webhook events", async () => {
       const t = initConvexTest();
       const revenuecat = new RevenueCat(components.revenuecat);
 
-      // Grant an entitlement
-      await t.run(async (ctx) => {
-        await revenuecat.grantEntitlement(ctx, {
-          appUserId: "user_all_ent",
-          entitlementId: "premium",
-        });
-      });
-
-      // Grant another then revoke it
-      await t.run(async (ctx) => {
-        await revenuecat.grantEntitlement(ctx, {
-          appUserId: "user_all_ent",
-          entitlementId: "pro",
-        });
+      // Grant entitlement via INITIAL_PURCHASE webhook
+      const purchasePayload = createEventPayload({
+        id: "evt_all_ent_1",
+        app_user_id: "user_all_ent",
+        entitlement_ids: ["premium", "pro"],
       });
 
       await t.run(async (ctx) => {
-        await revenuecat.revokeEntitlement(ctx, {
-          appUserId: "user_all_ent",
-          entitlementId: "pro",
+        await ctx.runMutation(components.revenuecat.webhooks.process, {
+          event: {
+            id: purchasePayload.id,
+            type: purchasePayload.type,
+            app_user_id: purchasePayload.app_user_id,
+            environment: purchasePayload.environment,
+            store: purchasePayload.store,
+          },
+          payload: purchasePayload,
+        });
+      });
+
+      // Expire one entitlement via EXPIRATION webhook
+      const expirationPayload = {
+        ...purchasePayload,
+        id: "evt_all_ent_2",
+        type: "EXPIRATION",
+        entitlement_ids: ["pro"],
+        expiration_reason: "BILLING_ERROR",
+      };
+
+      await t.run(async (ctx) => {
+        await ctx.runMutation(components.revenuecat.webhooks.process, {
+          event: {
+            id: expirationPayload.id,
+            type: expirationPayload.type,
+            app_user_id: expirationPayload.app_user_id,
+            environment: expirationPayload.environment,
+            store: expirationPayload.store,
+          },
+          payload: expirationPayload,
         });
       });
 
@@ -337,70 +356,6 @@ describe("RevenueCat client", () => {
 
       expect(result).not.toBeNull();
       expect(result?.appUserId).toBe("user_client_4");
-    });
-  });
-
-  describe("grantEntitlement (local)", () => {
-    test("grants entitlement to user", async () => {
-      const t = initConvexTest();
-      const revenuecat = new RevenueCat(components.revenuecat);
-
-      await t.run(async (ctx) => {
-        await revenuecat.grantEntitlement(ctx, {
-          appUserId: "user_grant_1",
-          entitlementId: "premium",
-        });
-      });
-
-      const result = await t.run(async (ctx) => {
-        return await revenuecat.hasEntitlement(ctx, {
-          appUserId: "user_grant_1",
-          entitlementId: "premium",
-        });
-      });
-
-      expect(result).toBe(true);
-    });
-  });
-
-  describe("revokeEntitlement (local)", () => {
-    test("revokes entitlement from user", async () => {
-      const t = initConvexTest();
-      const revenuecat = new RevenueCat(components.revenuecat);
-
-      // First grant
-      await t.run(async (ctx) => {
-        await revenuecat.grantEntitlement(ctx, {
-          appUserId: "user_revoke_1",
-          entitlementId: "premium",
-        });
-      });
-
-      // Verify granted
-      let result = await t.run(async (ctx) => {
-        return await revenuecat.hasEntitlement(ctx, {
-          appUserId: "user_revoke_1",
-          entitlementId: "premium",
-        });
-      });
-      expect(result).toBe(true);
-
-      // Revoke
-      await t.run(async (ctx) => {
-        await revenuecat.revokeEntitlement(ctx, {
-          appUserId: "user_revoke_1",
-          entitlementId: "premium",
-        });
-      });
-
-      // Verify revoked
-      result = await t.run(async (ctx) => {
-        return await revenuecat.hasEntitlement(ctx, {
-          appUserId: "user_revoke_1",
-          entitlementId: "premium",
-        });
-      });
-      expect(result).toBe(false);
     });
   });
 });

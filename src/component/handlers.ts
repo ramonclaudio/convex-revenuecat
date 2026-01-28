@@ -1,28 +1,29 @@
-import { v } from "convex/values";
+import { v, type Infer } from "convex/values";
 import type { GenericMutationCtx } from "convex/server";
 import { internalMutation } from "./_generated/server.js";
 import type { DataModel } from "./_generated/dataModel.js";
-import { environmentValidator, periodTypeValidator, storeValidator } from "./schema.js";
+import {
+  environmentValidator,
+  periodTypeValidator,
+  storeValidator,
+  subscriberAttributesValidator,
+} from "./schema.js";
 
 // Type alias for mutation context with our data model
 type MutationCtx = GenericMutationCtx<DataModel>;
 
-// Common event payload validator for RevenueCat webhooks
-// Many fields are optional because different event types have different required fields
+// RevenueCat webhook event payload validator
 // See: https://www.revenuecat.com/docs/integrations/webhooks/event-types-and-fields
 const eventPayloadValidator = v.object({
   type: v.string(),
   id: v.string(),
   app_id: v.optional(v.string()),
-  // TRANSFER events don't have app_user_id - use transferred_from/transferred_to instead
   app_user_id: v.optional(v.string()),
   original_app_user_id: v.optional(v.string()),
   aliases: v.optional(v.array(v.string())),
   event_timestamp_ms: v.number(),
-  // product_id may be missing in TRANSFER, EXPERIMENT_ENROLLMENT events
   product_id: v.optional(v.string()),
   entitlement_ids: v.optional(v.array(v.string())),
-  // period_type may be missing in sparse events
   period_type: v.optional(periodTypeValidator),
   purchased_at_ms: v.optional(v.number()),
   expiration_at_ms: v.optional(v.number()),
@@ -30,7 +31,6 @@ const eventPayloadValidator = v.object({
   original_transaction_id: v.optional(v.string()),
   store: v.optional(storeValidator),
   environment: v.optional(environmentValidator),
-  // is_family_share is not always present (e.g., CANCELLATION events)
   is_family_share: v.optional(v.boolean()),
   price: v.optional(v.number()),
   price_in_purchased_currency: v.optional(v.number()),
@@ -47,22 +47,24 @@ const eventPayloadValidator = v.object({
   grace_period_expiration_at_ms: v.optional(v.number()),
   auto_resume_at_ms: v.optional(v.number()),
   new_product_id: v.optional(v.string()),
-  // TRANSFER event specific fields
   transferred_from: v.optional(v.array(v.string())),
   transferred_to: v.optional(v.array(v.string())),
-  // EXPERIMENT_ENROLLMENT specific fields
   experiment_id: v.optional(v.string()),
   experiment_variant: v.optional(v.string()),
   offering_id: v.optional(v.string()),
   experiment_enrolled_at_ms: v.optional(v.number()),
-  // VIRTUAL_CURRENCY_TRANSACTION specific fields
+  // adjustments array structure is undocumented by RevenueCat, using v.any()
   adjustments: v.optional(v.array(v.any())),
   virtual_currency_transaction_id: v.optional(v.string()),
   source: v.optional(v.string()),
-  // INVOICE_ISSUANCE specific fields
   invoice_id: v.optional(v.string()),
-  // Customer attributes and experiments (optional enhancements)
-  subscriber_attributes: v.optional(v.any()),
+  // Additional fields from RevenueCat docs
+  metadata: v.optional(v.any()),
+  product_display_name: v.optional(v.string()),
+  purchase_environment: v.optional(environmentValidator),
+  // Google Play Subscriptions with Add-ons (beta) - items array
+  items: v.optional(v.array(v.any())),
+  subscriber_attributes: v.optional(subscriberAttributesValidator),
   experiments: v.optional(
     v.array(
       v.object({
@@ -74,75 +76,8 @@ const eventPayloadValidator = v.object({
   ),
 });
 
-type Store =
-  | "AMAZON"
-  | "APP_STORE"
-  | "MAC_APP_STORE"
-  | "PADDLE"
-  | "PLAY_STORE"
-  | "PROMOTIONAL"
-  | "RC_BILLING"
-  | "ROKU"
-  | "STRIPE"
-  | "TEST_STORE";
-
-type EventPayload = {
-  type: string;
-  id: string;
-  app_id?: string;
-  // Optional for TRANSFER events
-  app_user_id?: string;
-  original_app_user_id?: string;
-  aliases?: string[];
-  event_timestamp_ms: number;
-  // Optional for sparse events (TRANSFER, EXPERIMENT_ENROLLMENT)
-  product_id?: string;
-  entitlement_ids?: string[];
-  period_type?: "TRIAL" | "INTRO" | "NORMAL" | "PROMOTIONAL" | "PREPAID";
-  purchased_at_ms?: number;
-  expiration_at_ms?: number;
-  transaction_id?: string;
-  original_transaction_id?: string;
-  store?: Store;
-  environment?: "SANDBOX" | "PRODUCTION";
-  is_family_share?: boolean;
-  price?: number;
-  price_in_purchased_currency?: number;
-  currency?: string;
-  country_code?: string;
-  tax_percentage?: number;
-  commission_percentage?: number;
-  offer_code?: string;
-  presented_offering_id?: string;
-  renewal_number?: number;
-  is_trial_conversion?: boolean;
-  cancel_reason?: string;
-  expiration_reason?: string;
-  grace_period_expiration_at_ms?: number;
-  auto_resume_at_ms?: number;
-  new_product_id?: string;
-  // TRANSFER event specific
-  transferred_from?: string[];
-  transferred_to?: string[];
-  // EXPERIMENT_ENROLLMENT specific
-  experiment_id?: string;
-  experiment_variant?: string;
-  offering_id?: string;
-  experiment_enrolled_at_ms?: number;
-  // VIRTUAL_CURRENCY_TRANSACTION specific
-  adjustments?: unknown[];
-  virtual_currency_transaction_id?: string;
-  source?: string;
-  // INVOICE_ISSUANCE specific
-  invoice_id?: string;
-  // Customer attributes and experiments
-  subscriber_attributes?: Record<string, { value: string; updated_at_ms: number }>;
-  experiments?: Array<{
-    experiment_id: string;
-    experiment_variant: string;
-    enrolled_at_ms?: number;
-  }>;
-};
+// Infer type from validator - single source of truth
+type EventPayload = Infer<typeof eventPayloadValidator>;
 
 // Helper: upsert customer from event data
 async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<void> {
@@ -318,8 +253,10 @@ async function revokeEntitlements(
   for (const ent of entitlements) {
     if (!entitlementIds || entitlementIds.includes(ent.entitlementId)) {
       if (ent.isActive) {
+        // Clear ALL transient state on revocation - don't leave dirty flags
         await ctx.db.patch(ent._id, {
           isActive: false,
+          billingIssueDetectedAt: undefined,
           updatedAt: now,
         });
       }
