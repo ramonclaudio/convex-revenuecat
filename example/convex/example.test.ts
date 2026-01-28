@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import { initConvexTest } from "./setup.test";
 import { api, components } from "./_generated/api";
 
-// Helper to create a valid event payload
 function createEventPayload(
   overrides: Partial<{
     type: string;
@@ -49,7 +48,6 @@ describe("subscriptions", () => {
     test("returns true when premium entitlement exists", async () => {
       const t = initConvexTest();
 
-      // Create entitlement via webhook
       const payload = createEventPayload({
         id: "evt_example_1",
         app_user_id: "user_example_1",
@@ -79,7 +77,6 @@ describe("subscriptions", () => {
     test("returns active entitlements", async () => {
       const t = initConvexTest();
 
-      // Create entitlements via webhook
       const payload = createEventPayload({
         id: "evt_example_2",
         app_user_id: "user_example_2",
