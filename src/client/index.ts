@@ -1,5 +1,6 @@
 import { httpActionGeneric } from "convex/server";
 import type { GenericActionCtx, GenericDataModel } from "convex/server";
+import { timingSafeEqual } from "node:crypto";
 import type { ComponentApi } from "../component/_generated/component.js";
 
 export type {
@@ -104,8 +105,11 @@ export class RevenueCat {
 
     return httpActionGeneric(async (ctx, request) => {
       if (expectedAuth) {
-        const authHeader = request.headers.get("Authorization");
-        if (authHeader !== expectedAuth) {
+        const authHeader = request.headers.get("Authorization") ?? "";
+        const authMatch =
+          authHeader.length === expectedAuth.length &&
+          timingSafeEqual(Buffer.from(authHeader), Buffer.from(expectedAuth));
+        if (!authMatch) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
