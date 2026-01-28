@@ -26,7 +26,6 @@ export default [
   },
   pluginJs.configs.recommended,
   ...tseslint.configs.recommended,
-  // Convex plugin for component and example
   {
     files: ["src/component/**/*.ts", "example/convex/**/*.ts"],
     plugins: {
@@ -37,7 +36,6 @@ export default [
       "@convex-dev/require-args-validator": "error",
     },
   },
-  // Convex code - Worker environment
   {
     files: ["src/**/*.{ts,tsx}", "example/convex/**/*.{ts,tsx}"],
     languageOptions: {
