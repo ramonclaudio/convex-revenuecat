@@ -10,26 +10,22 @@ describe("cleanup", () => {
       const t = initConvexTest();
 
       const now = Date.now();
-      const oldTimestamp = now - 120000; // 2 minutes ago
-      const recentTimestamp = now - 30000; // 30 seconds ago
+      const oldTimestamp = now - 120000;
+      const recentTimestamp = now - 30000;
 
-      // Insert old entries (should be deleted)
       await t.run(async (ctx) => {
         await ctx.db.insert("rateLimits", { key: "old1", timestamp: oldTimestamp });
         await ctx.db.insert("rateLimits", { key: "old2", timestamp: oldTimestamp - 60000 });
       });
 
-      // Insert recent entries (should be kept)
       await t.run(async (ctx) => {
         await ctx.db.insert("rateLimits", { key: "recent1", timestamp: recentTimestamp });
         await ctx.db.insert("rateLimits", { key: "recent2", timestamp: now });
       });
 
-      // Run cleanup
       const deleted = await t.mutation(internal.cleanup.rateLimits, {});
       expect(deleted).toBe(2);
 
-      // Verify remaining entries
       const remaining = await t.run(async (ctx) => {
         return await ctx.db.query("rateLimits").collect();
       });
@@ -43,7 +39,6 @@ describe("cleanup", () => {
 
       const now = Date.now();
 
-      // Insert only recent entries
       await t.run(async (ctx) => {
         await ctx.db.insert("rateLimits", { key: "recent", timestamp: now });
       });
@@ -51,7 +46,6 @@ describe("cleanup", () => {
       const deleted = await t.mutation(internal.cleanup.rateLimits, {});
       expect(deleted).toBe(0);
 
-      // Verify entry still exists
       const remaining = await t.run(async (ctx) => {
         return await ctx.db.query("rateLimits").collect();
       });
@@ -75,7 +69,6 @@ describe("cleanup", () => {
       const thirtyOneDaysAgo = now - 31 * 24 * 60 * 60 * 1000;
       const twentyNineDaysAgo = now - 29 * 24 * 60 * 60 * 1000;
 
-      // Insert old event (should be deleted)
       await t.run(async (ctx) => {
         await ctx.db.insert("webhookEvents", {
           eventId: "old_evt",
@@ -87,7 +80,6 @@ describe("cleanup", () => {
         });
       });
 
-      // Insert recent event (should be kept)
       await t.run(async (ctx) => {
         await ctx.db.insert("webhookEvents", {
           eventId: "recent_evt",

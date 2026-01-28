@@ -1,4 +1,3 @@
-/// <reference types="vite/client" />
 
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api.js";
@@ -18,7 +17,6 @@ describe("experiments", () => {
   test("list returns all experiments for a customer", async () => {
     const t = initConvexTest();
 
-    // Insert experiments directly
     await t.run(async (ctx) => {
       await ctx.db.insert("experiments", {
         appUserId: "user_with_experiments",

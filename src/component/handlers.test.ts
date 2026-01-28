@@ -1,10 +1,8 @@
-/// <reference types="vite/client" />
 
 import { describe, expect, test } from "vitest";
 import { api } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
-// Helper to create a valid event payload
 function createEventPayload(
   overrides: Partial<{
     type: string;
@@ -76,7 +74,6 @@ describe("handlers", () => {
         payload,
       });
 
-      // Check entitlements were granted
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_initial_1",
         entitlementId: "premium",
@@ -153,7 +150,6 @@ describe("handlers", () => {
       const t = initConvexTest();
       const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      // First, create initial purchase
       const initialPayload = createEventPayload({
         id: "evt_cancel_1_initial",
         type: "INITIAL_PURCHASE",
@@ -173,7 +169,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Now cancel
       const cancelPayload = createEventPayload({
         id: "evt_cancel_1_cancel",
         type: "CANCELLATION",
@@ -194,7 +189,6 @@ describe("handlers", () => {
         payload: cancelPayload,
       });
 
-      // Entitlement should STILL be active
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_cancel_1",
         entitlementId: "premium",
@@ -209,7 +203,6 @@ describe("handlers", () => {
       const t = initConvexTest();
       const pastExpiration = Date.now() - 1000;
 
-      // First, create initial purchase
       const initialPayload = createEventPayload({
         id: "evt_expire_1_initial",
         type: "INITIAL_PURCHASE",
@@ -229,14 +222,12 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Verify entitlement is active
       let hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_expire_1",
         entitlementId: "premium",
       });
       expect(hasPremium).toBe(true);
 
-      // Now expire
       const expirePayload = createEventPayload({
         id: "evt_expire_1_expire",
         type: "EXPIRATION",
@@ -257,7 +248,6 @@ describe("handlers", () => {
         payload: expirePayload,
       });
 
-      // Entitlement should be REVOKED
       hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_expire_1",
         entitlementId: "premium",
@@ -273,7 +263,6 @@ describe("handlers", () => {
       const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
       const futureResume = Date.now() + 60 * 24 * 60 * 60 * 1000;
 
-      // First, create initial purchase
       const initialPayload = createEventPayload({
         id: "evt_pause_1_initial",
         type: "INITIAL_PURCHASE",
@@ -293,7 +282,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Now pause
       const pausePayload = createEventPayload({
         id: "evt_pause_1_pause",
         type: "SUBSCRIPTION_PAUSED",
@@ -314,7 +302,6 @@ describe("handlers", () => {
         payload: pausePayload,
       });
 
-      // Entitlement should STILL be active (DO NOT revoke on pause)
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_pause_1",
         entitlementId: "premium",
@@ -329,7 +316,6 @@ describe("handlers", () => {
       const t = initConvexTest();
       const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      // First, create initial purchase for source user
       const initialPayload = createEventPayload({
         id: "evt_transfer_1_initial",
         type: "INITIAL_PURCHASE",
@@ -350,16 +336,12 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Verify source has entitlement
       let sourceHas = await t.query(api.entitlements.check, {
         appUserId: "user_source",
         entitlementId: "premium",
       });
       expect(sourceHas).toBe(true);
 
-      // Now transfer to destination
-      // TRANSFER events use transferred_from[] and transferred_to[] (no app_user_id)
-      // @see https://www.revenuecat.com/docs/integrations/webhooks/sample-events
       const transferPayload = {
         id: "evt_transfer_1_transfer",
         type: "TRANSFER",
@@ -383,14 +365,12 @@ describe("handlers", () => {
         payload: transferPayload,
       });
 
-      // Source should NOT have entitlement
       sourceHas = await t.query(api.entitlements.check, {
         appUserId: "user_source",
         entitlementId: "premium",
       });
       expect(sourceHas).toBe(false);
 
-      // Destination should have entitlement
       const destHas = await t.query(api.entitlements.check, {
         appUserId: "user_dest",
         entitlementId: "premium",
@@ -405,7 +385,6 @@ describe("handlers", () => {
       const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
       const gracePeriodExpiration = Date.now() + 7 * 24 * 60 * 60 * 1000;
 
-      // First, create initial purchase
       const initialPayload = createEventPayload({
         id: "evt_billing_1_initial",
         type: "INITIAL_PURCHASE",
@@ -425,7 +404,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Now billing issue
       const billingPayload = {
         ...createEventPayload({
           id: "evt_billing_1_issue",
@@ -448,7 +426,6 @@ describe("handlers", () => {
         payload: billingPayload,
       });
 
-      // Entitlement should STILL be active during grace period
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_billing_1",
         entitlementId: "premium",
@@ -456,7 +433,6 @@ describe("handlers", () => {
 
       expect(hasPremium).toBe(true);
 
-      // Check that billing issue was recorded on entitlement
       const entitlements = await t.query(api.entitlements.list, {
         appUserId: "user_billing_1",
       });
@@ -472,7 +448,6 @@ describe("handlers", () => {
       const initialExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
       const renewedExpiration = Date.now() + 60 * 24 * 60 * 60 * 1000;
 
-      // First, create initial purchase
       const initialPayload = createEventPayload({
         id: "evt_renew_1_initial",
         type: "INITIAL_PURCHASE",
@@ -492,7 +467,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Now renew
       const renewPayload = createEventPayload({
         id: "evt_renew_1_renew",
         type: "RENEWAL",
@@ -512,7 +486,6 @@ describe("handlers", () => {
         payload: renewPayload,
       });
 
-      // Entitlement should still be active
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_renew_1",
         entitlementId: "premium",
@@ -520,7 +493,6 @@ describe("handlers", () => {
 
       expect(hasPremium).toBe(true);
 
-      // Check entitlements list has updated expiration
       const entitlements = await t.query(api.entitlements.list, {
         appUserId: "user_renew_1",
       });
@@ -536,7 +508,6 @@ describe("handlers", () => {
       const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
       const sharedTransactionId = "txn_uncancel_shared";
 
-      // First, create initial purchase
       const initialPayload = {
         ...createEventPayload({
           id: "evt_uncancel_1_initial",
@@ -560,7 +531,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Cancel the subscription
       const cancelPayload = {
         ...createEventPayload({
           id: "evt_uncancel_1_cancel",
@@ -585,14 +555,12 @@ describe("handlers", () => {
         payload: cancelPayload,
       });
 
-      // Verify cancelled
       let subs = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_uncancel_1",
       });
       expect(subs[0].cancelReason).toBe("UNSUBSCRIBE");
       expect(subs[0].autoRenewStatus).toBe(false);
 
-      // Now uncancel
       const uncancelPayload = {
         ...createEventPayload({
           id: "evt_uncancel_1_uncancel",
@@ -616,14 +584,12 @@ describe("handlers", () => {
         payload: uncancelPayload,
       });
 
-      // Verify uncancelled
       subs = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_uncancel_1",
       });
       expect(subs[0].cancelReason).toBeUndefined();
       expect(subs[0].autoRenewStatus).toBe(true);
 
-      // Entitlement should still be active
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_uncancel_1",
         entitlementId: "premium",
@@ -638,7 +604,6 @@ describe("handlers", () => {
       const initialExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
       const extendedExpiration = Date.now() + 90 * 24 * 60 * 60 * 1000;
 
-      // First, create initial purchase
       const initialPayload = createEventPayload({
         id: "evt_extend_1_initial",
         type: "INITIAL_PURCHASE",
@@ -658,7 +623,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Now extend (e.g., customer support extension)
       const extendPayload = createEventPayload({
         id: "evt_extend_1_extend",
         type: "SUBSCRIPTION_EXTENDED",
@@ -678,7 +642,6 @@ describe("handlers", () => {
         payload: extendPayload,
       });
 
-      // Check entitlement has extended expiration
       const entitlements = await t.query(api.entitlements.list, {
         appUserId: "user_extend_1",
       });
@@ -695,7 +658,6 @@ describe("handlers", () => {
       const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
       const sharedTransactionId = "txn_product_change_shared";
 
-      // First, create initial purchase
       const initialPayload = {
         ...createEventPayload({
           id: "evt_product_1_initial",
@@ -720,7 +682,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Now product change (deferred, will take effect at renewal)
       const changePayload = {
         ...createEventPayload({
           id: "evt_product_1_change",
@@ -746,7 +707,6 @@ describe("handlers", () => {
         payload: changePayload,
       });
 
-      // Subscription should have new_product_id set
       const subs = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_product_1",
       });
@@ -754,7 +714,6 @@ describe("handlers", () => {
       expect(subs.length).toBe(1);
       expect(subs[0].newProductId).toBe("yearly_premium");
 
-      // Entitlement should still be active (product change is informational)
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_product_1",
         entitlementId: "premium",
@@ -789,7 +748,6 @@ describe("handlers", () => {
         payload,
       });
 
-      // Check entitlements were granted
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_nonrenew_1",
         entitlementId: "premium",
@@ -802,7 +760,6 @@ describe("handlers", () => {
       expect(hasPremium).toBe(true);
       expect(hasExclusive).toBe(true);
 
-      // Check subscription was created
       const subs = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_nonrenew_1",
       });
@@ -837,7 +794,6 @@ describe("handlers", () => {
         payload,
       });
 
-      // Check entitlement was granted
       const hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_temp_1",
         entitlementId: "premium",
@@ -845,7 +801,6 @@ describe("handlers", () => {
 
       expect(hasPremium).toBe(true);
 
-      // Check expiration is set correctly
       const entitlements = await t.query(api.entitlements.list, {
         appUserId: "user_temp_1",
       });
@@ -860,7 +815,6 @@ describe("handlers", () => {
       const t = initConvexTest();
       const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      // First, create initial purchase
       const initialPayload = createEventPayload({
         id: "evt_refund_rev_1_initial",
         type: "INITIAL_PURCHASE",
@@ -880,7 +834,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Simulate refund by expiring
       const expirePayload = createEventPayload({
         id: "evt_refund_rev_1_expire",
         type: "EXPIRATION",
@@ -901,14 +854,12 @@ describe("handlers", () => {
         payload: expirePayload,
       });
 
-      // Verify revoked
       let hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_refund_rev_1",
         entitlementId: "premium",
       });
       expect(hasPremium).toBe(false);
 
-      // Now refund reversed - restore access
       const refundReversedPayload = createEventPayload({
         id: "evt_refund_rev_1_reversed",
         type: "REFUND_REVERSED",
@@ -928,7 +879,6 @@ describe("handlers", () => {
         payload: refundReversedPayload,
       });
 
-      // Entitlement should be restored
       hasPremium = await t.query(api.entitlements.check, {
         appUserId: "user_refund_rev_1",
         entitlementId: "premium",
@@ -941,7 +891,6 @@ describe("handlers", () => {
     test("processes test event without errors", async () => {
       const t = initConvexTest();
 
-      // TEST events are minimal - issued from RevenueCat dashboard
       const payload = {
         id: "evt_test_1",
         type: "TEST",
@@ -1074,7 +1023,6 @@ describe("handlers", () => {
         payload,
       });
 
-      // Check experiment was stored
       const experiment = await t.query(api.experiments.get, {
         appUserId: "user_experiment_2",
         experimentId: "exp_pricing_test",
@@ -1090,8 +1038,6 @@ describe("handlers", () => {
     test("stores subscriber_attributes on customer", async () => {
       const t = initConvexTest();
 
-      // Note: In real webhooks, $ is in the key. In tests, we pre-encode it
-      // because Convex doesn't allow $ prefix in object keys
       const payload = createEventPayload({
         id: "evt_attrs_1",
         type: "INITIAL_PURCHASE",
@@ -1120,14 +1066,12 @@ describe("handlers", () => {
         payload,
       });
 
-      // Check customer has attributes
       const customer = await t.query(api.customers.get, {
         appUserId: "user_attrs_1",
       });
 
       expect(customer).not.toBeNull();
       expect(customer?.attributes).toBeDefined();
-      // Note: $ is encoded as __dollar__ for Convex compatibility
       expect(customer?.attributes?.__dollar__email?.value).toBe("test@example.com");
       expect(customer?.attributes?.custom_plan?.value).toBe("enterprise");
     });
@@ -1137,8 +1081,6 @@ describe("handlers", () => {
       const oldTime = Date.now() - 10000;
       const newTime = Date.now();
 
-      // First purchase with initial attributes
-      // Note: $ is encoded as __dollar__ for Convex compatibility
       const payload1 = createEventPayload({
         id: "evt_attrs_merge_1",
         type: "INITIAL_PURCHASE",
@@ -1167,7 +1109,6 @@ describe("handlers", () => {
         payload: payload1,
       });
 
-      // Renewal with updated attributes (newer email, older plan)
       const payload2 = createEventPayload({
         id: "evt_attrs_merge_2",
         type: "RENEWAL",
@@ -1196,12 +1137,10 @@ describe("handlers", () => {
         payload: payload2,
       });
 
-      // Check attributes were merged correctly
       const customer = await t.query(api.customers.get, {
         appUserId: "user_attrs_merge",
       });
 
-      // Note: $ is encoded as __dollar__ for Convex compatibility
       expect(customer?.attributes?.__dollar__email?.value).toBe("new@example.com"); // newer
       expect(customer?.attributes?.plan?.value).toBe("starter"); // older kept
     });
@@ -1237,7 +1176,6 @@ describe("handlers", () => {
         payload,
       });
 
-      // Check experiment was stored
       const experiments = await t.query(api.experiments.list, {
         appUserId: "user_exp_purchase",
       });
@@ -1278,7 +1216,6 @@ describe("handlers", () => {
         payload,
       });
 
-      // Check both experiments were stored
       const experiments = await t.query(api.experiments.list, {
         appUserId: "user_multi_exp",
       });
@@ -1294,7 +1231,6 @@ describe("handlers", () => {
     test("processes subscriber alias event and updates customer", async () => {
       const t = initConvexTest();
 
-      // First create a customer
       const initialPayload = createEventPayload({
         id: "evt_alias_setup",
         type: "INITIAL_PURCHASE",
@@ -1312,7 +1248,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Now send SUBSCRIBER_ALIAS event
       const aliasPayload = {
         id: "evt_alias_1",
         type: "SUBSCRIBER_ALIAS",
@@ -1335,7 +1270,6 @@ describe("handlers", () => {
 
       expect(result.processed).toBe(true);
 
-      // Verify customer was updated with aliases
       const customer = await t.query(api.customers.get, {
         appUserId: "user_alias_test",
       });
