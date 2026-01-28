@@ -20,10 +20,6 @@ export const rateLimits = internalMutation({
       await ctx.db.delete(entry._id);
     }
 
-    if (oldEntries.length > 0) {
-      console.log(`[cleanup:rateLimits] Deleted ${oldEntries.length} stale entries`);
-    }
-
     return oldEntries.length;
   },
 });
@@ -45,10 +41,6 @@ export const webhookEvents = internalMutation({
         await ctx.db.delete(event._id);
         deleted++;
       }
-    }
-
-    if (deleted > 0) {
-      console.log(`[cleanup:webhookEvents] Deleted ${deleted} events older than 30 days`);
     }
 
     return deleted;
