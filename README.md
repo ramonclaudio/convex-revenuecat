@@ -252,6 +252,11 @@ The component creates six tables:
 | `webhookEvents` | Event log for idempotency and debugging (30-day retention) |
 | `rateLimits` | Webhook endpoint rate limiting (100 req/min per app) |
 
+## Limitations
+
+- **No initial sync** — Existing subscribers before webhook setup won't appear until they trigger a new event (renewal, cancellation, etc.)
+- **Webhook-driven only** — Data comes exclusively from webhooks; no API polling or backfill mechanism
+
 ## Testing
 
 Register the component in your tests:
