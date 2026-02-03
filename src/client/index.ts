@@ -1,6 +1,5 @@
 import { httpActionGeneric } from "convex/server";
 import type { GenericActionCtx, GenericDataModel } from "convex/server";
-import { timingSafeEqual } from "node:crypto";
 import type { ComponentApi } from "../component/_generated/component.js";
 
 export type {
@@ -28,15 +27,30 @@ export interface RevenueCatOptions {
   REVENUECAT_WEBHOOK_AUTH?: string;
 }
 
-function encodeReservedKeys(obj: unknown): unknown {
-  if (obj === null || obj === undefined) return obj;
+/**
+ * Recursively transform a JSON payload for Convex compatibility:
+ * 1. Strip null values (Convex v.optional() only accepts undefined, not null)
+ * 2. Encode reserved keys (Convex rejects keys starting with $)
+ *
+ * Null handling by container type:
+ * - Object values: removed (omitting key is equivalent to undefined for v.optional)
+ * - Array elements: converted to undefined (removal would change indices)
+ * - Primitives: converted to undefined
+ */
+function transformPayload(obj: unknown): unknown {
+  if (obj === null) return undefined;
+  if (obj === undefined) return undefined;
   if (typeof obj !== "object") return obj;
-  if (Array.isArray(obj)) return obj.map(encodeReservedKeys);
+
+  if (Array.isArray(obj)) {
+    return obj.map(transformPayload);
+  }
 
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-    const encodedKey = key.startsWith("$") ? `__dollar__${key.slice(1)}` : key;
-    result[encodedKey] = encodeReservedKeys(value);
+    if (value === null) continue;
+    const safeKey = key.startsWith("$") ? `__dollar__${key.slice(1)}` : key;
+    result[safeKey] = transformPayload(value);
   }
   return result;
 }
@@ -94,6 +108,8 @@ export class RevenueCat {
 
     return httpActionGeneric(async (ctx, request) => {
       if (expectedAuth) {
+        // Lazy import: only load node:crypto when auth is configured
+        const { timingSafeEqual } = await import("node:crypto");
         const authHeader = request.headers.get("Authorization") ?? "";
         const authMatch =
           authHeader.length === expectedAuth.length &&
@@ -126,7 +142,7 @@ export class RevenueCat {
         });
       }
 
-      const encodedEvent = encodeReservedKeys(event) as Record<string, unknown>;
+      const sanitizedEvent = transformPayload(event) as Record<string, unknown>;
 
       try {
         const result = await ctx.runMutation(component.webhooks.process, {
@@ -138,7 +154,7 @@ export class RevenueCat {
             environment: (event.environment as Environment) ?? "PRODUCTION",
             store: event.store as Store | undefined,
           },
-          payload: encodedEvent,
+          payload: sanitizedEvent,
         });
 
         return new Response(JSON.stringify(result), {
