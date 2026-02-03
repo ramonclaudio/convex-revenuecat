@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- **Webhook processing fails with null values** — RevenueCat sends explicit `null` for optional fields, but Convex validators only accept `undefined`. Payloads are now sanitized before processing.
+- **Webhook processing fails with null values** — RevenueCat sends explicit `null` for optional fields, but Convex's `v.optional()` expects absent keys (not null values). Object keys with null values are now removed, making them absent. Array elements are preserved since `null` is a valid Convex value (unlike `undefined` which is not).
 - **Bundling fails in non-Node environments** — Top-level `node:crypto` import caused bundlers to fail. Now lazily imported only when webhook auth is configured.
 
 ### Changed

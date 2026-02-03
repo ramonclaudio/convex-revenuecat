@@ -29,17 +29,21 @@ export interface RevenueCatOptions {
 
 /**
  * Recursively transform a JSON payload for Convex compatibility:
- * 1. Strip null values (Convex v.optional() only accepts undefined, not null)
+ * 1. Remove null object keys (v.optional expects field absence, not null)
  * 2. Encode reserved keys (Convex rejects keys starting with $)
  *
- * Null handling by container type:
- * - Object values: removed (omitting key is equivalent to undefined for v.optional)
- * - Array elements: converted to undefined (removal would change indices)
- * - Primitives: converted to undefined
+ * Important Convex value semantics:
+ * - `undefined` is NOT a valid Convex value (never produce it)
+ * - `null` IS a valid Convex value (use v.null() in validators)
+ * - `v.optional()` means field can be absent, not that it accepts null
+ *
+ * Null handling:
+ * - Object keys with null: removed (absent = valid for v.optional)
+ * - Array elements: preserved as-is (null is valid, filtering changes indices)
+ * - Top-level null: preserved (caller must handle)
  */
 function transformPayload(obj: unknown): unknown {
-  if (obj === null) return undefined;
-  if (obj === undefined) return undefined;
+  if (obj === null || obj === undefined) return obj;
   if (typeof obj !== "object") return obj;
 
   if (Array.isArray(obj)) {
