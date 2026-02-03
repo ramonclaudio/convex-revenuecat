@@ -1,6 +1,5 @@
 import { httpActionGeneric } from "convex/server";
 import type { GenericActionCtx, GenericDataModel } from "convex/server";
-import { timingSafeEqual } from "node:crypto";
 import type { ComponentApi } from "../component/_generated/component.js";
 
 export type {
@@ -28,15 +27,34 @@ export interface RevenueCatOptions {
   REVENUECAT_WEBHOOK_AUTH?: string;
 }
 
-function encodeReservedKeys(obj: unknown): unknown {
+/**
+ * Recursively transform a JSON payload for Convex compatibility:
+ * 1. Remove null object keys (v.optional expects field absence, not null)
+ * 2. Encode reserved keys (Convex rejects keys starting with $)
+ *
+ * Important Convex value semantics:
+ * - `undefined` is NOT a valid Convex value (never produce it)
+ * - `null` IS a valid Convex value (use v.null() in validators)
+ * - `v.optional()` means field can be absent, not that it accepts null
+ *
+ * Null handling:
+ * - Object keys with null: removed (absent = valid for v.optional)
+ * - Array elements: preserved as-is (null is valid, filtering changes indices)
+ * - Top-level null: preserved (caller must handle)
+ */
+function transformPayload(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== "object") return obj;
-  if (Array.isArray(obj)) return obj.map(encodeReservedKeys);
+
+  if (Array.isArray(obj)) {
+    return obj.map(transformPayload);
+  }
 
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-    const encodedKey = key.startsWith("$") ? `__dollar__${key.slice(1)}` : key;
-    result[encodedKey] = encodeReservedKeys(value);
+    if (value === null) continue;
+    const safeKey = key.startsWith("$") ? `__dollar__${key.slice(1)}` : key;
+    result[safeKey] = transformPayload(value);
   }
   return result;
 }
@@ -94,6 +112,8 @@ export class RevenueCat {
 
     return httpActionGeneric(async (ctx, request) => {
       if (expectedAuth) {
+        // Lazy import: only load node:crypto when auth is configured
+        const { timingSafeEqual } = await import("node:crypto");
         const authHeader = request.headers.get("Authorization") ?? "";
         const authMatch =
           authHeader.length === expectedAuth.length &&
@@ -126,7 +146,7 @@ export class RevenueCat {
         });
       }
 
-      const encodedEvent = encodeReservedKeys(event) as Record<string, unknown>;
+      const sanitizedEvent = transformPayload(event) as Record<string, unknown>;
 
       try {
         const result = await ctx.runMutation(component.webhooks.process, {
@@ -138,7 +158,7 @@ export class RevenueCat {
             environment: (event.environment as Environment) ?? "PRODUCTION",
             store: event.store as Store | undefined,
           },
-          payload: encodedEvent,
+          payload: sanitizedEvent,
         });
 
         return new Response(JSON.stringify(result), {
