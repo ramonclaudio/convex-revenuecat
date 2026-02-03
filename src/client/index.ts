@@ -2,6 +2,16 @@ import { httpActionGeneric } from "convex/server";
 import type { GenericActionCtx, GenericDataModel } from "convex/server";
 import type { ComponentApi } from "../component/_generated/component.js";
 
+// Client only uses these specific methods - Pick ensures compatibility
+// with deployments that may not have all component features
+type ClientComponentApi = {
+  entitlements: Pick<ComponentApi['entitlements'], 'check' | 'getActive' | 'list'>;
+  subscriptions: Pick<ComponentApi['subscriptions'], 'getActive' | 'getByUser'>;
+  customers: Pick<ComponentApi['customers'], 'get'>;
+  experiments: Pick<ComponentApi['experiments'], 'get' | 'list'>;
+  webhooks: Pick<ComponentApi['webhooks'], 'process'>;
+};
+
 export type {
   Store,
   Environment,
@@ -48,7 +58,7 @@ function transformPayload(obj: unknown): unknown {
 
 export class RevenueCat {
   constructor(
-    public component: ComponentApi,
+    public component: ClientComponentApi,
     public options: RevenueCatOptions = {},
   ) {}
 

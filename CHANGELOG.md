@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+### Fixed
+
+- **Client type compatibility** — Changed `ComponentApi` to `ClientComponentApi` using `Pick<>` to only require the specific methods the client uses. Fixes type errors when deployments have different component versions.
+
 ## 0.1.2
 
 ### Changed
