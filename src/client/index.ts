@@ -28,27 +28,14 @@ export interface RevenueCatOptions {
 }
 
 /**
- * Recursively transform a JSON payload for Convex compatibility:
- * 1. Remove null object keys (v.optional expects field absence, not null)
- * 2. Encode reserved keys (Convex rejects keys starting with $)
- *
- * Important Convex value semantics:
- * - `undefined` is NOT a valid Convex value (never produce it)
- * - `null` IS a valid Convex value (use v.null() in validators)
- * - `v.optional()` means field can be absent, not that it accepts null
- *
- * Null handling:
- * - Object keys with null: removed (absent = valid for v.optional)
- * - Array elements: preserved as-is (null is valid, filtering changes indices)
- * - Top-level null: preserved (caller must handle)
+ * Transform payload for Convex compatibility:
+ * - Remove null object keys (v.optional expects field absence, not null)
+ * - Encode $ keys (Convex rejects keys starting with $)
  */
 function transformPayload(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== "object") return obj;
-
-  if (Array.isArray(obj)) {
-    return obj.map(transformPayload);
-  }
+  if (Array.isArray(obj)) return obj.map(transformPayload);
 
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
@@ -112,13 +99,8 @@ export class RevenueCat {
 
     return httpActionGeneric(async (ctx, request) => {
       if (expectedAuth) {
-        // Lazy import: only load node:crypto when auth is configured
-        const { timingSafeEqual } = await import("node:crypto");
         const authHeader = request.headers.get("Authorization") ?? "";
-        const authMatch =
-          authHeader.length === expectedAuth.length &&
-          timingSafeEqual(Buffer.from(authHeader), Buffer.from(expectedAuth));
-        if (!authMatch) {
+        if (authHeader !== expectedAuth) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },

@@ -183,7 +183,7 @@ export const getSubscriptions = query({
 
 ## API Reference
 
-### Constructor Options
+### Constructor
 
 ```typescript
 const revenuecat = new RevenueCat(components.revenuecat, {
