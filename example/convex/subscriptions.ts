@@ -86,6 +86,17 @@ const customerValidator = v.object({
   updatedAt: v.number(),
 });
 
+const experimentValidator = v.object({
+  _id: v.string(),
+  _creationTime: v.number(),
+  appUserId: v.string(),
+  experimentId: v.string(),
+  variant: v.string(),
+  offeringId: v.optional(v.string()),
+  enrolledAtMs: v.number(),
+  updatedAt: v.number(),
+});
+
 export const checkPremium = query({
   args: { appUserId: v.string() },
   returns: v.boolean(),
@@ -149,3 +160,25 @@ export const getAllSubscriptions = query({
   },
 });
 
+// Experiment queries (A/B testing)
+
+export const getExperiment = query({
+  args: { appUserId: v.string(), experimentId: v.string() },
+  returns: v.union(experimentValidator, v.null()),
+  handler: async (ctx, args) => {
+    return await revenuecat.getExperiment(ctx, {
+      appUserId: args.appUserId,
+      experimentId: args.experimentId,
+    });
+  },
+});
+
+export const getExperiments = query({
+  args: { appUserId: v.string() },
+  returns: v.array(experimentValidator),
+  handler: async (ctx, args) => {
+    return await revenuecat.getExperiments(ctx, {
+      appUserId: args.appUserId,
+    });
+  },
+});

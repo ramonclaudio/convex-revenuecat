@@ -348,6 +348,44 @@ async function transferEntitlements(
   }
 }
 
+async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise<void> {
+  if (!event.experiments?.length || !event.app_user_id) return;
+
+  const now = Date.now();
+
+  for (const exp of event.experiments) {
+    const existing = await ctx.db
+      .query("experiments")
+      .withIndex("by_app_user_experiment", (q) =>
+        q.eq("appUserId", event.app_user_id!).eq("experimentId", exp.experiment_id),
+      )
+      .first();
+
+    if (existing) {
+      if (
+        existing.variant !== exp.experiment_variant ||
+        (exp.enrolled_at_ms && exp.enrolled_at_ms > existing.enrolledAtMs)
+      ) {
+        await ctx.db.patch(existing._id, {
+          variant: exp.experiment_variant,
+          offeringId: exp.offering_id,
+          enrolledAtMs: exp.enrolled_at_ms ?? existing.enrolledAtMs,
+          updatedAt: now,
+        });
+      }
+    } else {
+      await ctx.db.insert("experiments", {
+        appUserId: event.app_user_id,
+        experimentId: exp.experiment_id,
+        variant: exp.experiment_variant,
+        offeringId: exp.offering_id,
+        enrolledAtMs: exp.enrolled_at_ms ?? event.event_timestamp_ms,
+        updatedAt: now,
+      });
+    }
+  }
+}
+
 export const processInitialPurchase = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -356,6 +394,7 @@ export const processInitialPurchase = internalMutation({
     await upsertCustomer(ctx, event);
     await upsertSubscription(ctx, event);
     await grantEntitlements(ctx, event);
+    await upsertExperiments(ctx, event);
     return null;
   },
 });
@@ -371,6 +410,7 @@ export const processRenewal = internalMutation({
       gracePeriodExpirationAtMs: undefined,
     });
     await extendEntitlements(ctx, event);
+    await upsertExperiments(ctx, event);
     return null;
   },
 });
@@ -495,6 +535,7 @@ export const processNonRenewingPurchase = internalMutation({
     await upsertCustomer(ctx, event);
     await upsertSubscription(ctx, event);
     await grantEntitlements(ctx, event);
+    await upsertExperiments(ctx, event);
     return null;
   },
 });
@@ -569,13 +610,28 @@ export const processVirtualCurrencyTransaction = internalMutation({
   },
 });
 
-// EXPERIMENT_ENROLLMENT events are received but not stored (experiments table removed)
 export const processExperimentEnrollment = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
+
+    if (event.experiment_id && event.experiment_variant && event.app_user_id) {
+      const experimentEvent = {
+        ...event,
+        experiments: [
+          {
+            experiment_id: event.experiment_id,
+            experiment_variant: event.experiment_variant,
+            offering_id: event.offering_id,
+            enrolled_at_ms: event.experiment_enrolled_at_ms,
+          },
+        ],
+      };
+      await upsertExperiments(ctx, experimentEvent);
+    }
+
     return null;
   },
 });

@@ -1056,6 +1056,143 @@ describe("handlers", () => {
     });
   });
 
+  describe("EXPERIMENT_ENROLLMENT", () => {
+    test("processes experiment enrollment event", async () => {
+      const t = initConvexTest();
+
+      const payload = {
+        id: "evt_experiment_1",
+        type: "EXPERIMENT_ENROLLMENT",
+        event_timestamp_ms: Date.now(),
+        app_user_id: "user_experiment_1",
+        environment: "PRODUCTION" as const,
+        experiment_id: "exp_123",
+        experiment_variant: "treatment_a",
+        offering_id: "offering_premium",
+        experiment_enrolled_at_ms: Date.now(),
+      };
+
+      const result = await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload.id,
+          type: payload.type,
+          app_user_id: payload.app_user_id,
+          environment: payload.environment,
+        },
+        payload,
+      });
+
+      expect(result.processed).toBe(true);
+    });
+
+    test("stores experiment enrollment in database", async () => {
+      const t = initConvexTest();
+      const enrolledAt = Date.now();
+
+      const payload = {
+        id: "evt_experiment_2",
+        type: "EXPERIMENT_ENROLLMENT",
+        event_timestamp_ms: enrolledAt,
+        app_user_id: "user_experiment_2",
+        environment: "PRODUCTION" as const,
+        experiment_id: "exp_pricing_test",
+        experiment_variant: "variant_b",
+        offering_id: "offering_premium",
+        experiment_enrolled_at_ms: enrolledAt,
+      };
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload.id,
+          type: payload.type,
+          app_user_id: payload.app_user_id,
+          environment: payload.environment,
+        },
+        payload,
+      });
+
+      const experiment = await t.query(api.experiments.get, {
+        appUserId: "user_experiment_2",
+        experimentId: "exp_pricing_test",
+      });
+
+      expect(experiment).not.toBeNull();
+      expect(experiment?.variant).toBe("variant_b");
+      expect(experiment?.offeringId).toBe("offering_premium");
+      expect(experiment?.enrolledAtMs).toBe(enrolledAt);
+    });
+  });
+
+  describe("Experiment upsert with changed variant", () => {
+    test("updates experiment when variant changes", async () => {
+      const t = initConvexTest();
+      const enrolledAt = Date.now() - 5000;
+
+      const payload1 = createEventPayload({
+        id: "evt_exp_upsert_1",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_exp_upsert",
+        experiments: [
+          {
+            experiment_id: "exp_upsert_test",
+            experiment_variant: "control",
+            enrolled_at_ms: enrolledAt,
+          },
+        ],
+      });
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload1.id,
+          type: payload1.type,
+          app_id: payload1.app_id,
+          app_user_id: payload1.app_user_id,
+          environment: payload1.environment,
+          store: payload1.store,
+        },
+        payload: payload1,
+      });
+
+      let experiment = await t.query(api.experiments.get, {
+        appUserId: "user_exp_upsert",
+        experimentId: "exp_upsert_test",
+      });
+      expect(experiment?.variant).toBe("control");
+
+      const payload2 = createEventPayload({
+        id: "evt_exp_upsert_2",
+        type: "RENEWAL",
+        app_user_id: "user_exp_upsert",
+        experiments: [
+          {
+            experiment_id: "exp_upsert_test",
+            experiment_variant: "treatment",
+            enrolled_at_ms: enrolledAt + 1000,
+          },
+        ],
+      });
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload2.id,
+          type: payload2.type,
+          app_id: payload2.app_id,
+          app_user_id: payload2.app_user_id,
+          environment: payload2.environment,
+          store: payload2.store,
+        },
+        payload: payload2,
+      });
+
+      experiment = await t.query(api.experiments.get, {
+        appUserId: "user_exp_upsert",
+        experimentId: "exp_upsert_test",
+      });
+      expect(experiment?.variant).toBe("treatment");
+      expect(experiment?.enrolledAtMs).toBe(enrolledAt + 1000);
+    });
+  });
+
   describe("Subscriber Attributes", () => {
     test("stores subscriber_attributes on customer", async () => {
       const t = initConvexTest();
@@ -1165,6 +1302,87 @@ describe("handlers", () => {
 
       expect(customer?.attributes?.__dollar__email?.value).toBe("new@example.com"); // newer
       expect(customer?.attributes?.plan?.value).toBe("starter"); // older kept
+    });
+  });
+
+  describe("Experiments from Purchase Events", () => {
+    test("stores experiments from INITIAL_PURCHASE", async () => {
+      const t = initConvexTest();
+      const enrolledAt = Date.now() - 5000;
+
+      const payload = createEventPayload({
+        id: "evt_exp_purchase_1",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_exp_purchase",
+        experiments: [
+          {
+            experiment_id: "exp_paywall_test",
+            experiment_variant: "variant_a",
+            enrolled_at_ms: enrolledAt,
+          },
+        ],
+      });
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload.id,
+          type: payload.type,
+          app_id: payload.app_id,
+          app_user_id: payload.app_user_id,
+          environment: payload.environment,
+          store: payload.store,
+        },
+        payload,
+      });
+
+      const experiments = await t.query(api.experiments.list, {
+        appUserId: "user_exp_purchase",
+      });
+
+      expect(experiments).toHaveLength(1);
+      expect(experiments[0].experimentId).toBe("exp_paywall_test");
+      expect(experiments[0].variant).toBe("variant_a");
+    });
+
+    test("stores multiple experiments from single event", async () => {
+      const t = initConvexTest();
+
+      const payload = createEventPayload({
+        id: "evt_multi_exp_1",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_multi_exp",
+        experiments: [
+          {
+            experiment_id: "exp_pricing",
+            experiment_variant: "high_price",
+          },
+          {
+            experiment_id: "exp_onboarding",
+            experiment_variant: "skip_tutorial",
+          },
+        ],
+      });
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload.id,
+          type: payload.type,
+          app_id: payload.app_id,
+          app_user_id: payload.app_user_id,
+          environment: payload.environment,
+          store: payload.store,
+        },
+        payload,
+      });
+
+      const experiments = await t.query(api.experiments.list, {
+        appUserId: "user_multi_exp",
+      });
+
+      expect(experiments).toHaveLength(2);
+      const experimentIds = experiments.map((e) => e.experimentId);
+      expect(experimentIds).toContain("exp_pricing");
+      expect(experimentIds).toContain("exp_onboarding");
     });
   });
 
