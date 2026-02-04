@@ -6,9 +6,12 @@ import type { ComponentApi } from "../component/_generated/component.js";
 // with deployments that may not have all component features
 type ClientComponentApi = {
   entitlements: Pick<ComponentApi['entitlements'], 'check' | 'getActive' | 'list'>;
-  subscriptions: Pick<ComponentApi['subscriptions'], 'getActive' | 'getByUser'>;
+  subscriptions: Pick<ComponentApi['subscriptions'], 'getActive' | 'getByUser' | 'isInGracePeriod' | 'getInGracePeriod'>;
   customers: Pick<ComponentApi['customers'], 'get'>;
   experiments: Pick<ComponentApi['experiments'], 'get' | 'list'>;
+  transfers: Pick<ComponentApi['transfers'], 'getByEventId' | 'list'>;
+  invoices: Pick<ComponentApi['invoices'], 'get' | 'listByUser'>;
+  virtualCurrency: Pick<ComponentApi['virtualCurrency'], 'getBalance' | 'listBalances' | 'listTransactions'>;
   webhooks: Pick<ComponentApi['webhooks'], 'process'>;
 };
 
@@ -16,10 +19,15 @@ export type {
   Store,
   Environment,
   PeriodType,
+  OwnershipType,
   Entitlement,
   Subscription,
   Customer,
   Experiment,
+  Transfer,
+  Invoice,
+  VirtualCurrencyBalance,
+  VirtualCurrencyTransaction,
 } from "../component/types.js";
 
 import type {
@@ -29,12 +37,54 @@ import type {
   Subscription,
   Customer,
   Experiment,
+  Transfer,
+  Invoice,
+  VirtualCurrencyBalance,
+  VirtualCurrencyTransaction,
 } from "../component/types.js";
+
+export type GracePeriodStatus = {
+  inGracePeriod: boolean;
+  gracePeriodExpiresAt?: number;
+  billingIssueDetectedAt?: number;
+};
 
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
 
 export interface RevenueCatOptions {
+  /**
+   * Authorization header value for webhook authentication.
+   * RevenueCat sends this in the Authorization header.
+   * Can be a raw value or "Bearer <token>" format.
+   */
   REVENUECAT_WEBHOOK_AUTH?: string;
+}
+
+/**
+ * Constant-time string comparison to prevent timing attacks.
+ * Falls back to regular comparison if lengths differ (already leaks length info).
+ */
+function secureCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/**
+ * Extract token from Authorization header.
+ * Supports both "Bearer <token>" format and raw token.
+ */
+function extractAuthToken(header: string): string {
+  const bearerPrefix = "Bearer ";
+  if (header.startsWith(bearerPrefix)) {
+    return header.slice(bearerPrefix.length);
+  }
+  return header;
 }
 
 /**
@@ -103,6 +153,64 @@ export class RevenueCat {
     return ctx.runQuery(this.component.experiments.list, args) as Promise<Experiment[]>;
   }
 
+  async getTransfer(ctx: QueryCtx, args: { eventId: string }): Promise<Transfer | null> {
+    return ctx.runQuery(this.component.transfers.getByEventId, args) as Promise<Transfer | null>;
+  }
+
+  async getTransfers(ctx: QueryCtx, args: { limit?: number } = {}): Promise<Transfer[]> {
+    return ctx.runQuery(this.component.transfers.list, args) as Promise<Transfer[]>;
+  }
+
+  async getInvoice(ctx: QueryCtx, args: { invoiceId: string }): Promise<Invoice | null> {
+    return ctx.runQuery(this.component.invoices.get, args) as Promise<Invoice | null>;
+  }
+
+  async getInvoices(ctx: QueryCtx, args: { appUserId: string }): Promise<Invoice[]> {
+    return ctx.runQuery(this.component.invoices.listByUser, args) as Promise<Invoice[]>;
+  }
+
+  async getVirtualCurrencyBalance(
+    ctx: QueryCtx,
+    args: { appUserId: string; currencyCode: string },
+  ): Promise<VirtualCurrencyBalance | null> {
+    return ctx.runQuery(this.component.virtualCurrency.getBalance, args) as Promise<VirtualCurrencyBalance | null>;
+  }
+
+  async getVirtualCurrencyBalances(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<VirtualCurrencyBalance[]> {
+    return ctx.runQuery(this.component.virtualCurrency.listBalances, args) as Promise<VirtualCurrencyBalance[]>;
+  }
+
+  async getVirtualCurrencyTransactions(
+    ctx: QueryCtx,
+    args: { appUserId: string; currencyCode?: string },
+  ): Promise<VirtualCurrencyTransaction[]> {
+    return ctx.runQuery(this.component.virtualCurrency.listTransactions, args) as Promise<VirtualCurrencyTransaction[]>;
+  }
+
+  /**
+   * Check if a specific subscription is currently in a billing grace period.
+   * During grace period, the user should retain access while the store retries charging.
+   */
+  async isInGracePeriod(
+    ctx: QueryCtx,
+    args: { originalTransactionId: string },
+  ): Promise<GracePeriodStatus> {
+    return ctx.runQuery(this.component.subscriptions.isInGracePeriod, args) as Promise<GracePeriodStatus>;
+  }
+
+  /**
+   * Get all subscriptions currently in a grace period for a user.
+   */
+  async getSubscriptionsInGracePeriod(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Subscription[]> {
+    return ctx.runQuery(this.component.subscriptions.getInGracePeriod, args) as Promise<Subscription[]>;
+  }
+
   httpHandler() {
     const component = this.component;
     const expectedAuth = this.options.REVENUECAT_WEBHOOK_AUTH;
@@ -110,7 +218,10 @@ export class RevenueCat {
     return httpActionGeneric(async (ctx, request) => {
       if (expectedAuth) {
         const authHeader = request.headers.get("Authorization") ?? "";
-        if (authHeader !== expectedAuth) {
+        const providedToken = extractAuthToken(authHeader);
+        const expectedToken = extractAuthToken(expectedAuth);
+
+        if (!secureCompare(providedToken, expectedToken)) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
