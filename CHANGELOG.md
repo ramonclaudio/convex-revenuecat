@@ -6,6 +6,10 @@
 
 - **Webhook validation fails for undocumented RevenueCat fields** — Added `takehome_percentage` and `entitlement_id` to event payload validator. RevenueCat sends these fields in webhook payloads but they aren't documented in the API reference.
 
+### Changed
+
+- **Typed `adjustments` field** — Virtual currency adjustments now have proper typing: `{ amount: number, currency: { code, name, description? } }[]` instead of `v.any()`. Used in `VIRTUAL_CURRENCY_TRANSACTION` events.
+
 ## 0.1.3
 
 ### Fixed
