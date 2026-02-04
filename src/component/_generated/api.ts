@@ -11,8 +11,12 @@
 import type * as cleanup from "../cleanup.js";
 import type * as customers from "../customers.js";
 import type * as entitlements from "../entitlements.js";
+import type * as experiments from "../experiments.js";
 import type * as handlers from "../handlers.js";
+import type * as invoices from "../invoices.js";
 import type * as subscriptions from "../subscriptions.js";
+import type * as transfers from "../transfers.js";
+import type * as virtualCurrency from "../virtualCurrency.js";
 import type * as webhookEvents from "../webhookEvents.js";
 import type * as webhooks from "../webhooks.js";
 
@@ -23,8 +27,12 @@ const fullApi: ApiFromModules<{
   cleanup: typeof cleanup;
   customers: typeof customers;
   entitlements: typeof entitlements;
+  experiments: typeof experiments;
   handlers: typeof handlers;
+  invoices: typeof invoices;
   subscriptions: typeof subscriptions;
+  transfers: typeof transfers;
+  virtualCurrency: typeof virtualCurrency;
   webhookEvents: typeof webhookEvents;
   webhooks: typeof webhooks;
 }> = anyApi as any;

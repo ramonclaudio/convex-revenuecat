@@ -24,6 +24,12 @@ export const periodTypeValidator = v.union(
   v.literal("PREPAID"),
 );
 
+// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
+export const ownershipTypeValidator = v.union(
+  v.literal("PURCHASED"),
+  v.literal("FAMILY_SHARED"),
+);
+
 export const subscriberAttributeValidator = v.object({
   value: v.string(),
   updated_at_ms: v.number(),
@@ -63,6 +69,8 @@ export default defineSchema({
     originalTransactionId: v.string(),
     transactionId: v.string(),
     isFamilyShare: v.boolean(),
+    // PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
+    ownershipType: v.optional(ownershipTypeValidator),
     isTrialConversion: v.optional(v.boolean()),
     autoRenewStatus: v.optional(v.boolean()),
     cancelReason: v.optional(v.string()),
@@ -120,4 +128,67 @@ export default defineSchema({
     .index("by_app_user", ["appUserId"])
     .index("by_status", ["status"]),
 
+  experiments: defineTable({
+    appUserId: v.string(),
+    experimentId: v.string(),
+    variant: v.string(),
+    offeringId: v.optional(v.string()),
+    enrolledAtMs: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_app_user", ["appUserId"])
+    .index("by_app_user_experiment", ["appUserId", "experimentId"])
+    .index("by_experiment", ["experimentId"]),
+
+  // TRANSFER event records
+  transfers: defineTable({
+    eventId: v.string(),
+    transferredFrom: v.array(v.string()),
+    transferredTo: v.array(v.string()),
+    entitlementIds: v.optional(v.array(v.string())),
+    timestamp: v.number(),
+  })
+    .index("by_event_id", ["eventId"])
+    .index("by_timestamp", ["timestamp"]),
+
+  // INVOICE_ISSUANCE event records (Web Billing)
+  invoices: defineTable({
+    invoiceId: v.string(),
+    appUserId: v.string(),
+    productId: v.optional(v.string()),
+    store: v.optional(storeValidator),
+    environment: environmentValidator,
+    priceUsd: v.optional(v.number()),
+    currency: v.optional(v.string()),
+    priceInPurchasedCurrency: v.optional(v.number()),
+    issuedAt: v.number(),
+  })
+    .index("by_invoice_id", ["invoiceId"])
+    .index("by_app_user", ["appUserId"]),
+
+  // VIRTUAL_CURRENCY_TRANSACTION balances per user per currency
+  virtualCurrencyBalances: defineTable({
+    appUserId: v.string(),
+    currencyCode: v.string(),
+    currencyName: v.string(),
+    balance: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_app_user", ["appUserId"])
+    .index("by_app_user_currency", ["appUserId", "currencyCode"]),
+
+  // VIRTUAL_CURRENCY_TRANSACTION individual adjustments
+  virtualCurrencyTransactions: defineTable({
+    transactionId: v.string(),
+    appUserId: v.string(),
+    currencyCode: v.string(),
+    amount: v.number(),
+    source: v.optional(v.string()),
+    productId: v.optional(v.string()),
+    environment: environmentValidator,
+    timestamp: v.number(),
+  })
+    .index("by_transaction_id", ["transactionId"])
+    .index("by_app_user", ["appUserId"])
+    .index("by_app_user_currency", ["appUserId", "currencyCode"]),
 });
