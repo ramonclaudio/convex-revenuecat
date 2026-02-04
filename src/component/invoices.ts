@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalQuery } from "./_generated/server.js";
+import { query } from "./_generated/server.js";
 import { environmentValidator, storeValidator } from "./schema.js";
 
 const invoiceValidator = v.object({
@@ -16,7 +16,7 @@ const invoiceValidator = v.object({
   issuedAt: v.number(),
 });
 
-export const get = internalQuery({
+export const get = query({
   args: { invoiceId: v.string() },
   returns: v.union(invoiceValidator, v.null()),
   handler: async (ctx, args) => {
@@ -43,7 +43,7 @@ export const get = internalQuery({
   },
 });
 
-export const listByUser = internalQuery({
+export const listByUser = query({
   args: { appUserId: v.string() },
   returns: v.array(invoiceValidator),
   handler: async (ctx, args) => {

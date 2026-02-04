@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.5
+
+### Fixed
+
+- **Query visibility** — Changed `invoices`, `transfers`, and `virtualCurrency` query functions from `internalQuery` to `query` (public) so they can be accessed via the client SDK.
+
 ## 0.1.4
 
 ### Added
@@ -19,6 +25,7 @@
 - **TRANSFER handler missing customer upsert** — Source and destination users are now properly upserted to customers table.
 - **Webhook validation fails for undocumented RevenueCat fields** — Added `takehome_percentage` and `entitlement_id` to event payload validator.
 - **INVOICE_ISSUANCE uses event.id** — The handler was looking for a nonexistent `invoice_id` field. Now correctly uses the event's `id` as the invoice identifier per RevenueCat sample events.
+- **Component type generation** — Changed `transfers`, `invoices`, and `virtualCurrency` queries from `internalQuery` to `query` so Convex generates proper types for consumer apps.
 
 ### Changed
 
