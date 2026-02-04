@@ -9,6 +9,8 @@
 ### Changed
 
 - **Typed `adjustments` field** — Virtual currency adjustments now have proper typing: `{ amount: number, currency: { code, name, description? } }[]` instead of `v.any()`. Used in `VIRTUAL_CURRENCY_TRANSACTION` events.
+- **Added `enrolled_at_ms` field** — Top-level field for `EXPERIMENT_ENROLLMENT` events (in addition to existing `experiment_enrolled_at_ms` for compatibility).
+- **Added documentation comments** — Deprecated fields (`entitlement_id`, `takehome_percentage`) and field purposes now have inline comments.
 
 ## 0.1.3
 
