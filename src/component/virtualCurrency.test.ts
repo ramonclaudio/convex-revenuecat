@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { initConvexTest } from "./setup.test.js";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 
 describe("virtualCurrency", () => {
   describe("getBalance", () => {
     test("returns null for non-existent balance", async () => {
       const t = initConvexTest();
-      const result = await t.query(api.virtualCurrency.getBalance, {
+      const result = await t.query(internal.virtualCurrency.getBalance, {
         appUserId: "user_no_currency",
         currencyCode: "COINS",
       });
@@ -44,7 +44,7 @@ describe("virtualCurrency", () => {
         },
       });
 
-      const result = await t.query(api.virtualCurrency.getBalance, {
+      const result = await t.query(internal.virtualCurrency.getBalance, {
         appUserId: "user_vc_1",
         currencyCode: "COINS",
       });
@@ -106,7 +106,7 @@ describe("virtualCurrency", () => {
         },
       });
 
-      const result = await t.query(api.virtualCurrency.getBalance, {
+      const result = await t.query(internal.virtualCurrency.getBalance, {
         appUserId: userId,
         currencyCode: "GEMS",
       });
@@ -141,12 +141,12 @@ describe("virtualCurrency", () => {
         },
       });
 
-      const result = await t.query(api.virtualCurrency.listBalances, {
+      const result = await t.query(internal.virtualCurrency.listBalances, {
         appUserId: userId,
       });
 
       expect(result.length).toBe(2);
-      const codes = result.map((b) => b.currencyCode);
+      const codes = result.map((b: { currencyCode: string }) => b.currencyCode);
       expect(codes).toContain("COINS");
       expect(codes).toContain("GEMS");
     });
@@ -195,7 +195,7 @@ describe("virtualCurrency", () => {
         },
       });
 
-      const result = await t.query(api.virtualCurrency.listTransactions, {
+      const result = await t.query(internal.virtualCurrency.listTransactions, {
         appUserId: userId,
       });
 
@@ -242,7 +242,7 @@ describe("virtualCurrency", () => {
         },
       });
 
-      const coinsOnly = await t.query(api.virtualCurrency.listTransactions, {
+      const coinsOnly = await t.query(internal.virtualCurrency.listTransactions, {
         appUserId: userId,
         currencyCode: "COINS",
       });
