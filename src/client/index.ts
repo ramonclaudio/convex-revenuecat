@@ -1,18 +1,46 @@
 import { httpActionGeneric } from "convex/server";
-import type { GenericActionCtx, GenericDataModel } from "convex/server";
-import type { ComponentApi } from "../component/_generated/component.js";
+import type { GenericActionCtx, GenericDataModel, FunctionReference } from "convex/server";
 
-// Client only uses these specific methods - Pick ensures compatibility
-// with deployments that may not have all component features
+// Convex generates component types with "internal" visibility in consumer apps
+// regardless of how they're defined in the component. Define the expected API
+// shape directly to avoid visibility mismatches.
+type AnyVisibility = "public" | "internal";
+
 type ClientComponentApi = {
-  entitlements: Pick<ComponentApi['entitlements'], 'check' | 'getActive' | 'list'>;
-  subscriptions: Pick<ComponentApi['subscriptions'], 'getActive' | 'getByUser' | 'isInGracePeriod' | 'getInGracePeriod'>;
-  customers: Pick<ComponentApi['customers'], 'get'>;
-  experiments: Pick<ComponentApi['experiments'], 'get' | 'list'>;
-  transfers: Pick<ComponentApi['transfers'], 'getByEventId' | 'list'>;
-  invoices: Pick<ComponentApi['invoices'], 'get' | 'listByUser'>;
-  virtualCurrency: Pick<ComponentApi['virtualCurrency'], 'getBalance' | 'listBalances' | 'listTransactions'>;
-  webhooks: Pick<ComponentApi['webhooks'], 'process'>;
+  entitlements: {
+    check: FunctionReference<"query", AnyVisibility, { appUserId: string; entitlementId: string }, boolean>;
+    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+  };
+  subscriptions: {
+    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    getByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    isInGracePeriod: FunctionReference<"query", AnyVisibility, { originalTransactionId: string }, { inGracePeriod: boolean; gracePeriodExpiresAt?: number; billingIssueDetectedAt?: number }>;
+    getInGracePeriod: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+  };
+  customers: {
+    get: FunctionReference<"query", AnyVisibility, { appUserId: string }, any>;
+  };
+  experiments: {
+    get: FunctionReference<"query", AnyVisibility, { appUserId: string; experimentId: string }, any>;
+    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+  };
+  transfers: {
+    getByEventId: FunctionReference<"query", AnyVisibility, { eventId: string }, any>;
+    list: FunctionReference<"query", AnyVisibility, { limit?: number }, any[]>;
+  };
+  invoices: {
+    get: FunctionReference<"query", AnyVisibility, { invoiceId: string }, any>;
+    listByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+  };
+  virtualCurrency: {
+    getBalance: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode: string }, any>;
+    listBalances: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    listTransactions: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode?: string }, any[]>;
+  };
+  webhooks: {
+    process: FunctionReference<"mutation", AnyVisibility, { event: any; payload: any }, { processed: boolean; eventId: string }>;
+  };
 };
 
 export type {
