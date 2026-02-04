@@ -20,6 +20,7 @@ const eventPayloadValidator = v.object({
   aliases: v.optional(v.array(v.string())),
   event_timestamp_ms: v.number(),
   product_id: v.optional(v.string()),
+  // Deprecated: use entitlement_ids instead
   entitlement_id: v.optional(v.union(v.string(), v.null())),
   entitlement_ids: v.optional(v.array(v.string())),
   period_type: v.optional(periodTypeValidator),
@@ -35,6 +36,7 @@ const eventPayloadValidator = v.object({
   currency: v.optional(v.string()),
   country_code: v.optional(v.string()),
   tax_percentage: v.optional(v.number()),
+  // Deprecated: use tax_percentage and commission_percentage instead
   takehome_percentage: v.optional(v.number()),
   commission_percentage: v.optional(v.number()),
   offer_code: v.optional(v.string()),
@@ -48,9 +50,12 @@ const eventPayloadValidator = v.object({
   new_product_id: v.optional(v.string()),
   transferred_from: v.optional(v.array(v.string())),
   transferred_to: v.optional(v.array(v.string())),
+  // EXPERIMENT_ENROLLMENT event fields
   experiment_id: v.optional(v.string()),
   experiment_variant: v.optional(v.string()),
   offering_id: v.optional(v.string()),
+  enrolled_at_ms: v.optional(v.number()),
+  // Legacy field name (some events use this instead of enrolled_at_ms)
   experiment_enrolled_at_ms: v.optional(v.number()),
   // Virtual currency adjustments (VIRTUAL_CURRENCY_TRANSACTION events)
   adjustments: v.optional(
@@ -66,6 +71,7 @@ const eventPayloadValidator = v.object({
     ),
   ),
   virtual_currency_transaction_id: v.optional(v.string()),
+  // VIRTUAL_CURRENCY_TRANSACTION source: in_app_purchase | admin_api
   source: v.optional(v.string()),
   invoice_id: v.optional(v.string()),
   // Arbitrary user metadata - intentionally untyped
