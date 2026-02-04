@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+### Fixed
+
+- **Webhook validation fails for undocumented RevenueCat fields** — Added `takehome_percentage` and `entitlement_id` to event payload validator. RevenueCat sends these fields in webhook payloads but they aren't documented in the API reference.
+
 ## 0.1.3
 
 ### Fixed
