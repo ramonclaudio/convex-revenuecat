@@ -304,4 +304,111 @@ describe("subscriptions", () => {
     expect(subs[0].billingIssueDetectedAt).toBeUndefined();
     expect(subs[0].gracePeriodExpirationAtMs).toBeUndefined();
   });
+
+  test("isInGracePeriod returns true when in grace period", async () => {
+    const t = initConvexTest();
+    const pastExpiration = Date.now() - 1000;
+
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_grace_check",
+        original_transaction_id: "txn_grace_check",
+        expiration_at_ms: pastExpiration,
+      }),
+    });
+
+    await t.mutation(internal.handlers.processBillingIssue, {
+      event: makeEventPayload({
+        app_user_id: "user_grace_check",
+        original_transaction_id: "txn_grace_check",
+        expiration_at_ms: pastExpiration, // Keep the past expiration
+        grace_period_expiration_at_ms: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      }),
+    });
+
+    const status = await t.query(api.subscriptions.isInGracePeriod, {
+      originalTransactionId: "txn_grace_check",
+    });
+
+    expect(status.inGracePeriod).toBe(true);
+    expect(status.gracePeriodExpiresAt).toBeDefined();
+    expect(status.billingIssueDetectedAt).toBeDefined();
+  });
+
+  test("isInGracePeriod returns false when not in grace period", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_no_grace",
+        original_transaction_id: "txn_no_grace",
+        expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      }),
+    });
+
+    const status = await t.query(api.subscriptions.isInGracePeriod, {
+      originalTransactionId: "txn_no_grace",
+    });
+
+    expect(status.inGracePeriod).toBe(false);
+  });
+
+  test("getInGracePeriod returns subscriptions in grace period", async () => {
+    const t = initConvexTest();
+    const pastExpiration = Date.now() - 1000;
+
+    // Active subscription (not in grace)
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_multi_grace",
+        original_transaction_id: "txn_active_multi",
+        expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      }),
+    });
+
+    // Subscription in grace period
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_multi_grace",
+        product_id: "basic_monthly",
+        original_transaction_id: "txn_grace_multi",
+        expiration_at_ms: pastExpiration,
+      }),
+    });
+
+    await t.mutation(internal.handlers.processBillingIssue, {
+      event: makeEventPayload({
+        app_user_id: "user_multi_grace",
+        product_id: "basic_monthly",
+        original_transaction_id: "txn_grace_multi",
+        expiration_at_ms: pastExpiration, // Keep the past expiration
+        grace_period_expiration_at_ms: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      }),
+    });
+
+    const inGrace = await t.query(api.subscriptions.getInGracePeriod, {
+      appUserId: "user_multi_grace",
+    });
+
+    expect(inGrace).toHaveLength(1);
+    expect(inGrace[0].productId).toBe("basic_monthly");
+  });
+
+  test("ownershipType is stored correctly", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_ownership",
+        original_transaction_id: "txn_ownership",
+        ownership_type: "FAMILY_SHARED" as const,
+      }),
+    });
+
+    const subs = await t.query(api.subscriptions.getByUser, {
+      appUserId: "user_ownership",
+    });
+
+    expect(subs[0].ownershipType).toBe("FAMILY_SHARED");
+  });
 });
