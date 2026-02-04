@@ -24,6 +24,8 @@ type Store =
 
 type Environment = "SANDBOX" | "PRODUCTION";
 type PeriodType = "TRIAL" | "INTRO" | "NORMAL" | "PROMOTIONAL" | "PREPAID";
+// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
+type OwnershipType = "PURCHASED" | "FAMILY_SHARED";
 
 interface EntitlementDoc {
   _id: string;
@@ -55,6 +57,7 @@ interface SubscriptionDoc {
   originalTransactionId: string;
   transactionId: string;
   isFamilyShare: boolean;
+  ownershipType?: OwnershipType;
   isTrialConversion?: boolean;
   autoRenewStatus?: boolean;
   cancelReason?: string;
@@ -75,6 +78,12 @@ interface SubscriptionDoc {
   updatedAt: number;
 }
 
+interface GracePeriodStatus {
+  inGracePeriod: boolean;
+  gracePeriodExpiresAt?: number;
+  billingIssueDetectedAt?: number;
+}
+
 interface CustomerDoc {
   _id: string;
   _creationTime: number;
@@ -93,8 +102,56 @@ interface ExperimentDoc {
   appUserId: string;
   experimentId: string;
   variant: string;
+  offeringId?: string;
   enrolledAtMs: number;
   updatedAt: number;
+}
+
+interface TransferDoc {
+  _id: string;
+  _creationTime: number;
+  eventId: string;
+  transferredFrom: string[];
+  transferredTo: string[];
+  entitlementIds?: string[];
+  timestamp: number;
+}
+
+interface InvoiceDoc {
+  _id: string;
+  _creationTime: number;
+  invoiceId: string;
+  appUserId: string;
+  productId?: string;
+  store?: Store;
+  environment: Environment;
+  priceUsd?: number;
+  currency?: string;
+  priceInPurchasedCurrency?: number;
+  issuedAt: number;
+}
+
+interface VirtualCurrencyBalanceDoc {
+  _id: string;
+  _creationTime: number;
+  appUserId: string;
+  currencyCode: string;
+  currencyName: string;
+  balance: number;
+  updatedAt: number;
+}
+
+interface VirtualCurrencyTransactionDoc {
+  _id: string;
+  _creationTime: number;
+  transactionId: string;
+  appUserId: string;
+  currencyCode: string;
+  amount: number;
+  source?: string;
+  productId?: string;
+  environment: Environment;
+  timestamp: number;
 }
 
 type WebhookEventStatus = "processed" | "failed" | "ignored";
@@ -314,6 +371,20 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       SubscriptionDoc | null,
       Name
     >;
+    isInGracePeriod: FunctionReference<
+      "query",
+      "internal",
+      { originalTransactionId: string },
+      GracePeriodStatus,
+      Name
+    >;
+    getInGracePeriod: FunctionReference<
+      "query",
+      "internal",
+      { appUserId: string },
+      SubscriptionDoc[],
+      Name
+    >;
     upsert: FunctionReference<
       "mutation",
       "internal",
@@ -329,6 +400,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         originalTransactionId: string;
         transactionId: string;
         isFamilyShare: boolean;
+        ownershipType?: OwnershipType;
         isTrialConversion?: boolean;
         autoRenewStatus?: boolean;
         cancelReason?: string;
@@ -418,5 +490,48 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       Name
     >;
     listFailed: FunctionReference<"query", "internal", { limit?: number }, WebhookEventDoc[], Name>;
+  };
+  transfers: {
+    getByEventId: FunctionReference<
+      "query",
+      "internal",
+      { eventId: string },
+      TransferDoc | null,
+      Name
+    >;
+    list: FunctionReference<"query", "internal", { limit?: number }, TransferDoc[], Name>;
+  };
+  invoices: {
+    get: FunctionReference<"query", "internal", { invoiceId: string }, InvoiceDoc | null, Name>;
+    listByUser: FunctionReference<
+      "query",
+      "internal",
+      { appUserId: string },
+      InvoiceDoc[],
+      Name
+    >;
+  };
+  virtualCurrency: {
+    getBalance: FunctionReference<
+      "query",
+      "internal",
+      { appUserId: string; currencyCode: string },
+      VirtualCurrencyBalanceDoc | null,
+      Name
+    >;
+    listBalances: FunctionReference<
+      "query",
+      "internal",
+      { appUserId: string },
+      VirtualCurrencyBalanceDoc[],
+      Name
+    >;
+    listTransactions: FunctionReference<
+      "query",
+      "internal",
+      { appUserId: string; currencyCode?: string },
+      VirtualCurrencyTransactionDoc[],
+      Name
+    >;
   };
 };
