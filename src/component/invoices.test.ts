@@ -1,12 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { initConvexTest } from "./setup.test.js";
-import { api, internal } from "./_generated/api.js";
+import { api } from "./_generated/api.js";
 
 describe("invoices", () => {
   describe("get", () => {
     test("returns null for non-existent invoice", async () => {
       const t = initConvexTest();
-      const result = await t.query(internal.invoices.get, {
+      const result = await t.query(api.invoices.get, {
         invoiceId: "nonexistent",
       });
       expect(result).toBeNull();
@@ -38,7 +38,7 @@ describe("invoices", () => {
         },
       });
 
-      const result = await t.query(internal.invoices.get, {
+      const result = await t.query(api.invoices.get, {
         invoiceId: "evt_invoice_1", // Uses event id as invoice id
       });
 
@@ -54,7 +54,7 @@ describe("invoices", () => {
   describe("listByUser", () => {
     test("returns empty array for user with no invoices", async () => {
       const t = initConvexTest();
-      const result = await t.query(internal.invoices.listByUser, {
+      const result = await t.query(api.invoices.listByUser, {
         appUserId: "user_no_invoices",
       });
       expect(result).toEqual([]);
@@ -84,7 +84,7 @@ describe("invoices", () => {
         });
       }
 
-      const result = await t.query(internal.invoices.listByUser, {
+      const result = await t.query(api.invoices.listByUser, {
         appUserId: userId,
       });
 

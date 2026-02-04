@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { internalQuery } from "./_generated/server.js";
+import { query } from "./_generated/server.js";
 
-export const getByEventId = internalQuery({
+export const getByEventId = query({
   args: { eventId: v.string() },
   returns: v.union(
     v.object({
@@ -35,7 +35,7 @@ export const getByEventId = internalQuery({
   },
 });
 
-export const list = internalQuery({
+export const list = query({
   args: { limit: v.optional(v.number()) },
   returns: v.array(
     v.object({

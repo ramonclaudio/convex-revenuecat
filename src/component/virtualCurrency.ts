@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalQuery } from "./_generated/server.js";
+import { query } from "./_generated/server.js";
 import { environmentValidator } from "./schema.js";
 
 const balanceValidator = v.object({
@@ -25,7 +25,7 @@ const transactionValidator = v.object({
   timestamp: v.number(),
 });
 
-export const getBalance = internalQuery({
+export const getBalance = query({
   args: { appUserId: v.string(), currencyCode: v.string() },
   returns: v.union(balanceValidator, v.null()),
   handler: async (ctx, args) => {
@@ -50,7 +50,7 @@ export const getBalance = internalQuery({
   },
 });
 
-export const listBalances = internalQuery({
+export const listBalances = query({
   args: { appUserId: v.string() },
   returns: v.array(balanceValidator),
   handler: async (ctx, args) => {
@@ -71,7 +71,7 @@ export const listBalances = internalQuery({
   },
 });
 
-export const listTransactions = internalQuery({
+export const listTransactions = query({
   args: { appUserId: v.string(), currencyCode: v.optional(v.string()) },
   returns: v.array(transactionValidator),
   handler: async (ctx, args) => {
