@@ -1002,13 +1002,14 @@ describe("handlers", () => {
     test("processes invoice issuance event", async () => {
       const t = initConvexTest();
 
+      // INVOICE_ISSUANCE uses event.id as the invoice identifier (no separate invoice_id field)
       const payload = {
         id: "evt_invoice_1",
         type: "INVOICE_ISSUANCE",
         event_timestamp_ms: Date.now(),
         app_user_id: "user_invoice_1",
         environment: "PRODUCTION" as const,
-        invoice_id: "inv_123",
+        store: "RC_BILLING" as const,
       };
 
       const result = await t.mutation(api.webhooks.process, {
@@ -1017,6 +1018,7 @@ describe("handlers", () => {
           type: payload.type,
           app_user_id: payload.app_user_id,
           environment: payload.environment,
+          store: payload.store,
         },
         payload,
       });
