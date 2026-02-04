@@ -4,6 +4,7 @@ import { internalMutation } from "./_generated/server.js";
 import type { DataModel } from "./_generated/dataModel.js";
 import {
   environmentValidator,
+  ownershipTypeValidator,
   periodTypeValidator,
   storeValidator,
   subscriberAttributesValidator,
@@ -31,6 +32,8 @@ const eventPayloadValidator = v.object({
   store: v.optional(storeValidator),
   environment: v.optional(environmentValidator),
   is_family_share: v.optional(v.boolean()),
+  // PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
+  ownership_type: v.optional(ownershipTypeValidator),
   price: v.optional(v.number()),
   price_in_purchased_currency: v.optional(v.number()),
   currency: v.optional(v.string()),
@@ -73,7 +76,6 @@ const eventPayloadValidator = v.object({
   virtual_currency_transaction_id: v.optional(v.string()),
   // VIRTUAL_CURRENCY_TRANSACTION source: in_app_purchase | admin_api
   source: v.optional(v.string()),
-  invoice_id: v.optional(v.string()),
   // Arbitrary user metadata - intentionally untyped
   metadata: v.optional(v.any()),
   product_display_name: v.optional(v.string()),
@@ -182,6 +184,7 @@ async function upsertSubscription(
     originalTransactionId,
     transactionId: event.transaction_id ?? originalTransactionId,
     isFamilyShare: event.is_family_share ?? false,
+    ownershipType: event.ownership_type,
     isTrialConversion: event.is_trial_conversion,
     priceUsd: event.price,
     currency: event.currency,
@@ -540,6 +543,26 @@ export const processNonRenewingPurchase = internalMutation({
   },
 });
 
+async function transferSubscriptions(
+  ctx: MutationCtx,
+  fromUserId: string,
+  toUserId: string,
+): Promise<void> {
+  const now = Date.now();
+
+  const subscriptions = await ctx.db
+    .query("subscriptions")
+    .withIndex("by_app_user", (q) => q.eq("appUserId", fromUserId))
+    .collect();
+
+  for (const sub of subscriptions) {
+    await ctx.db.patch(sub._id, {
+      appUserId: toUserId,
+      updatedAt: now,
+    });
+  }
+}
+
 export const processTransfer = internalMutation({
   args: { event: eventPayloadValidator },
   returns: v.null(),
@@ -549,10 +572,28 @@ export const processTransfer = internalMutation({
     const sourceUsers = event.transferred_from ?? [];
     const destUsers = event.transferred_to ?? [];
 
+    // Upsert customers for all involved users
+    for (const userId of [...sourceUsers, ...destUsers]) {
+      await upsertCustomer(ctx, { ...event, app_user_id: userId });
+    }
+
+    // Transfer entitlements and subscriptions
     for (const sourceUserId of sourceUsers) {
       for (const destUserId of destUsers) {
         await transferEntitlements(ctx, sourceUserId, destUserId, event.entitlement_ids);
+        await transferSubscriptions(ctx, sourceUserId, destUserId);
       }
+    }
+
+    // Store transfer record
+    if (sourceUsers.length > 0 || destUsers.length > 0) {
+      await ctx.db.insert("transfers", {
+        eventId: event.id,
+        transferredFrom: sourceUsers,
+        transferredTo: destUsers,
+        entitlementIds: event.entitlement_ids,
+        timestamp: event.event_timestamp_ms,
+      });
     }
 
     return null;
@@ -596,6 +637,29 @@ export const processInvoiceIssuance = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
+
+    // Store invoice record - use event.id as invoiceId (no separate invoice_id field)
+    if (event.id && event.app_user_id && event.environment) {
+      const existing = await ctx.db
+        .query("invoices")
+        .withIndex("by_invoice_id", (q) => q.eq("invoiceId", event.id))
+        .first();
+
+      if (!existing) {
+        await ctx.db.insert("invoices", {
+          invoiceId: event.id,
+          appUserId: event.app_user_id,
+          productId: event.product_id,
+          store: event.store,
+          environment: event.environment,
+          priceUsd: event.price,
+          currency: event.currency,
+          priceInPurchasedCurrency: event.price_in_purchased_currency,
+          issuedAt: event.event_timestamp_ms,
+        });
+      }
+    }
+
     return null;
   },
 });
@@ -606,6 +670,62 @@ export const processVirtualCurrencyTransaction = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
+
+    if (!event.adjustments?.length || !event.app_user_id || !event.environment) {
+      return null;
+    }
+
+    const transactionId = event.virtual_currency_transaction_id ?? event.id;
+    const now = Date.now();
+
+    for (const adjustment of event.adjustments) {
+      const currencyCode = adjustment.currency.code;
+      const currencyName = adjustment.currency.name;
+      const amount = adjustment.amount;
+
+      // Store individual transaction
+      const existingTx = await ctx.db
+        .query("virtualCurrencyTransactions")
+        .withIndex("by_transaction_id", (q) => q.eq("transactionId", transactionId))
+        .first();
+
+      if (!existingTx) {
+        await ctx.db.insert("virtualCurrencyTransactions", {
+          transactionId,
+          appUserId: event.app_user_id,
+          currencyCode,
+          amount,
+          source: event.source,
+          productId: event.product_id,
+          environment: event.environment,
+          timestamp: event.event_timestamp_ms,
+        });
+      }
+
+      // Update running balance
+      const existingBalance = await ctx.db
+        .query("virtualCurrencyBalances")
+        .withIndex("by_app_user_currency", (q) =>
+          q.eq("appUserId", event.app_user_id!).eq("currencyCode", currencyCode),
+        )
+        .first();
+
+      if (existingBalance) {
+        await ctx.db.patch(existingBalance._id, {
+          balance: existingBalance.balance + amount,
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.insert("virtualCurrencyBalances", {
+          appUserId: event.app_user_id,
+          currencyCode,
+          currencyName,
+          balance: amount,
+          updatedAt: now,
+        });
+      }
+    }
+
     return null;
   },
 });
