@@ -6,7 +6,7 @@ describe("transfers", () => {
   describe("getByEventId", () => {
     test("returns null for non-existent transfer", async () => {
       const t = initConvexTest();
-      const result = await t.query(api.transfers.getByEventId, {
+      const result = await t.query(internal.transfers.getByEventId, {
         eventId: "nonexistent",
       });
       expect(result).toBeNull();
@@ -32,7 +32,7 @@ describe("transfers", () => {
         },
       });
 
-      const result = await t.query(api.transfers.getByEventId, {
+      const result = await t.query(internal.transfers.getByEventId, {
         eventId: "evt_transfer_1",
       });
 
@@ -46,7 +46,7 @@ describe("transfers", () => {
   describe("list", () => {
     test("returns empty array when no transfers", async () => {
       const t = initConvexTest();
-      const result = await t.query(api.transfers.list, {});
+      const result = await t.query(internal.transfers.list, {});
       expect(result).toEqual([]);
     });
 
@@ -86,7 +86,7 @@ describe("transfers", () => {
         },
       });
 
-      const result = await t.query(api.transfers.list, { limit: 10 });
+      const result = await t.query(internal.transfers.list, { limit: 10 });
 
       expect(result.length).toBe(2);
       expect(result[0].eventId).toBe("evt_transfer_new");
