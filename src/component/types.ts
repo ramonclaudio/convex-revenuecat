@@ -3,12 +3,14 @@ import {
   storeValidator,
   environmentValidator,
   periodTypeValidator,
+  ownershipTypeValidator,
   subscriberAttributesValidator,
 } from "./schema.js";
 
 export type Store = Infer<typeof storeValidator>;
 export type Environment = Infer<typeof environmentValidator>;
 export type PeriodType = Infer<typeof periodTypeValidator>;
+export type OwnershipType = Infer<typeof ownershipTypeValidator>;
 export type SubscriberAttributes = Infer<typeof subscriberAttributesValidator>;
 
 export type Entitlement = {
@@ -41,6 +43,8 @@ export type Subscription = {
   originalTransactionId: string;
   transactionId: string;
   isFamilyShare: boolean;
+  // PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
+  ownershipType?: OwnershipType;
   isTrialConversion?: boolean;
   autoRenewStatus?: boolean;
   cancelReason?: string;
@@ -99,4 +103,51 @@ export type Experiment = {
   offeringId?: string;
   enrolledAtMs: number;
   updatedAt: number;
+};
+
+export type Transfer = {
+  _id: string;
+  _creationTime: number;
+  eventId: string;
+  transferredFrom: string[];
+  transferredTo: string[];
+  entitlementIds?: string[];
+  timestamp: number;
+};
+
+export type Invoice = {
+  _id: string;
+  _creationTime: number;
+  invoiceId: string;
+  appUserId: string;
+  productId?: string;
+  store?: Store;
+  environment: Environment;
+  priceUsd?: number;
+  currency?: string;
+  priceInPurchasedCurrency?: number;
+  issuedAt: number;
+};
+
+export type VirtualCurrencyBalance = {
+  _id: string;
+  _creationTime: number;
+  appUserId: string;
+  currencyCode: string;
+  currencyName: string;
+  balance: number;
+  updatedAt: number;
+};
+
+export type VirtualCurrencyTransaction = {
+  _id: string;
+  _creationTime: number;
+  transactionId: string;
+  appUserId: string;
+  currencyCode: string;
+  amount: number;
+  source?: string;
+  productId?: string;
+  environment: Environment;
+  timestamp: number;
 };
