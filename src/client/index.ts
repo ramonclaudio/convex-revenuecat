@@ -8,6 +8,7 @@ type ClientComponentApi = {
   entitlements: Pick<ComponentApi['entitlements'], 'check' | 'getActive' | 'list'>;
   subscriptions: Pick<ComponentApi['subscriptions'], 'getActive' | 'getByUser'>;
   customers: Pick<ComponentApi['customers'], 'get'>;
+  experiments: Pick<ComponentApi['experiments'], 'get' | 'list'>;
   webhooks: Pick<ComponentApi['webhooks'], 'process'>;
 };
 
@@ -18,6 +19,7 @@ export type {
   Entitlement,
   Subscription,
   Customer,
+  Experiment,
 } from "../component/types.js";
 
 import type {
@@ -26,6 +28,7 @@ import type {
   Entitlement,
   Subscription,
   Customer,
+  Experiment,
 } from "../component/types.js";
 
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
@@ -87,6 +90,17 @@ export class RevenueCat {
 
   async getCustomer(ctx: QueryCtx, args: { appUserId: string }): Promise<Customer | null> {
     return ctx.runQuery(this.component.customers.get, args) as Promise<Customer | null>;
+  }
+
+  async getExperiment(
+    ctx: QueryCtx,
+    args: { appUserId: string; experimentId: string },
+  ): Promise<Experiment | null> {
+    return ctx.runQuery(this.component.experiments.get, args) as Promise<Experiment | null>;
+  }
+
+  async getExperiments(ctx: QueryCtx, args: { appUserId: string }): Promise<Experiment[]> {
+    return ctx.runQuery(this.component.experiments.list, args) as Promise<Experiment[]>;
   }
 
   httpHandler() {

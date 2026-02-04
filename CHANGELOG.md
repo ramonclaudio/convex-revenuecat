@@ -1,10 +1,6 @@
 # Changelog
 
-## 0.2.0
-
-### Breaking Changes
-
-- **Removed `experiments` table and related functions** — The component now focuses solely on subscription/entitlement state for access control. `EXPERIMENT_ENROLLMENT` events are still processed (customer is upserted) but experiment data is not stored. Removed methods: `getExperiment()`, `getExperiments()`.
+## 0.1.4
 
 ### Fixed
 
@@ -13,6 +9,7 @@
 ### Changed
 
 - **Typed `adjustments` field** — Virtual currency adjustments now have proper typing: `{ amount: number, currency: { code, name, description? } }[]` instead of `v.any()`. Used in `VIRTUAL_CURRENCY_TRANSACTION` events.
+- **Added `enrolled_at_ms` field** — Top-level field for `EXPERIMENT_ENROLLMENT` events (in addition to existing `experiment_enrolled_at_ms` for compatibility).
 - **Added documentation comments** — Deprecated fields (`entitlement_id`, `takehome_percentage`) and field purposes now have inline comments.
 
 ## 0.1.3
@@ -41,9 +38,10 @@
 ## 0.1.0
 
 - Webhook processing for all 18 RevenueCat event types
-- Customer, subscription, and entitlement tracking
+- Customer, subscription, entitlement, and experiment tracking
 - Idempotent event processing with deduplication
 - Rate limiting (100 req/min per app)
 - Webhook event audit log with 30-day retention
-- Client SDK with query methods and HTTP webhook handler
+- Client SDK with 8 query methods and HTTP webhook handler
 - Test helpers for convex-test integration
+- 113 tests

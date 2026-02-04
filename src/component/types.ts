@@ -90,3 +90,13 @@ export type WebhookEvent = {
   error?: string;
 };
 
+export type Experiment = {
+  _id: string;
+  _creationTime: number;
+  appUserId: string;
+  experimentId: string;
+  variant: string;
+  offeringId?: string;
+  enrolledAtMs: number;
+  updatedAt: number;
+};

@@ -87,6 +87,16 @@ interface CustomerDoc {
   updatedAt: number;
 }
 
+interface ExperimentDoc {
+  _id: string;
+  _creationTime: number;
+  appUserId: string;
+  experimentId: string;
+  variant: string;
+  enrolledAtMs: number;
+  updatedAt: number;
+}
+
 type WebhookEventStatus = "processed" | "failed" | "ignored";
 
 interface WebhookEventDoc {
@@ -365,6 +375,23 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       "internal",
       { key: string },
       { allowed: boolean; remaining: number; resetAt: number },
+      Name
+    >;
+  };
+  experiments: {
+    list: FunctionReference<"query", "internal", { appUserId: string }, ExperimentDoc[], Name>;
+    get: FunctionReference<
+      "query",
+      "internal",
+      { appUserId: string; experimentId: string },
+      ExperimentDoc | null,
+      Name
+    >;
+    listByExperiment: FunctionReference<
+      "query",
+      "internal",
+      { experimentId: string },
+      ExperimentDoc[],
       Name
     >;
   };

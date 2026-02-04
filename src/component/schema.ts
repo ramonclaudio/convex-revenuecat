@@ -120,4 +120,15 @@ export default defineSchema({
     .index("by_app_user", ["appUserId"])
     .index("by_status", ["status"]),
 
+  experiments: defineTable({
+    appUserId: v.string(),
+    experimentId: v.string(),
+    variant: v.string(),
+    offeringId: v.optional(v.string()),
+    enrolledAtMs: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_app_user", ["appUserId"])
+    .index("by_app_user_experiment", ["appUserId", "experimentId"])
+    .index("by_experiment", ["experimentId"]),
 });
