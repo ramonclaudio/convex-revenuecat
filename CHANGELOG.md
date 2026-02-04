@@ -1,19 +1,31 @@
 # Changelog
 
-## 0.2.0
+## 0.1.4
 
-### Breaking Changes
+### Added
 
-- **Removed `experiments` table and related functions** — The component now focuses solely on subscription/entitlement state for access control. `EXPERIMENT_ENROLLMENT` events are still processed (customer is upserted) but experiment data is not stored. Removed methods: `getExperiment()`, `getExperiments()`.
+- **Transfers table** — `TRANSFER` events now store transfer records with `transferredFrom`, `transferredTo`, and `entitlementIds`. Query with `getTransfer()` and `getTransfers()`.
+- **Invoices table** — `INVOICE_ISSUANCE` events (Web Billing) now store invoice data including `invoiceId`, `appUserId`, `productId`, pricing. Query with `getInvoice()` and `getInvoices()`.
+- **Virtual currency tracking** — `VIRTUAL_CURRENCY_TRANSACTION` events now:
+  - Store individual transactions in `virtualCurrencyTransactions` table
+  - Maintain running balances in `virtualCurrencyBalances` table
+  - Query with `getVirtualCurrencyBalance()`, `getVirtualCurrencyBalances()`, `getVirtualCurrencyTransactions()`
+- **`ownership_type` field** — Subscriptions now track `PURCHASED` vs `FAMILY_SHARED` to distinguish direct purchases from Family Sharing. Available in schema, handlers, and exported types.
+- **Grace period queries** — New `isInGracePeriod(originalTransactionId)` and `getSubscriptionsInGracePeriod(appUserId)` methods to check if subscriptions are in billing retry period. Per RevenueCat docs, users should retain access during grace period.
+- **Subscription transfer on TRANSFER** — `TRANSFER` events now update `appUserId` on subscriptions table, not just entitlements. Ensures `getSubscriptions(appUserId)` returns transferred subscriptions.
 
 ### Fixed
 
-- **Webhook validation fails for undocumented RevenueCat fields** — Added `takehome_percentage` and `entitlement_id` to event payload validator. RevenueCat sends these fields in webhook payloads but they aren't documented in the API reference.
+- **TRANSFER handler missing customer upsert** — Source and destination users are now properly upserted to customers table.
+- **Webhook validation fails for undocumented RevenueCat fields** — Added `takehome_percentage` and `entitlement_id` to event payload validator.
+- **INVOICE_ISSUANCE uses event.id** — The handler was looking for a nonexistent `invoice_id` field. Now correctly uses the event's `id` as the invoice identifier per RevenueCat sample events.
 
 ### Changed
 
-- **Typed `adjustments` field** — Virtual currency adjustments now have proper typing: `{ amount: number, currency: { code, name, description? } }[]` instead of `v.any()`. Used in `VIRTUAL_CURRENCY_TRANSACTION` events.
-- **Added documentation comments** — Deprecated fields (`entitlement_id`, `takehome_percentage`) and field purposes now have inline comments.
+- **Typed `adjustments` field** — Virtual currency adjustments now have proper typing: `{ amount: number, currency: { code, name, description? } }[]` instead of `v.any()`.
+- **Added `enrolled_at_ms` field** — Top-level field for `EXPERIMENT_ENROLLMENT` events.
+- **Added documentation comments** — Deprecated fields and field purposes now have inline comments.
+- **Auth header handling** — Now supports both raw token and `Bearer <token>` formats. Uses constant-time comparison to prevent timing attacks.
 
 ## 0.1.3
 
@@ -41,9 +53,10 @@
 ## 0.1.0
 
 - Webhook processing for all 18 RevenueCat event types
-- Customer, subscription, and entitlement tracking
+- Customer, subscription, entitlement, and experiment tracking
 - Idempotent event processing with deduplication
 - Rate limiting (100 req/min per app)
 - Webhook event audit log with 30-day retention
-- Client SDK with query methods and HTTP webhook handler
+- Client SDK with 8 query methods and HTTP webhook handler
 - Test helpers for convex-test integration
+- 113 tests
