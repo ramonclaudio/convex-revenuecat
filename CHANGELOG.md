@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6
+
+### Fixed
+
+- **Client type compatibility** — Defined `ClientComponentApi` with explicit function signatures using `"public" | "internal"` visibility union. Convex generates component types with "internal" visibility in consumer apps regardless of how they're defined in the component source.
+
 ## 0.1.5
 
 ### Fixed
