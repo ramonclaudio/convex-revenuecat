@@ -52,13 +52,27 @@ const eventPayloadValidator = v.object({
   experiment_variant: v.optional(v.string()),
   offering_id: v.optional(v.string()),
   experiment_enrolled_at_ms: v.optional(v.number()),
-  adjustments: v.optional(v.array(v.any())),
+  // Virtual currency adjustments (VIRTUAL_CURRENCY_TRANSACTION events)
+  adjustments: v.optional(
+    v.array(
+      v.object({
+        amount: v.number(),
+        currency: v.object({
+          code: v.string(),
+          name: v.string(),
+          description: v.optional(v.string()),
+        }),
+      }),
+    ),
+  ),
   virtual_currency_transaction_id: v.optional(v.string()),
   source: v.optional(v.string()),
   invoice_id: v.optional(v.string()),
+  // Arbitrary user metadata - intentionally untyped
   metadata: v.optional(v.any()),
   product_display_name: v.optional(v.string()),
   purchase_environment: v.optional(environmentValidator),
+  // Undocumented field - kept as any for forward compatibility
   items: v.optional(v.array(v.any())),
   subscriber_attributes: v.optional(subscriberAttributesValidator),
   experiments: v.optional(
