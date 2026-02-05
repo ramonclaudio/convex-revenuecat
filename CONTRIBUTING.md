@@ -8,11 +8,17 @@ src/
 │   └── index.ts      # Main export, httpHandler
 ├── component/        # Convex component (backend)
 │   ├── schema.ts     # Database tables
-│   ├── handlers.ts   # Webhook event handlers
+│   ├── handlers.ts   # Webhook event handlers (18 events)
 │   ├── webhooks.ts   # Webhook processing + rate limiting
-│   ├── entitlements.ts
-│   ├── subscriptions.ts
 │   ├── customers.ts
+│   ├── subscriptions.ts
+│   ├── entitlements.ts
+│   ├── experiments.ts
+│   ├── transfers.ts
+│   ├── invoices.ts
+│   ├── virtualCurrency.ts
+│   ├── webhookEvents.ts
+│   ├── types.ts      # Exported type definitions
 │   ├── cleanup.ts    # Scheduled cleanup
 │   └── crons.ts      # Cron definitions
 └── test.ts           # Test utilities
