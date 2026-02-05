@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  A <a href="https://convex.dev">Convex</a> component for webhook-driven <a href="https://www.revenuecat.com">RevenueCat</a> subscription state.<br>
-  Stores entitlements in your database for reactive, real-time access control.
+  A <a href="https://convex.dev">Convex</a> component that syncs <a href="https://www.revenuecat.com">RevenueCat</a> subscription state via webhooks.<br>
+  Query entitlements directly from your Convex database.
 </p>
 
 ## What This Component Does
@@ -31,18 +31,20 @@ graph LR
     C -->|queries| D[Your App]
 ```
 
-> [!NOTE]
-> This is not a replacement for the [RevenueCat SDK](https://www.revenuecat.com/docs/getting-started/installation). Use their SDK in your client app for purchases. This component handles the **server-side state** that webhooks provide.
+This is not a replacement for the [RevenueCat SDK](https://www.revenuecat.com/docs/getting-started/installation). Use their SDK in your client app for purchases. This component handles the **server-side state** that webhooks provide.
+
+> [!TIP]
+> **Webhook timing**: After a purchase completes in the SDK, there's a delay before RevenueCat sends the webhook (usually seconds, occasionally longer). During this window, `hasEntitlement()` returns `false`. Once the webhook arrives, Convex's real-time sync updates your UI. No polling needed.
 
 ## Features
 
-- **Webhook Processing** — Idempotent handling of all 18 RevenueCat webhook events
-- **Reactive Queries** — Real-time entitlement and subscription state in Convex
-- **Correct Edge Cases** — Cancellation keeps access until expiration, pause doesn't revoke, etc.
-- **Rate Limiting** — Built-in protection against webhook abuse (100 req/min per app)
-- **Subscriber Attributes** — Stores customer attributes from webhooks
-- **Experiment Tracking** — Tracks A/B test enrollments
-- **Type-Safe** — Full TypeScript support
+- **Webhook Processing**: Idempotent handling of all 18 RevenueCat webhook events
+- **Convex Integration**: Data stored in Convex tables with real-time reactivity
+- **Correct Edge Cases**: Cancellation keeps access until expiration, pause doesn't revoke, etc.
+- **Rate Limiting**: Built-in protection against webhook abuse (100 req/min per app)
+- **Subscriber Attributes**: Stores customer attributes from webhooks
+- **Experiment Tracking**: Tracks A/B test enrollments
+- **TypeScript**: Typed API methods (webhook payloads stored as-is)
 
 ## Prerequisites
 
@@ -107,8 +109,7 @@ Add it to your Convex deployment:
 npx convex env set REVENUECAT_WEBHOOK_AUTH "your-generated-secret"
 ```
 
-> [!TIP]
-> For local development, add to your `.env.local` file instead.
+For local development, add to your `.env.local` file instead.
 
 ### 4. Configure RevenueCat Webhooks
 
@@ -126,8 +127,7 @@ npx convex env set REVENUECAT_WEBHOOK_AUTH "your-generated-secret"
 
 6. Click **Save**
 
-> [!NOTE]
-> Find your Convex deployment URL in the [Convex Dashboard](https://dashboard.convex.dev) under your project's **Settings** → **URL & Deploy Key**.
+Find your Convex deployment URL in the [Convex Dashboard](https://dashboard.convex.dev) under your project's **Settings** → **URL & Deploy Key**.
 
 ### 5. Test the Webhook
 
@@ -141,8 +141,7 @@ npx convex logs
 
 You should see a log entry showing the `TEST` event was processed.
 
-> [!TIP]
-> If the test fails, check [Troubleshooting](#troubleshooting) below.
+If the test fails, check [Troubleshooting](#troubleshooting) below.
 
 ## Usage
 
@@ -181,7 +180,32 @@ export const getSubscriptions = query({
 });
 ```
 
+### Centralizing Access
+
+Create a module to avoid instantiating `RevenueCat` in every file:
+
+```typescript
+// convex/revenuecat.ts
+import { RevenueCat } from "convex-revenuecat";
+import { components } from "./_generated/api";
+
+export const revenuecat = new RevenueCat(components.revenuecat, {
+  REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
+});
+```
+
+> [!IMPORTANT]
+> **ID matching is critical:**
+> - The `app_user_id` you pass to `Purchases.logIn()` must match what you query with `hasEntitlement()`. Use a consistent identifier (e.g., your Convex user ID).
+> - The `entitlementId` parameter (e.g., `"premium"`) must match **exactly** what you configured in the RevenueCat dashboard.
+
 ## API Reference
+
+### Query Behavior
+
+- **Missing users**: Queries return empty arrays or `null` (never throw). Use this for loading states.
+- **Billing issues**: During grace periods, `hasEntitlement()` returns `true` and `getActiveSubscriptions()` includes the subscription.
+- **Lifetime purchases**: Subscriptions without `expirationAtMs` are always considered active.
 
 ### Constructor
 
@@ -198,14 +222,22 @@ const revenuecat = new RevenueCat(components.revenuecat, {
 | `hasEntitlement(ctx, { appUserId, entitlementId })` | Check if user has active entitlement |
 | `getActiveEntitlements(ctx, { appUserId })` | Get all active entitlements |
 | `getAllEntitlements(ctx, { appUserId })` | Get all entitlements (active and inactive) |
-| `getActiveSubscriptions(ctx, { appUserId })` | Get all active subscriptions |
+| `getActiveSubscriptions(ctx, { appUserId })` | Get all active subscriptions (includes grace period) |
 | `getAllSubscriptions(ctx, { appUserId })` | Get all subscriptions |
+| `getSubscriptionsInGracePeriod(ctx, { appUserId })` | Get subscriptions currently in billing grace period |
+| `isInGracePeriod(ctx, { originalTransactionId })` | Check grace period status for a subscription |
 | `getCustomer(ctx, { appUserId })` | Get customer record |
 | `getExperiment(ctx, { appUserId, experimentId })` | Get user's variant for a specific experiment |
 | `getExperiments(ctx, { appUserId })` | Get all experiments user is enrolled in |
+| `getTransfer(ctx, { eventId })` | Get transfer event by ID |
+| `getTransfers(ctx, { limit? })` | Get recent transfers (default limit: 100) |
+| `getInvoice(ctx, { invoiceId })` | Get invoice by ID |
+| `getInvoices(ctx, { appUserId })` | Get all invoices for user |
+| `getVirtualCurrencyBalance(ctx, { appUserId, currencyCode })` | Get balance for a specific currency |
+| `getVirtualCurrencyBalances(ctx, { appUserId })` | Get all currency balances for user |
+| `getVirtualCurrencyTransactions(ctx, { appUserId, currencyCode? })` | Get virtual currency transactions |
 
-> [!NOTE]
-> This component is a **read-only sync layer**. To grant promotional entitlements, use the [RevenueCat API](https://www.revenuecat.com/docs/api-v1) directly — the webhook will sync the state automatically.
+This component is a **read-only sync layer**. To grant promotional entitlements, use the [RevenueCat API](https://www.revenuecat.com/docs/api-v1) directly — the webhook will sync the state automatically.
 
 ## Webhook Events
 
@@ -236,11 +268,11 @@ const revenuecat = new RevenueCat(components.revenuecat, {
 </details>
 
 > [!IMPORTANT]
-> `CANCELLATION` does **not** revoke entitlements — users keep access until `EXPIRATION`.
+> `CANCELLATION` does **not** revoke entitlements. Users keep access until `EXPIRATION`.
 
 ## Database Schema
 
-The component creates six tables:
+The component creates ten tables:
 
 | Table | Purpose |
 |:------|:--------|
@@ -248,6 +280,10 @@ The component creates six tables:
 | `subscriptions` | Purchase records with product and payment details |
 | `entitlements` | Access control state (active/inactive, expiration) |
 | `experiments` | A/B test enrollments from RevenueCat experiments |
+| `transfers` | Entitlement transfer records between users |
+| `invoices` | Web Billing invoice records |
+| `virtualCurrencyBalances` | Virtual currency balances per user per currency |
+| `virtualCurrencyTransactions` | Individual virtual currency adjustments |
 | `webhookEvents` | Event log for idempotency and debugging (30-day retention) |
 | `rateLimits` | Webhook endpoint rate limiting (100 req/min per app) |
 
@@ -256,6 +292,7 @@ The component creates six tables:
 - **No initial sync** — Existing subscribers before webhook setup won't appear until they trigger a new event (renewal, cancellation, etc.)
 - **Webhook-driven only** — Data comes exclusively from webhooks; no API polling or backfill mechanism
 - **Raw payload storage** — Webhook payloads are stored as-is for debugging. These may contain subscriber attributes or other data you've configured in RevenueCat. Events are auto-deleted after 30 days.
+- **Production usage** — Core entitlement checking (`hasEntitlement`) is production-tested. Other query methods (transfers, invoices, virtual currency) are unit-tested but not yet battle-tested in production apps.
 
 ## Testing
 
