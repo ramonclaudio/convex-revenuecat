@@ -36,41 +36,7 @@ npm run test   # Runs all tests
 
 ## Public APIs
 
-The component exposes 9 methods via the `RevenueCat` client class:
-
-### Entitlements
-
-| Method | Description |
-|:-------|:------------|
-| `hasEntitlement(ctx, { appUserId, entitlementId })` | Check if user has specific entitlement |
-| `getActiveEntitlements(ctx, { appUserId })` | Get all active entitlements |
-| `getAllEntitlements(ctx, { appUserId })` | Get all entitlements (including expired) |
-
-### Subscriptions
-
-| Method | Description |
-|:-------|:------------|
-| `getActiveSubscriptions(ctx, { appUserId })` | Get all active subscriptions |
-| `getAllSubscriptions(ctx, { appUserId })` | Get all subscriptions (including expired) |
-
-### Customers
-
-| Method | Description |
-|:-------|:------------|
-| `getCustomer(ctx, { appUserId })` | Get customer record |
-
-### Experiments (A/B Testing)
-
-| Method | Description |
-|:-------|:------------|
-| `getExperiment(ctx, { appUserId, experimentId })` | Get user's variant for specific experiment |
-| `getExperiments(ctx, { appUserId })` | Get all experiments user is enrolled in |
-
-### HTTP Handler
-
-| Method | Description |
-|:-------|:------------|
-| `httpHandler()` | Returns HTTP action for webhook endpoint |
+The component exposes 17 query methods via the `RevenueCat` client class. See the main [README](../README.md#query-methods) for the full API reference.
 
 ## Supported Webhook Events
 
