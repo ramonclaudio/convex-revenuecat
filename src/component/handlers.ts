@@ -293,6 +293,20 @@ async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promis
         billingIssueDetectedAt: undefined,
         updatedAt: now,
       });
+    } else {
+      // Entitlement missing (e.g. race condition, prior transfer) — create it
+      // so the user isn't locked out after a successful renewal.
+      await ctx.db.insert("entitlements", {
+        appUserId: event.app_user_id,
+        entitlementId,
+        productId: event.product_id,
+        isActive: true,
+        expiresAtMs: event.expiration_at_ms,
+        purchasedAtMs: event.purchased_at_ms,
+        store: event.store,
+        isSandbox: event.environment === "SANDBOX",
+        updatedAt: now,
+      });
     }
   }
 }
