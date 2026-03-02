@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8
+
+### Changed
+
+- Updated `convex` to 1.32.0, `typescript-eslint` to 8.56.1, `globals` to 17.4.0, `@types/node` to 24.11.0, `pkg-pr-new` to 0.0.65.
+- Pinned `rollup` to `^4.59.0` and `ajv` to `^6.14.0` via overrides to resolve high and moderate audit vulnerabilities in transitive dependencies. Dropped `minimatch` override — `typescript-eslint@8.56.1` switched to `tinyglobby`. 0 vulnerabilities across all severities.
+
 ## 0.1.7
 
 ### Fixed
