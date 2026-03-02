@@ -455,7 +455,10 @@ export const processExpiration = internalMutation({
     await upsertSubscription(ctx, event, {
       expirationReason: event.expiration_reason,
     });
-    if (event.app_user_id) {
+    // Only revoke specific entitlements — if entitlement_ids is absent/null
+    // (product not mapped to an entitlement), revoking all would incorrectly
+    // strip entitlements from other active subscriptions on the same account.
+    if (event.app_user_id && event.entitlement_ids?.length) {
       await revokeEntitlements(ctx, event.app_user_id, event.entitlement_ids);
     }
     return null;
