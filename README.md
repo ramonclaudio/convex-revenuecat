@@ -263,7 +263,7 @@ This component is a **read-only sync layer**. To grant promotional entitlements,
 | `INVOICE_ISSUANCE` | Web Billing invoice created |
 | `VIRTUAL_CURRENCY_TRANSACTION` | Virtual currency adjustment |
 | `EXPERIMENT_ENROLLMENT` | A/B test enrollment (tracked) |
-| `SUBSCRIBER_ALIAS` | User alias created (deprecated) |
+| `SUBSCRIBER_ALIAS` | Migrates entitlements/subscriptions from anonymous to real user ID (deprecated) |
 
 </details>
 

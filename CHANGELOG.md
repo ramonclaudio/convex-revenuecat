@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.7
+
+### Fixed
+
+- **SUBSCRIBER_ALIAS missing entitlement migration.** `logIn(realId)` updated the customer record but left entitlements under `$RCAnonymousID:xxx`. `hasEntitlement(realId)` returned false until next renewal. Added `aliasEntitlements` to re-assign (or conflict-merge by expiry) all entitlement/subscription records from `original_app_user_id` to `app_user_id`.
+- **EXPIRATION revoked all entitlements when `entitlement_ids` was absent.** RC sends null for products not mapped to any entitlement. After transform that became `undefined`, which hit a "revoke everything" path in `revokeEntitlements`. Added `entitlement_ids?.length` guard.
+- **RENEWAL and SUBSCRIPTION_EXTENDED silently skipped missing entitlement records.** `extendEntitlements` only patched existing rows. If the record was missing (race condition, prior transfer), user stayed locked out after a successful charge. Added an insert fallback.
+- **Virtual currency dedup broken for multi-currency events.** Dedup used `transactionId` alone. A single event can carry adjustments for multiple currencies with the same `transactionId`. Second currency's record was skipped. Added `.filter(currencyCode)`.
+- **RENEWAL kept stale cancellation state.** `cancelReason` and `autoRenewStatus` from a prior cancellation cycle weren't cleared on renewal. Both are reset now.
+- **Dead `ctx.db.insert` in webhook catch block.** Throwing rolls back the transaction, so the insert was always discarded. Removed it.
+
 ## 0.1.6
 
 ### Fixed
