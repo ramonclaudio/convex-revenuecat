@@ -634,6 +634,27 @@ describe("handlers", () => {
       expect(entitlements.length).toBe(1);
       expect(entitlements[0].expiresAtMs).toBe(renewedExpiration);
     });
+
+    test("creates entitlement if missing (e.g. after transfer) rather than silently skipping", async () => {
+      const t = initConvexTest();
+      const renewedExpiration = Date.now() + 60 * 24 * 60 * 60 * 1000;
+
+      // RENEWAL fires but no prior INITIAL_PURCHASE entitlement record exists
+      const renewPayload = createEventPayload({
+        id: "evt_renew_missing_ent",
+        type: "RENEWAL",
+        app_user_id: "user_renew_missing",
+        entitlement_ids: ["premium"],
+        expiration_at_ms: renewedExpiration,
+      });
+
+      await t.mutation(api.webhooks.process, {
+        event: { id: renewPayload.id, type: renewPayload.type, app_id: renewPayload.app_id, app_user_id: renewPayload.app_user_id, environment: renewPayload.environment, store: renewPayload.store },
+        payload: renewPayload,
+      });
+
+      expect(await t.query(api.entitlements.check, { appUserId: "user_renew_missing", entitlementId: "premium" })).toBe(true);
+    });
   });
 
   describe("UNCANCELLATION", () => {
