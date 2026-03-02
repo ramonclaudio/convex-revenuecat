@@ -423,6 +423,10 @@ export const processRenewal = internalMutation({
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
     await upsertSubscription(ctx, event, {
+      // Subscription successfully renewed — clear any stale cancellation and
+      // billing issue state from a previous period.
+      cancelReason: undefined,
+      autoRenewStatus: undefined,
       billingIssueDetectedAt: undefined,
       gracePeriodExpirationAtMs: undefined,
     });
