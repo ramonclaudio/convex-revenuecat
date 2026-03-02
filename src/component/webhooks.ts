@@ -20,6 +20,7 @@ const EVENT_HANDLERS = {
   NON_RENEWING_PURCHASE: internal.handlers.processNonRenewingPurchase,
   TRANSFER: internal.handlers.processTransfer,
   TEMPORARY_ENTITLEMENT_GRANT: internal.handlers.processTemporaryEntitlementGrant,
+  REFUND: internal.handlers.processRefund,
   REFUND_REVERSED: internal.handlers.processRefundReversed,
   TEST: internal.handlers.processTest,
   INVOICE_ISSUANCE: internal.handlers.processInvoiceIssuance,

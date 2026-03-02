@@ -258,6 +258,7 @@ This component is a **read-only sync layer**. To grant promotional entitlements,
 | `PRODUCT_CHANGE` | Updates subscription product |
 | `NON_RENEWING_PURCHASE` | Grants entitlements for one-time purchase |
 | `TEMPORARY_ENTITLEMENT_GRANT` | Grants temp access during store outage |
+| `REFUND` | **Revokes** entitlements immediately |
 | `REFUND_REVERSED` | Restores entitlements after refund undone |
 | `TEST` | Dashboard test event (logged only) |
 | `INVOICE_ISSUANCE` | Web Billing invoice created |
