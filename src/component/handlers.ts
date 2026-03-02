@@ -743,10 +743,13 @@ export const processVirtualCurrencyTransaction = internalMutation({
       const currencyName = adjustment.currency.name;
       const amount = adjustment.amount;
 
-      // Store individual transaction
+      // Store individual transaction — deduplicate by (transactionId, currencyCode)
+      // because a single event can carry adjustments for multiple currencies and
+      // they all share the same transactionId.
       const existingTx = await ctx.db
         .query("virtualCurrencyTransactions")
         .withIndex("by_transaction_id", (q) => q.eq("transactionId", transactionId))
+        .filter((q) => q.eq(q.field("currencyCode"), currencyCode))
         .first();
 
       if (!existingTx) {
