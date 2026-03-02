@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9
+
+### Fixed
+
+- **REFUND event not handled.** RC sends `REFUND` when a refund is issued. Previously fell through to `"ignored"`, leaving non-renewing/lifetime purchasers with permanent access after refund. Added `processRefund` handler that revokes entitlements (with same `entitlement_ids?.length` guard as EXPIRATION).
+- **aliasEntitlements drops `billingIssueDetectedAt` during merge.** When SUBSCRIBER_ALIAS fires (anonymous → real user), the merge patch didn't copy `billingIssueDetectedAt` from the source record. Users with a billing issue on their anonymous ID could briefly lose grace-period access after login. Fixed: source's flag is preserved when merging; destination's flag is preserved when only the destination has one.
+
 ## 0.1.8
 
 ### Changed
