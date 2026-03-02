@@ -101,5 +101,9 @@
     "vitest": "4.0.18"
   },
   "types": "./dist/client/index.d.ts",
-  "module": "./dist/client/index.js"
+  "module": "./dist/client/index.js",
+  "overrides": {
+    "rollup": "^4.59.0",
+    "minimatch": "^9.0.7"
+  }
 }
