@@ -103,6 +103,7 @@
   "types": "./dist/client/index.d.ts",
   "module": "./dist/client/index.js",
   "overrides": {
-    "rollup": "^4.59.0"
+    "rollup": "^4.59.0",
+    "ajv": "^6.14.0"
   }
 }
