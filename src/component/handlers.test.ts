@@ -1628,5 +1628,209 @@ describe("handlers", () => {
       });
       expect(subs.length).toBeGreaterThan(0);
     });
+
+    test("preserves billingIssueDetectedAt from source when both users have the same entitlement and source is newer", async () => {
+      // Exercises the `if (existing)` + `sourceIsNewer` branch in aliasEntitlements.
+      // Bug: patch omitted billingIssueDetectedAt, so a billing-issue flag on the
+      // anonymous (source, newer) record was silently dropped onto the real user.
+      const t = initConvexTest();
+      const anonymousId = "$RCAnonymousID:billing_alias";
+      const realUserId = "user_billing_alias_real";
+      const now = Date.now();
+
+      // Real user purchases first — shorter expiry (older record)
+      const realPurchase = createEventPayload({
+        id: "evt_billing_alias_real_purchase",
+        type: "INITIAL_PURCHASE",
+        app_user_id: realUserId,
+        original_app_user_id: realUserId,
+        expiration_at_ms: now + 10 * 24 * 60 * 60 * 1000, // +10 days
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: realPurchase.id,
+          type: realPurchase.type,
+          app_user_id: realPurchase.app_user_id,
+          environment: realPurchase.environment,
+          store: realPurchase.store,
+        },
+        payload: realPurchase,
+      });
+
+      // Anonymous user purchases same entitlement — longer expiry (newer record)
+      const anonPurchase = createEventPayload({
+        id: "evt_billing_alias_anon_purchase",
+        type: "INITIAL_PURCHASE",
+        app_user_id: anonymousId,
+        original_app_user_id: anonymousId,
+        expiration_at_ms: now + 30 * 24 * 60 * 60 * 1000, // +30 days (newer)
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: anonPurchase.id,
+          type: anonPurchase.type,
+          app_user_id: anonPurchase.app_user_id,
+          environment: anonPurchase.environment,
+          store: anonPurchase.store,
+        },
+        payload: anonPurchase,
+      });
+
+      // Billing issue on anonymous — stamps billingIssueDetectedAt
+      const billingPayload = createEventPayload({
+        id: "evt_billing_alias_issue",
+        type: "BILLING_ISSUE",
+        app_user_id: anonymousId,
+        original_app_user_id: anonymousId,
+        expiration_at_ms: now + 30 * 24 * 60 * 60 * 1000,
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: billingPayload.id,
+          type: billingPayload.type,
+          app_user_id: billingPayload.app_user_id,
+          environment: billingPayload.environment,
+          store: billingPayload.store,
+        },
+        payload: billingPayload,
+      });
+
+      // Confirm the anonymous entitlement has billingIssueDetectedAt set
+      const anonEnts = await t.query(api.entitlements.list, { appUserId: anonymousId });
+      expect(anonEnts[0].billingIssueDetectedAt).toBeDefined();
+      // And the real user's entitlement does NOT yet have it
+      const realEntsBefore = await t.query(api.entitlements.list, { appUserId: realUserId });
+      expect(realEntsBefore[0].billingIssueDetectedAt).toBeUndefined();
+
+      // User logs in — SUBSCRIBER_ALIAS merges anonymous (newer) → real (existing, older)
+      // This hits the `if (existing) { if (sourceIsNewer) { patch(...) } }` branch.
+      const aliasPayload = {
+        id: "evt_billing_alias_merge",
+        type: "SUBSCRIBER_ALIAS",
+        event_timestamp_ms: now,
+        app_user_id: realUserId,
+        original_app_user_id: anonymousId,
+        aliases: [anonymousId],
+        environment: "SANDBOX" as const,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: aliasPayload.id,
+          type: aliasPayload.type,
+          app_user_id: aliasPayload.app_user_id,
+          environment: aliasPayload.environment,
+        },
+        payload: aliasPayload,
+      });
+
+      // billingIssueDetectedAt from the anonymous (source) record must be carried
+      // over to the real user's entitlement — without it they'd lose grace-period access.
+      const realEnts = await t.query(api.entitlements.list, { appUserId: realUserId });
+      expect(realEnts.length).toBe(1);
+      expect(realEnts[0].billingIssueDetectedAt).toBeDefined();
+    });
+  });
+
+  describe("REFUND", () => {
+    test("revokes entitlements when refund is issued", async () => {
+      const t = initConvexTest();
+      const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+      // User purchases
+      const purchasePayload = createEventPayload({
+        id: "evt_refund_purchase",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_refund_1",
+        expiration_at_ms: futureExpiration,
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: purchasePayload.id,
+          type: purchasePayload.type,
+          app_id: purchasePayload.app_id,
+          app_user_id: purchasePayload.app_user_id,
+          environment: purchasePayload.environment,
+          store: purchasePayload.store,
+        },
+        payload: purchasePayload,
+      });
+
+      expect(
+        await t.query(api.entitlements.check, { appUserId: "user_refund_1", entitlementId: "premium" }),
+      ).toBe(true);
+
+      // Refund issued — should revoke entitlement immediately
+      const refundPayload = createEventPayload({
+        id: "evt_refund_issued",
+        type: "REFUND",
+        app_user_id: "user_refund_1",
+        expiration_at_ms: Date.now() - 1000,
+        expiration_reason: "CUSTOMER_SUPPORT",
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: refundPayload.id,
+          type: refundPayload.type,
+          app_id: refundPayload.app_id,
+          app_user_id: refundPayload.app_user_id,
+          environment: refundPayload.environment,
+          store: refundPayload.store,
+        },
+        payload: refundPayload,
+      });
+
+      expect(
+        await t.query(api.entitlements.check, { appUserId: "user_refund_1", entitlementId: "premium" }),
+      ).toBe(false);
+    });
+
+    test("does not revoke unrelated entitlements when entitlement_ids is absent on REFUND", async () => {
+      const t = initConvexTest();
+
+      // Grant two entitlements
+      const purchasePayload = createEventPayload({
+        id: "evt_refund_multi_purchase",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_refund_multi",
+        entitlement_ids: ["premium"],
+        expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: purchasePayload.id,
+          type: purchasePayload.type,
+          app_user_id: purchasePayload.app_user_id,
+          environment: purchasePayload.environment,
+          store: purchasePayload.store,
+        },
+        payload: purchasePayload,
+      });
+
+      // Refund with no entitlement_ids (product not mapped) — should not revoke anything
+      const refundPayload = {
+        ...createEventPayload({
+          id: "evt_refund_no_ents",
+          type: "REFUND",
+          app_user_id: "user_refund_multi",
+          expiration_at_ms: Date.now() - 1000,
+        }),
+        entitlement_ids: undefined,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: refundPayload.id,
+          type: refundPayload.type,
+          app_user_id: refundPayload.app_user_id,
+          environment: refundPayload.environment,
+          store: refundPayload.store,
+        },
+        payload: refundPayload,
+      });
+
+      // Entitlement should still be active — unmapped product refund shouldn't revoke
+      expect(
+        await t.query(api.entitlements.check, { appUserId: "user_refund_multi", entitlementId: "premium" }),
+      ).toBe(true);
+    });
   });
 });
