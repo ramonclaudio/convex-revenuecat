@@ -597,10 +597,13 @@ async function aliasEntitlements(
           purchasedAtMs: ent.purchasedAtMs,
           store: ent.store,
           isSandbox: ent.isSandbox,
-          // Preserve billing issue flag from source if it has one; don't
-          // overwrite the destination's flag if only the destination has it.
+          // Preserve status flags from source if set; leave destination's
+          // value alone if only the destination has one.
           ...(ent.billingIssueDetectedAt !== undefined
             ? { billingIssueDetectedAt: ent.billingIssueDetectedAt }
+            : {}),
+          ...(ent.unsubscribeDetectedAt !== undefined
+            ? { unsubscribeDetectedAt: ent.unsubscribeDetectedAt }
             : {}),
           updatedAt: now,
         });
