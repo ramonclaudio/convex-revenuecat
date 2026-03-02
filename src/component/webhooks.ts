@@ -126,19 +126,10 @@ export const process = mutation({
         status = "failed";
         error = e instanceof Error ? e.message : String(e);
 
-        await ctx.db.insert("webhookEvents", {
-          eventId: event.id,
-          eventType: event.type,
-          appId: event.app_id,
-          appUserId: event.app_user_id,
-          environment: event.environment,
-          store: event.store,
-          payload,
-          processedAt: now,
-          status: "failed",
-          error,
-        });
-
+        // NOTE: do NOT insert into webhookEvents here — throwing rolls back the
+        // entire mutation transaction, so any db write in this catch block is
+        // silently discarded. The event intentionally stays out of webhookEvents
+        // so the dedup check doesn't block RC's retry on the next attempt.
         if (e instanceof ConvexError) {
           throw e;
         }
