@@ -543,6 +543,49 @@ export const processNonRenewingPurchase = internalMutation({
   },
 });
 
+async function aliasEntitlements(
+  ctx: MutationCtx,
+  fromUserId: string,
+  toUserId: string,
+): Promise<void> {
+  const now = Date.now();
+
+  const entitlements = await ctx.db
+    .query("entitlements")
+    .withIndex("by_app_user", (q) => q.eq("appUserId", fromUserId))
+    .collect();
+
+  for (const ent of entitlements) {
+    const existing = await ctx.db
+      .query("entitlements")
+      .withIndex("by_app_user_entitlement", (q) =>
+        q.eq("appUserId", toUserId).eq("entitlementId", ent.entitlementId),
+      )
+      .first();
+
+    if (existing) {
+      // Both IDs are the same person — keep the record with the later expiry
+      const sourceIsNewer =
+        ent.expiresAtMs !== undefined &&
+        (existing.expiresAtMs === undefined || ent.expiresAtMs > existing.expiresAtMs);
+      if (sourceIsNewer) {
+        await ctx.db.patch(existing._id, {
+          isActive: ent.isActive,
+          productId: ent.productId,
+          expiresAtMs: ent.expiresAtMs,
+          purchasedAtMs: ent.purchasedAtMs,
+          store: ent.store,
+          isSandbox: ent.isSandbox,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.delete(ent._id);
+    } else {
+      await ctx.db.patch(ent._id, { appUserId: toUserId, updatedAt: now });
+    }
+  }
+}
+
 async function transferSubscriptions(
   ctx: MutationCtx,
   fromUserId: string,
@@ -762,6 +805,14 @@ export const processSubscriberAlias = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
+
+    const fromUserId = event.original_app_user_id;
+    const toUserId = event.app_user_id;
+    if (fromUserId && toUserId && fromUserId !== toUserId) {
+      await aliasEntitlements(ctx, fromUserId, toUserId);
+      await transferSubscriptions(ctx, fromUserId, toUserId);
+    }
+
     return null;
   },
 });
