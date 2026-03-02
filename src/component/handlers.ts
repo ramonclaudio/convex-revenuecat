@@ -597,6 +597,11 @@ async function aliasEntitlements(
           purchasedAtMs: ent.purchasedAtMs,
           store: ent.store,
           isSandbox: ent.isSandbox,
+          // Preserve billing issue flag from source if it has one; don't
+          // overwrite the destination's flag if only the destination has it.
+          ...(ent.billingIssueDetectedAt !== undefined
+            ? { billingIssueDetectedAt: ent.billingIssueDetectedAt }
+            : {}),
           updatedAt: now,
         });
       }
@@ -671,6 +676,20 @@ export const processTemporaryEntitlementGrant = internalMutation({
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
     await grantEntitlements(ctx, event);
+    return null;
+  },
+});
+
+export const processRefund = internalMutation({
+  args: { event: eventPayloadValidator },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = args.event as EventPayload;
+    await upsertCustomer(ctx, event);
+    await upsertSubscription(ctx, event);
+    if (event.app_user_id && event.entitlement_ids?.length) {
+      await revokeEntitlements(ctx, event.app_user_id, event.entitlement_ids);
+    }
     return null;
   },
 });
