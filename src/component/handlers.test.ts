@@ -254,6 +254,53 @@ describe("handlers", () => {
 
       expect(hasPremium).toBe(false);
     });
+
+    test("does NOT revoke unrelated entitlements when entitlement_ids is absent", async () => {
+      const t = initConvexTest();
+
+      // User has two active subscriptions: premium and pro
+      const premiumPayload = createEventPayload({
+        id: "evt_expire_guard_premium",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_expire_guard",
+        entitlement_ids: ["premium"],
+        expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      });
+      const proPayload = createEventPayload({
+        id: "evt_expire_guard_pro",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_expire_guard",
+        entitlement_ids: ["pro"],
+        expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      });
+
+      for (const p of [premiumPayload, proPayload]) {
+        await t.mutation(api.webhooks.process, {
+          event: { id: p.id, type: p.type, app_id: p.app_id, app_user_id: p.app_user_id, environment: p.environment, store: p.store },
+          payload: p,
+        });
+      }
+
+      // EXPIRATION fires for a product NOT mapped to any entitlement (entitlement_ids absent)
+      const expirePayload = {
+        ...createEventPayload({
+          id: "evt_expire_guard_expire",
+          type: "EXPIRATION",
+          app_user_id: "user_expire_guard",
+          expiration_at_ms: Date.now() - 1000,
+        }),
+        entitlement_ids: undefined,
+      };
+
+      await t.mutation(api.webhooks.process, {
+        event: { id: expirePayload.id, type: expirePayload.type, app_id: expirePayload.app_id, app_user_id: expirePayload.app_user_id, environment: expirePayload.environment, store: expirePayload.store },
+        payload: expirePayload,
+      });
+
+      // Both entitlements should still be active — neither was targeted
+      expect(await t.query(api.entitlements.check, { appUserId: "user_expire_guard", entitlementId: "premium" })).toBe(true);
+      expect(await t.query(api.entitlements.check, { appUserId: "user_expire_guard", entitlementId: "pro" })).toBe(true);
+    });
   });
 
   describe("SUBSCRIPTION_PAUSED", () => {
@@ -586,6 +633,27 @@ describe("handlers", () => {
 
       expect(entitlements.length).toBe(1);
       expect(entitlements[0].expiresAtMs).toBe(renewedExpiration);
+    });
+
+    test("creates entitlement if missing (e.g. after transfer) rather than silently skipping", async () => {
+      const t = initConvexTest();
+      const renewedExpiration = Date.now() + 60 * 24 * 60 * 60 * 1000;
+
+      // RENEWAL fires but no prior INITIAL_PURCHASE entitlement record exists
+      const renewPayload = createEventPayload({
+        id: "evt_renew_missing_ent",
+        type: "RENEWAL",
+        app_user_id: "user_renew_missing",
+        entitlement_ids: ["premium"],
+        expiration_at_ms: renewedExpiration,
+      });
+
+      await t.mutation(api.webhooks.process, {
+        event: { id: renewPayload.id, type: renewPayload.type, app_id: renewPayload.app_id, app_user_id: renewPayload.app_user_id, environment: renewPayload.environment, store: renewPayload.store },
+        payload: renewPayload,
+      });
+
+      expect(await t.query(api.entitlements.check, { appUserId: "user_renew_missing", entitlementId: "premium" })).toBe(true);
     });
   });
 
@@ -1056,6 +1124,50 @@ describe("handlers", () => {
 
       expect(result.processed).toBe(true);
     });
+
+    test("stores separate transaction records for each currency in a multi-currency event", async () => {
+      const t = initConvexTest();
+
+      const payload = {
+        id: "evt_vcurrency_multi",
+        type: "VIRTUAL_CURRENCY_TRANSACTION",
+        event_timestamp_ms: Date.now(),
+        app_user_id: "user_vcurrency_multi",
+        environment: "PRODUCTION" as const,
+        store: "APP_STORE" as const,
+        adjustments: [
+          { amount: 100, currency: { code: "coins", name: "Coins" } },
+          { amount: 50, currency: { code: "gems", name: "Gems" } },
+        ],
+        virtual_currency_transaction_id: "vct_multi_1",
+        source: "in_app_purchase",
+      };
+
+      await t.mutation(api.webhooks.process, {
+        event: { id: payload.id, type: payload.type, app_user_id: payload.app_user_id, environment: payload.environment, store: payload.store },
+        payload,
+      });
+
+      const coinsBalance = await t.query(api.virtualCurrency.getBalance, {
+        appUserId: "user_vcurrency_multi",
+        currencyCode: "coins",
+      });
+      const gemsBalance = await t.query(api.virtualCurrency.getBalance, {
+        appUserId: "user_vcurrency_multi",
+        currencyCode: "gems",
+      });
+
+      expect(coinsBalance?.balance).toBe(100);
+      expect(gemsBalance?.balance).toBe(50);
+
+      const transactions = await t.query(api.virtualCurrency.listTransactions, {
+        appUserId: "user_vcurrency_multi",
+      });
+
+      // Both currency adjustments must have their own transaction record
+      expect(transactions.length).toBe(2);
+      expect(transactions.map((tx) => tx.currencyCode).sort()).toEqual(["coins", "gems"]);
+    });
   });
 
   describe("EXPERIMENT_ENROLLMENT", () => {
@@ -1438,6 +1550,83 @@ describe("handlers", () => {
       expect(customer).not.toBeNull();
       expect(customer?.aliases).toContain("alias_1");
       expect(customer?.aliases).toContain("alias_2");
+    });
+
+    test("migrates entitlements and subscriptions from anonymous to real user ID", async () => {
+      const t = initConvexTest();
+      const anonymousId = "$RCAnonymousID:abc123";
+      const realUserId = "user_real_1";
+
+      // Purchase happens under anonymous ID
+      const purchasePayload = createEventPayload({
+        id: "evt_anon_purchase",
+        type: "INITIAL_PURCHASE",
+        app_user_id: anonymousId,
+        entitlement_ids: ["premium"],
+      });
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: purchasePayload.id,
+          type: purchasePayload.type,
+          app_user_id: purchasePayload.app_user_id,
+          environment: purchasePayload.environment,
+          store: purchasePayload.store,
+        },
+        payload: purchasePayload,
+      });
+
+      // Confirm real user has no entitlement before alias
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: realUserId,
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+
+      // logIn() fires — RC sends SUBSCRIBER_ALIAS
+      // app_user_id = real user, original_app_user_id = anonymous
+      const aliasPayload = {
+        id: "evt_alias_migrate",
+        type: "SUBSCRIBER_ALIAS",
+        event_timestamp_ms: Date.now(),
+        app_user_id: realUserId,
+        original_app_user_id: anonymousId,
+        aliases: [realUserId, anonymousId],
+        environment: "SANDBOX" as const,
+      };
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: aliasPayload.id,
+          type: aliasPayload.type,
+          app_user_id: aliasPayload.app_user_id,
+          environment: aliasPayload.environment,
+        },
+        payload: aliasPayload,
+      });
+
+      // Real user should now have the entitlement
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: realUserId,
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
+
+      // Anonymous ID should no longer have the entitlement
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: anonymousId,
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+
+      // Subscription should be under real user
+      const subs = await t.query(api.subscriptions.getActive, {
+        appUserId: realUserId,
+      });
+      expect(subs.length).toBeGreaterThan(0);
     });
   });
 });

@@ -293,6 +293,20 @@ async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promis
         billingIssueDetectedAt: undefined,
         updatedAt: now,
       });
+    } else {
+      // Entitlement missing (e.g. race condition, prior transfer) — create it
+      // so the user isn't locked out after a successful renewal.
+      await ctx.db.insert("entitlements", {
+        appUserId: event.app_user_id,
+        entitlementId,
+        productId: event.product_id,
+        isActive: true,
+        expiresAtMs: event.expiration_at_ms,
+        purchasedAtMs: event.purchased_at_ms,
+        store: event.store,
+        isSandbox: event.environment === "SANDBOX",
+        updatedAt: now,
+      });
     }
   }
 }
@@ -409,6 +423,10 @@ export const processRenewal = internalMutation({
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
     await upsertSubscription(ctx, event, {
+      // Subscription successfully renewed — clear any stale cancellation and
+      // billing issue state from a previous period.
+      cancelReason: undefined,
+      autoRenewStatus: undefined,
       billingIssueDetectedAt: undefined,
       gracePeriodExpirationAtMs: undefined,
     });
@@ -455,7 +473,10 @@ export const processExpiration = internalMutation({
     await upsertSubscription(ctx, event, {
       expirationReason: event.expiration_reason,
     });
-    if (event.app_user_id) {
+    // Only revoke specific entitlements — if entitlement_ids is absent/null
+    // (product not mapped to an entitlement), revoking all would incorrectly
+    // strip entitlements from other active subscriptions on the same account.
+    if (event.app_user_id && event.entitlement_ids?.length) {
       await revokeEntitlements(ctx, event.app_user_id, event.entitlement_ids);
     }
     return null;
@@ -542,6 +563,49 @@ export const processNonRenewingPurchase = internalMutation({
     return null;
   },
 });
+
+async function aliasEntitlements(
+  ctx: MutationCtx,
+  fromUserId: string,
+  toUserId: string,
+): Promise<void> {
+  const now = Date.now();
+
+  const entitlements = await ctx.db
+    .query("entitlements")
+    .withIndex("by_app_user", (q) => q.eq("appUserId", fromUserId))
+    .collect();
+
+  for (const ent of entitlements) {
+    const existing = await ctx.db
+      .query("entitlements")
+      .withIndex("by_app_user_entitlement", (q) =>
+        q.eq("appUserId", toUserId).eq("entitlementId", ent.entitlementId),
+      )
+      .first();
+
+    if (existing) {
+      // Both IDs are the same person — keep the record with the later expiry
+      const sourceIsNewer =
+        ent.expiresAtMs !== undefined &&
+        (existing.expiresAtMs === undefined || ent.expiresAtMs > existing.expiresAtMs);
+      if (sourceIsNewer) {
+        await ctx.db.patch(existing._id, {
+          isActive: ent.isActive,
+          productId: ent.productId,
+          expiresAtMs: ent.expiresAtMs,
+          purchasedAtMs: ent.purchasedAtMs,
+          store: ent.store,
+          isSandbox: ent.isSandbox,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.delete(ent._id);
+    } else {
+      await ctx.db.patch(ent._id, { appUserId: toUserId, updatedAt: now });
+    }
+  }
+}
 
 async function transferSubscriptions(
   ctx: MutationCtx,
@@ -683,10 +747,13 @@ export const processVirtualCurrencyTransaction = internalMutation({
       const currencyName = adjustment.currency.name;
       const amount = adjustment.amount;
 
-      // Store individual transaction
+      // Store individual transaction — deduplicate by (transactionId, currencyCode)
+      // because a single event can carry adjustments for multiple currencies and
+      // they all share the same transactionId.
       const existingTx = await ctx.db
         .query("virtualCurrencyTransactions")
         .withIndex("by_transaction_id", (q) => q.eq("transactionId", transactionId))
+        .filter((q) => q.eq(q.field("currencyCode"), currencyCode))
         .first();
 
       if (!existingTx) {
@@ -762,6 +829,14 @@ export const processSubscriberAlias = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await upsertCustomer(ctx, event);
+
+    const fromUserId = event.original_app_user_id;
+    const toUserId = event.app_user_id;
+    if (fromUserId && toUserId && fromUserId !== toUserId) {
+      await aliasEntitlements(ctx, fromUserId, toUserId);
+      await transferSubscriptions(ctx, fromUserId, toUserId);
+    }
+
     return null;
   },
 });
