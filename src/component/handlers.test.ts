@@ -1439,5 +1439,82 @@ describe("handlers", () => {
       expect(customer?.aliases).toContain("alias_1");
       expect(customer?.aliases).toContain("alias_2");
     });
+
+    test("migrates entitlements and subscriptions from anonymous to real user ID", async () => {
+      const t = initConvexTest();
+      const anonymousId = "$RCAnonymousID:abc123";
+      const realUserId = "user_real_1";
+
+      // Purchase happens under anonymous ID
+      const purchasePayload = createEventPayload({
+        id: "evt_anon_purchase",
+        type: "INITIAL_PURCHASE",
+        app_user_id: anonymousId,
+        entitlement_ids: ["premium"],
+      });
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: purchasePayload.id,
+          type: purchasePayload.type,
+          app_user_id: purchasePayload.app_user_id,
+          environment: purchasePayload.environment,
+          store: purchasePayload.store,
+        },
+        payload: purchasePayload,
+      });
+
+      // Confirm real user has no entitlement before alias
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: realUserId,
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+
+      // logIn() fires — RC sends SUBSCRIBER_ALIAS
+      // app_user_id = real user, original_app_user_id = anonymous
+      const aliasPayload = {
+        id: "evt_alias_migrate",
+        type: "SUBSCRIBER_ALIAS",
+        event_timestamp_ms: Date.now(),
+        app_user_id: realUserId,
+        original_app_user_id: anonymousId,
+        aliases: [realUserId, anonymousId],
+        environment: "SANDBOX" as const,
+      };
+
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: aliasPayload.id,
+          type: aliasPayload.type,
+          app_user_id: aliasPayload.app_user_id,
+          environment: aliasPayload.environment,
+        },
+        payload: aliasPayload,
+      });
+
+      // Real user should now have the entitlement
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: realUserId,
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
+
+      // Anonymous ID should no longer have the entitlement
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: anonymousId,
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+
+      // Subscription should be under real user
+      const subs = await t.query(api.subscriptions.getActive, {
+        appUserId: realUserId,
+      });
+      expect(subs.length).toBeGreaterThan(0);
+    });
   });
 });
