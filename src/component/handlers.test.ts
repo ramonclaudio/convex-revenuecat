@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
 function createEventPayload(
@@ -1728,6 +1728,68 @@ describe("handlers", () => {
       const realEnts = await t.query(api.entitlements.list, { appUserId: realUserId });
       expect(realEnts.length).toBe(1);
       expect(realEnts[0].billingIssueDetectedAt).toBeDefined();
+    });
+
+    test("preserves unsubscribeDetectedAt from source when both users have the same entitlement and source is newer", async () => {
+      // No handler currently populates unsubscribeDetectedAt, so we seed it
+      // directly via t.run to verify the aliasEntitlements patch carries it over.
+      const t = initConvexTest();
+      const anonymousId = "$RCAnonymousID:unsub_alias";
+      const realUserId = "user_unsub_alias_real";
+      const now = Date.now();
+
+      // Real user: grant with shorter expiry (older record)
+      await t.mutation(internal.entitlements.grant, {
+        appUserId: realUserId,
+        entitlementId: "premium",
+        isSandbox: false,
+        expiresAtMs: now + 10 * 24 * 60 * 60 * 1000, // +10 days
+      });
+
+      // Anonymous user: grant with longer expiry (newer record)
+      const anonEntId = await t.mutation(internal.entitlements.grant, {
+        appUserId: anonymousId,
+        entitlementId: "premium",
+        isSandbox: false,
+        expiresAtMs: now + 30 * 24 * 60 * 60 * 1000, // +30 days
+      });
+
+      // Seed unsubscribeDetectedAt directly — no handler sets this yet
+      const unsubscribeTs = now - 500;
+      await t.run(async (ctx) => {
+        await ctx.db.patch(anonEntId, { unsubscribeDetectedAt: unsubscribeTs });
+      });
+
+      // Confirm state before alias: anon has it, real doesn't
+      const anonEnts = await t.query(api.entitlements.list, { appUserId: anonymousId });
+      expect(anonEnts[0].unsubscribeDetectedAt).toBe(unsubscribeTs);
+      const realEntsBefore = await t.query(api.entitlements.list, { appUserId: realUserId });
+      expect(realEntsBefore[0].unsubscribeDetectedAt).toBeUndefined();
+
+      // SUBSCRIBER_ALIAS: anon (newer) → real (existing, older)
+      const aliasPayload = {
+        id: "evt_unsub_alias_merge",
+        type: "SUBSCRIBER_ALIAS",
+        event_timestamp_ms: now,
+        app_user_id: realUserId,
+        original_app_user_id: anonymousId,
+        aliases: [anonymousId],
+        environment: "SANDBOX" as const,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: aliasPayload.id,
+          type: aliasPayload.type,
+          app_user_id: aliasPayload.app_user_id,
+          environment: aliasPayload.environment,
+        },
+        payload: aliasPayload,
+      });
+
+      // unsubscribeDetectedAt from source must survive the merge
+      const realEnts = await t.query(api.entitlements.list, { appUserId: realUserId });
+      expect(realEnts.length).toBe(1);
+      expect(realEnts[0].unsubscribeDetectedAt).toBe(unsubscribeTs);
     });
   });
 
