@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10
+
+### Fixed
+
+- **`aliasEntitlements` dropped `unsubscribeDetectedAt` on merge.** Same hole as `billingIssueDetectedAt` in 0.1.9. The `sourceIsNewer` patch didn't carry `unsubscribeDetectedAt` from the source record. No handler sets it yet, but the field is in the schema and the gap was there. Fixed: same conditional spread pattern as `billingIssueDetectedAt`.
+
 ## 0.1.9
 
 ### Fixed
