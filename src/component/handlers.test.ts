@@ -254,6 +254,53 @@ describe("handlers", () => {
 
       expect(hasPremium).toBe(false);
     });
+
+    test("does NOT revoke unrelated entitlements when entitlement_ids is absent", async () => {
+      const t = initConvexTest();
+
+      // User has two active subscriptions: premium and pro
+      const premiumPayload = createEventPayload({
+        id: "evt_expire_guard_premium",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_expire_guard",
+        entitlement_ids: ["premium"],
+        expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      });
+      const proPayload = createEventPayload({
+        id: "evt_expire_guard_pro",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_expire_guard",
+        entitlement_ids: ["pro"],
+        expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      });
+
+      for (const p of [premiumPayload, proPayload]) {
+        await t.mutation(api.webhooks.process, {
+          event: { id: p.id, type: p.type, app_id: p.app_id, app_user_id: p.app_user_id, environment: p.environment, store: p.store },
+          payload: p,
+        });
+      }
+
+      // EXPIRATION fires for a product NOT mapped to any entitlement (entitlement_ids absent)
+      const expirePayload = {
+        ...createEventPayload({
+          id: "evt_expire_guard_expire",
+          type: "EXPIRATION",
+          app_user_id: "user_expire_guard",
+          expiration_at_ms: Date.now() - 1000,
+        }),
+        entitlement_ids: undefined,
+      };
+
+      await t.mutation(api.webhooks.process, {
+        event: { id: expirePayload.id, type: expirePayload.type, app_id: expirePayload.app_id, app_user_id: expirePayload.app_user_id, environment: expirePayload.environment, store: expirePayload.store },
+        payload: expirePayload,
+      });
+
+      // Both entitlements should still be active — neither was targeted
+      expect(await t.query(api.entitlements.check, { appUserId: "user_expire_guard", entitlementId: "premium" })).toBe(true);
+      expect(await t.query(api.entitlements.check, { appUserId: "user_expire_guard", entitlementId: "pro" })).toBe(true);
+    });
   });
 
   describe("SUBSCRIPTION_PAUSED", () => {
