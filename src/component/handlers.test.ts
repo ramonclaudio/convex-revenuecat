@@ -1124,6 +1124,50 @@ describe("handlers", () => {
 
       expect(result.processed).toBe(true);
     });
+
+    test("stores separate transaction records for each currency in a multi-currency event", async () => {
+      const t = initConvexTest();
+
+      const payload = {
+        id: "evt_vcurrency_multi",
+        type: "VIRTUAL_CURRENCY_TRANSACTION",
+        event_timestamp_ms: Date.now(),
+        app_user_id: "user_vcurrency_multi",
+        environment: "PRODUCTION" as const,
+        store: "APP_STORE" as const,
+        adjustments: [
+          { amount: 100, currency: { code: "coins", name: "Coins" } },
+          { amount: 50, currency: { code: "gems", name: "Gems" } },
+        ],
+        virtual_currency_transaction_id: "vct_multi_1",
+        source: "in_app_purchase",
+      };
+
+      await t.mutation(api.webhooks.process, {
+        event: { id: payload.id, type: payload.type, app_user_id: payload.app_user_id, environment: payload.environment, store: payload.store },
+        payload,
+      });
+
+      const coinsBalance = await t.query(api.virtualCurrency.getBalance, {
+        appUserId: "user_vcurrency_multi",
+        currencyCode: "coins",
+      });
+      const gemsBalance = await t.query(api.virtualCurrency.getBalance, {
+        appUserId: "user_vcurrency_multi",
+        currencyCode: "gems",
+      });
+
+      expect(coinsBalance?.balance).toBe(100);
+      expect(gemsBalance?.balance).toBe(50);
+
+      const transactions = await t.query(api.virtualCurrency.listTransactions, {
+        appUserId: "user_vcurrency_multi",
+      });
+
+      // Both currency adjustments must have their own transaction record
+      expect(transactions.length).toBe(2);
+      expect(transactions.map((tx) => tx.currencyCode).sort()).toEqual(["coins", "gems"]);
+    });
   });
 
   describe("EXPERIMENT_ENROLLMENT", () => {
