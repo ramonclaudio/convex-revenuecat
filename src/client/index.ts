@@ -41,6 +41,9 @@ type ClientComponentApi = {
   webhooks: {
     process: FunctionReference<"mutation", AnyVisibility, { event: any; payload: any }, { processed: boolean; eventId: string }>;
   };
+  sync: {
+    ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: { entitlements?: any; subscriptions?: any; subscriber_attributes?: any; first_seen?: string; last_seen?: string; original_app_user_id?: string } }, { subscriptions: number; entitlements: number }>;
+  };
 };
 
 export type {
@@ -57,6 +60,58 @@ export type {
   VirtualCurrencyBalance,
   VirtualCurrencyTransaction,
 } from "../component/types.js";
+
+/** Shape of the `subscriber` object from RevenueCat's GET /v1/subscribers/{id}. */
+export type RevenueCatSubscriber = {
+  entitlements?: Record<
+    string,
+    {
+      expires_date: string | null;
+      grace_period_expires_date?: string | null;
+      product_identifier: string;
+      purchase_date: string;
+    }
+  >;
+  first_seen: string;
+  last_seen?: string;
+  original_app_user_id?: string;
+  subscriber_attributes?: Record<
+    string,
+    { value: string; updated_at_ms: number }
+  >;
+  subscriptions?: Record<
+    string,
+    {
+      auto_resume_date?: string | null;
+      billing_issues_detected_at?: string | null;
+      expires_date: string | null;
+      grace_period_expires_date?: string | null;
+      is_sandbox: boolean;
+      original_purchase_date: string;
+      period_type: string;
+      purchase_date: string;
+      refunded_at?: string | null;
+      store: string;
+      store_transaction_id?: string;
+      unsubscribe_detected_at?: string | null;
+      ownership_type?: string;
+    }
+  >;
+  non_subscriptions?: Record<
+    string,
+    Array<{
+      id: string;
+      is_sandbox: boolean;
+      purchase_date: string;
+      store: string;
+    }>
+  >;
+};
+
+export type SyncResult = {
+  subscriptions: number;
+  entitlements: number;
+};
 
 import type {
   Store,
@@ -78,6 +133,7 @@ export type GracePeriodStatus = {
 };
 
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
+type MutCtx = Pick<GenericActionCtx<GenericDataModel>, "runMutation">;
 
 export interface RevenueCatOptions {
   /**
@@ -237,6 +293,23 @@ export class RevenueCat {
     args: { appUserId: string },
   ): Promise<Subscription[]> {
     return ctx.runQuery(this.component.subscriptions.getInGracePeriod, args) as Promise<Subscription[]>;
+  }
+
+  /**
+   * Sync a subscriber's state from RevenueCat's REST API into the component.
+   *
+   * Pass the `subscriber` object from `GET /v1/subscribers/{app_user_id}`.
+   * Upserts customer, subscriptions, and entitlements to match RevenueCat's
+   * source of truth. Call from a Convex action after fetching the API.
+   */
+  async syncSubscriber(
+    ctx: MutCtx,
+    args: { appUserId: string; subscriber: RevenueCatSubscriber },
+  ): Promise<SyncResult> {
+    return ctx.runMutation(this.component.sync.ingest, {
+      appUserId: args.appUserId,
+      subscriber: transformPayload(args.subscriber) as Record<string, unknown>,
+    }) as Promise<SyncResult>;
   }
 
   httpHandler() {
