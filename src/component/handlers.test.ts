@@ -1895,4 +1895,73 @@ describe("handlers", () => {
       ).toBe(true);
     });
   });
+
+  describe("webhook reconciliation with sync-created records", () => {
+    test("webhook updates sync-created subscription by (appUserId, productId) fallback", async () => {
+      const t = initConvexTest();
+
+      // Sync creates a subscription (no originalTransactionId from webhook)
+      await t.mutation(api.sync.ingest, {
+        appUserId: "user_reconcile",
+        subscriber: {
+          first_seen: "2024-01-01T00:00:00Z",
+          entitlements: {
+            premium: {
+              expires_date: new Date(Date.now() + 30 * 86400000).toISOString(),
+              product_identifier: "premium_monthly",
+              purchase_date: "2024-01-01T00:00:00Z",
+            },
+          },
+          subscriptions: {
+            premium_monthly: {
+              store: "APP_STORE",
+              is_sandbox: false,
+              period_type: "normal",
+              expires_date: new Date(Date.now() + 30 * 86400000).toISOString(),
+              purchase_date: "2024-01-01T00:00:00Z",
+              original_purchase_date: "2024-01-01T00:00:00Z",
+              store_transaction_id: "txn_sync_123",
+            },
+          },
+        },
+      });
+
+      // Verify sync created 1 subscription
+      const subsBefore = await t.query(api.subscriptions.getByUser, {
+        appUserId: "user_reconcile",
+      });
+      expect(subsBefore).toHaveLength(1);
+      expect(subsBefore[0].originalTransactionId).toBe("txn_sync_123");
+
+      // Webhook arrives with the real originalTransactionId
+      const payload = createEventPayload({
+        id: "evt_reconcile_1",
+        type: "RENEWAL",
+        app_user_id: "user_reconcile",
+        product_id: "premium_monthly",
+        entitlement_ids: ["premium"],
+        expiration_at_ms: Date.now() + 60 * 86400000,
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload.id,
+          type: payload.type,
+          app_id: payload.app_id,
+          app_user_id: payload.app_user_id,
+          environment: payload.environment,
+          store: payload.store,
+        },
+        payload,
+      });
+
+      // Should still be 1 subscription (not 2), with the webhook's originalTransactionId
+      const subsAfter = await t.query(api.subscriptions.getByUser, {
+        appUserId: "user_reconcile",
+      });
+      expect(subsAfter).toHaveLength(1);
+      expect(subsAfter[0].originalTransactionId).toBe(
+        payload.original_transaction_id,
+      );
+    });
+  });
 });
