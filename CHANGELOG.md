@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.11
+
+### Added
+
+- **Subscriber sync from REST API.** New `syncSubscriber(ctx, { appUserId, subscriber })` method accepts the `subscriber` object from RevenueCat's `GET /v1/subscribers/{app_user_id}` endpoint. Upserts customer, subscriptions, and entitlements to match RevenueCat's source of truth. Covers initial backfill, dropped webhooks, and on-foreground reconciliation. All writes are idempotent.
+- **Webhook reconciliation with sync-created records.** `upsertSubscription` falls back to `(appUserId, productId)` lookup when `originalTransactionId` doesn't match, so webhooks arriving after a sync update the existing record instead of creating a duplicate. Patches `originalTransactionId` to the correct value on match.
+- **`RevenueCatSubscriber` and `SyncResult` types** exported from the client SDK.
+
+### Changed
+
+- Rewrote README. Dropped mermaid diagram, collapsible sections, and FAQ. Sync docs inline with usage.
+- Updated `convex` to 1.34.1, `convex-test` to 0.0.46, `vitest` to 4.1.2, `@vitest/coverage-v8` to 4.1.2, `@convex-dev/eslint-plugin` to 1.2.1, `@types/node` to 25.5.0, `typescript-eslint` to 8.58.0, `pkg-pr-new` to 0.0.66.
+
+### Removed
+
+- Deleted `PUBLISHING.md` (stale template, publishing is handled by GitHub Actions on tag push).
+
 ## 0.1.10
 
 ### Fixed

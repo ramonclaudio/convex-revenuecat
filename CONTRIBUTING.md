@@ -17,6 +17,7 @@ src/
 │   ├── transfers.ts
 │   ├── invoices.ts
 │   ├── virtualCurrency.ts
+│   ├── sync.ts       # Subscriber sync from REST API
 │   ├── webhookEvents.ts
 │   ├── types.ts      # Exported type definitions
 │   ├── cleanup.ts    # Scheduled cleanup
