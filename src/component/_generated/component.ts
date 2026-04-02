@@ -423,6 +423,25 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       Name
     >;
   };
+  sync: {
+    ingest: FunctionReference<
+      "mutation",
+      "public",
+      {
+        appUserId: string;
+        subscriber: {
+          entitlements?: any;
+          subscriptions?: any;
+          subscriber_attributes?: any;
+          first_seen?: string;
+          last_seen?: string;
+          original_app_user_id?: string;
+        };
+      },
+      { subscriptions: number; entitlements: number },
+      Name
+    >;
+  };
   webhooks: {
     process: FunctionReference<
       "mutation",
