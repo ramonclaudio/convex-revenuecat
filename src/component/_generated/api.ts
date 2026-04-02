@@ -15,6 +15,7 @@ import type * as experiments from "../experiments.js";
 import type * as handlers from "../handlers.js";
 import type * as invoices from "../invoices.js";
 import type * as subscriptions from "../subscriptions.js";
+import type * as sync from "../sync.js";
 import type * as transfers from "../transfers.js";
 import type * as virtualCurrency from "../virtualCurrency.js";
 import type * as webhookEvents from "../webhookEvents.js";
@@ -31,6 +32,7 @@ const fullApi: ApiFromModules<{
   handlers: typeof handlers;
   invoices: typeof invoices;
   subscriptions: typeof subscriptions;
+  sync: typeof sync;
   transfers: typeof transfers;
   virtualCurrency: typeof virtualCurrency;
   webhookEvents: typeof webhookEvents;
