@@ -165,12 +165,21 @@ async function upsertSubscription(
   const periodType = event.period_type;
 
   const now = Date.now();
-  const existing = await ctx.db
+  let existing = await ctx.db
     .query("subscriptions")
     .withIndex("by_original_transaction", (q) =>
       q.eq("originalTransactionId", originalTransactionId),
     )
     .first();
+
+  // Fallback: match sync-created records by (appUserId, productId)
+  if (!existing) {
+    existing = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_app_user", (q) => q.eq("appUserId", appUserId))
+      .filter((q) => q.eq(q.field("productId"), productId))
+      .first();
+  }
 
   const subscriptionData = {
     appUserId,
@@ -201,7 +210,11 @@ async function upsertSubscription(
   };
 
   if (existing) {
-    await ctx.db.patch(existing._id, subscriptionData);
+    await ctx.db.patch(existing._id, {
+      ...subscriptionData,
+      // Fix originalTransactionId on sync-created records
+      originalTransactionId: originalTransactionId,
+    });
   } else {
     await ctx.db.insert("subscriptions", subscriptionData);
   }
