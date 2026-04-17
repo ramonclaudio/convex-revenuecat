@@ -13,6 +13,8 @@ import type { FunctionReference } from "convex/server";
 type Store =
   | "AMAZON"
   | "APP_STORE"
+  | "EXTERNAL"
+  | "GALAXY"
   | "MAC_APP_STORE"
   | "PADDLE"
   | "PLAY_STORE"
@@ -20,7 +22,8 @@ type Store =
   | "RC_BILLING"
   | "ROKU"
   | "STRIPE"
-  | "TEST_STORE";
+  | "TEST_STORE"
+  | "UNKNOWN_STORE";
 
 type Environment = "SANDBOX" | "PRODUCTION";
 type PeriodType = "TRIAL" | "INTRO" | "NORMAL" | "PROMOTIONAL" | "PREPAID";
@@ -40,6 +43,7 @@ interface EntitlementDoc {
   isSandbox: boolean;
   unsubscribeDetectedAt?: number;
   billingIssueDetectedAt?: number;
+  ownershipType?: OwnershipType;
   updatedAt: number;
 }
 
@@ -75,6 +79,8 @@ interface SubscriptionDoc {
   presentedOfferingId?: string;
   renewalNumber?: number;
   newProductId?: string;
+  refundedAtMs?: number;
+  originalPurchasedAtMs?: number;
   updatedAt: number;
 }
 
@@ -281,18 +287,20 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       CustomerDoc | null,
       Name
     >;
-    upsert: FunctionReference<
+    purge: FunctionReference<
       "mutation",
-      "internal",
+      "public",
+      { appUserId: string },
       {
-        appUserId: string;
-        originalAppUserId: string;
-        aliases: string[];
-        firstSeenAt?: number;
-        lastSeenAt?: number;
-        attributes?: any;
+        customer: number;
+        subscriptions: number;
+        entitlements: number;
+        experiments: number;
+        invoices: number;
+        virtualCurrencyBalances: number;
+        virtualCurrencyTransactions: number;
+        webhookEvents: number;
       },
-      string,
       Name
     >;
   };
@@ -432,13 +440,14 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         subscriber: {
           entitlements?: any;
           subscriptions?: any;
+          non_subscriptions?: any;
           subscriber_attributes?: any;
           first_seen?: string;
           last_seen?: string;
           original_app_user_id?: string;
         };
       },
-      { subscriptions: number; entitlements: number },
+      { subscriptions: number; entitlements: number; nonSubscriptions: number },
       Name
     >;
   };
