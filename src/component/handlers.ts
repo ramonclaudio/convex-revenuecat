@@ -1,4 +1,4 @@
-import { v, type Infer } from "convex/values";
+import { v, ConvexError, type Infer } from "convex/values";
 import type { GenericMutationCtx } from "convex/server";
 import { internalMutation } from "./_generated/server.js";
 import type { DataModel } from "./_generated/dataModel.js";
@@ -12,6 +12,30 @@ import {
 
 type MutationCtx = GenericMutationCtx<DataModel>;
 
+// Safety cap for transfer/alias operations that collect all records for a user.
+// Convex mutations have a per-transaction write budget (~8k docs). A user with
+// more entitlements/subscriptions than this is pathological; fail loudly so it
+// surfaces in logs rather than corrupting state partway through.
+const TRANSFER_SAFETY_CAP = 500;
+
+function assertUnderCap(collected: { length: number }, op: string, userId: string): void {
+  if (collected.length > TRANSFER_SAFETY_CAP) {
+    throw new ConvexError({
+      code: "TRANSFER_SAFETY_CAP_EXCEEDED",
+      message: `${op} aborted: user ${userId} has more than ${TRANSFER_SAFETY_CAP} records`,
+    });
+  }
+}
+
+// Kept for the `EventPayload` TypeScript type only. Handler args use
+// `v.any()` at runtime because Convex's `v.object` rejects unknown fields,
+// and RevenueCat explicitly reserves the right to add new fields within an
+// API version: "You should be able to handle webhooks that include
+// additional fields ... We may add new fields or event types in the future
+// without changing the API version."
+// Strict validation here would cause new fields to fail validation, RC to
+// retry 5x, and eventually drop the event.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const eventPayloadValidator = v.object({
   type: v.string(),
   id: v.string(),
@@ -152,17 +176,32 @@ async function upsertSubscription(
     billingIssueDetectedAt: number | undefined;
     autoResumeAtMs: number | undefined;
     autoRenewStatus: boolean | undefined;
+    refundedAtMs: number | undefined;
   }>,
-): Promise<void> {
-  if (!event.app_user_id || !event.original_transaction_id || !event.product_id) return;
-  if (!event.store || !event.environment || !event.period_type) return;
+): Promise<boolean> {
+  const {
+    app_user_id: appUserId,
+    original_transaction_id: originalTransactionId,
+    product_id: productId,
+    store,
+    environment,
+    period_type: periodType,
+  } = event;
 
-  const appUserId = event.app_user_id;
-  const originalTransactionId = event.original_transaction_id;
-  const productId = event.product_id;
-  const store = event.store;
-  const environment = event.environment;
-  const periodType = event.period_type;
+  if (!appUserId || !originalTransactionId || !productId || !store || !environment || !periodType) {
+    const missing = [
+      !appUserId && "app_user_id",
+      !originalTransactionId && "original_transaction_id",
+      !productId && "product_id",
+      !store && "store",
+      !environment && "environment",
+      !periodType && "period_type",
+    ].filter(Boolean);
+    console.warn(
+      `[revenuecat] upsertSubscription skipped for event ${event.id} (${event.type}): missing ${missing.join(", ")}`,
+    );
+    return false;
+  }
 
   const now = Date.now();
   let existing = await ctx.db
@@ -192,7 +231,10 @@ async function upsertSubscription(
     expirationAtMs: event.expiration_at_ms,
     originalTransactionId,
     transactionId: event.transaction_id ?? originalTransactionId,
-    isFamilyShare: event.is_family_share ?? false,
+    // Derive from ownership_type when is_family_share is absent so the two
+    // fields stay consistent. Explicit false wins if the event sets it.
+    isFamilyShare:
+      event.is_family_share ?? event.ownership_type === "FAMILY_SHARED",
     ownershipType: event.ownership_type,
     isTrialConversion: event.is_trial_conversion,
     priceUsd: event.price,
@@ -218,6 +260,7 @@ async function upsertSubscription(
   } else {
     await ctx.db.insert("subscriptions", subscriptionData);
   }
+  return true;
 }
 
 async function grantEntitlements(ctx: MutationCtx, event: EventPayload): Promise<void> {
@@ -242,6 +285,7 @@ async function grantEntitlements(ctx: MutationCtx, event: EventPayload): Promise
         purchasedAtMs: event.purchased_at_ms,
         store: event.store,
         isSandbox,
+        ownershipType: event.ownership_type,
         unsubscribeDetectedAt: undefined,
         billingIssueDetectedAt: undefined,
         updatedAt: now,
@@ -256,6 +300,7 @@ async function grantEntitlements(ctx: MutationCtx, event: EventPayload): Promise
         purchasedAtMs: event.purchased_at_ms,
         store: event.store,
         isSandbox,
+        ownershipType: event.ownership_type,
         updatedAt: now,
       });
     }
@@ -303,6 +348,9 @@ async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promis
       await ctx.db.patch(existing._id, {
         isActive: true,
         expiresAtMs: event.expiration_at_ms,
+        // Ownership can change across renewals (e.g., converted from
+        // FAMILY_SHARED to PURCHASED). Keep in sync with the event.
+        ownershipType: event.ownership_type ?? existing.ownershipType,
         billingIssueDetectedAt: undefined,
         updatedAt: now,
       });
@@ -318,6 +366,7 @@ async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promis
         purchasedAtMs: event.purchased_at_ms,
         store: event.store,
         isSandbox: event.environment === "SANDBOX",
+        ownershipType: event.ownership_type,
         updatedAt: now,
       });
     }
@@ -335,7 +384,8 @@ async function transferEntitlements(
   const sourceEntitlements = await ctx.db
     .query("entitlements")
     .withIndex("by_app_user", (q) => q.eq("appUserId", fromUserId))
-    .collect();
+    .take(TRANSFER_SAFETY_CAP + 1);
+  assertUnderCap(sourceEntitlements, "transferEntitlements", fromUserId);
 
   for (const ent of sourceEntitlements) {
     if (!entitlementIds || entitlementIds.includes(ent.entitlementId)) {
@@ -378,6 +428,11 @@ async function transferEntitlements(
   }
 }
 
+async function recordEvent(ctx: MutationCtx, event: EventPayload): Promise<void> {
+  await upsertCustomer(ctx, event);
+  await upsertExperiments(ctx, event);
+}
+
 async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise<void> {
   if (!event.experiments?.length || !event.app_user_id) return;
 
@@ -417,58 +472,86 @@ async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise
 }
 
 export const processInitialPurchase = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event);
     await grantEntitlements(ctx, event);
-    await upsertExperiments(ctx, event);
     return null;
   },
 });
 
 export const processRenewal = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
       // Subscription successfully renewed — clear any stale cancellation and
-      // billing issue state from a previous period.
+      // billing issue state from a previous period. A successful renewal
+      // implies auto-renew is on; setting undefined would leave ambiguity.
       cancelReason: undefined,
-      autoRenewStatus: undefined,
+      autoRenewStatus: true,
       billingIssueDetectedAt: undefined,
       gracePeriodExpirationAtMs: undefined,
     });
     await extendEntitlements(ctx, event);
-    await upsertExperiments(ctx, event);
     return null;
   },
 });
 
 export const processCancellation = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
-    await upsertSubscription(ctx, event, {
+    await recordEvent(ctx, event);
+    // RC emits refunds as CANCELLATION (no distinct REFUND event in 2026).
+    // Two signals indicate a refund, either suffices:
+    //   (a) cancel_reason === "CUSTOMER_SUPPORT" — Apple Report-a-Problem,
+    //       support-issued refunds, Stripe refunds, dashboard refunds
+    //   (b) price < 0 — catches Google Play self-serve refunds, chargebacks,
+    //       and DEVELOPER_INITIATED refunds where cancel_reason doesn't flip
+    //       to CUSTOMER_SUPPORT
+    // Using cancel_reason alone leaks access on Google self-serve and
+    // dashboard-initiated refunds. Never gate on price alone — it's 0 for
+    // free trials and unrelated non-refund cancellations.
+    const isRefund =
+      event.cancel_reason === "CUSTOMER_SUPPORT" ||
+      (typeof event.price === "number" && event.price < 0);
+
+    // Per RC docs: "refunds can be given without cancelling a subscription ...
+    // autorenewal preference may still be active." Only force autoRenewStatus
+    // to false for genuine cancellations (UNSUBSCRIBE, DEVELOPER_INITIATED,
+    // PRICE_INCREASE, BILLING_ERROR, UNKNOWN). For refund-only cases we leave
+    // autoRenewStatus alone so a subsequent RENEWAL can arrive truthfully.
+    const overrides: Parameters<typeof upsertSubscription>[2] = {
       cancelReason: event.cancel_reason,
-      autoRenewStatus: false,
-    });
+    };
+    if (!isRefund) {
+      overrides.autoRenewStatus = false;
+    } else {
+      // Record when the refund was detected for audit/reporting.
+      overrides.refundedAtMs = event.event_timestamp_ms;
+    }
+    await upsertSubscription(ctx, event, overrides);
+
+    if (isRefund && event.app_user_id && event.entitlement_ids?.length) {
+      await revokeEntitlements(ctx, event.app_user_id, event.entitlement_ids);
+    }
     return null;
   },
 });
 
 export const processUncancellation = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
       cancelReason: undefined,
       autoRenewStatus: true,
@@ -478,11 +561,11 @@ export const processUncancellation = internalMutation({
 });
 
 export const processExpiration = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
       expirationReason: event.expiration_reason,
     });
@@ -497,11 +580,11 @@ export const processExpiration = internalMutation({
 });
 
 export const processBillingIssue = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
       billingIssueDetectedAt: event.event_timestamp_ms,
       gracePeriodExpirationAtMs: event.grace_period_expiration_at_ms,
@@ -509,6 +592,7 @@ export const processBillingIssue = internalMutation({
 
     if (event.entitlement_ids?.length && event.app_user_id) {
       const now = Date.now();
+      const graceEnd = event.grace_period_expiration_at_ms;
       for (const entitlementId of event.entitlement_ids) {
         const ent = await ctx.db
           .query("entitlements")
@@ -517,8 +601,24 @@ export const processBillingIssue = internalMutation({
           )
           .first();
         if (ent) {
+          // Extend expiresAtMs to the grace period end so hasEntitlement keeps
+          // returning true during retry. If RENEWAL resolves the billing issue,
+          // extendEntitlements pushes expiresAtMs further. If grace times out,
+          // EXPIRATION revokes. If EXPIRATION drops, the grace end acts as a
+          // hard ceiling instead of indefinite access.
+          // Only extend finite expiries — preserve lifetime entitlements (no
+          // expiresAtMs) untouched. BILLING_ISSUE shouldn't reach a lifetime
+          // entitlement in practice, but the guard prevents silently converting
+          // "forever" access into a finite window on any odd edge case.
+          const extendedExpiry =
+            graceEnd !== undefined &&
+            ent.expiresAtMs !== undefined &&
+            graceEnd > ent.expiresAtMs
+              ? graceEnd
+              : ent.expiresAtMs;
           await ctx.db.patch(ent._id, {
             billingIssueDetectedAt: event.event_timestamp_ms,
+            expiresAtMs: extendedExpiry,
             updatedAt: now,
           });
         }
@@ -529,11 +629,11 @@ export const processBillingIssue = internalMutation({
 });
 
 export const processSubscriptionPaused = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
       autoResumeAtMs: event.auto_resume_at_ms,
     });
@@ -542,11 +642,11 @@ export const processSubscriptionPaused = internalMutation({
 });
 
 export const processSubscriptionExtended = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event);
     await extendEntitlements(ctx, event);
     return null;
@@ -554,25 +654,24 @@ export const processSubscriptionExtended = internalMutation({
 });
 
 export const processProductChange = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event);
     return null;
   },
 });
 
 export const processNonRenewingPurchase = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event);
     await grantEntitlements(ctx, event);
-    await upsertExperiments(ctx, event);
     return null;
   },
 });
@@ -587,7 +686,8 @@ async function aliasEntitlements(
   const entitlements = await ctx.db
     .query("entitlements")
     .withIndex("by_app_user", (q) => q.eq("appUserId", fromUserId))
-    .collect();
+    .take(TRANSFER_SAFETY_CAP + 1);
+  assertUnderCap(entitlements, "aliasEntitlements", fromUserId);
 
   for (const ent of entitlements) {
     const existing = await ctx.db
@@ -638,7 +738,8 @@ async function transferSubscriptions(
   const subscriptions = await ctx.db
     .query("subscriptions")
     .withIndex("by_app_user", (q) => q.eq("appUserId", fromUserId))
-    .collect();
+    .take(TRANSFER_SAFETY_CAP + 1);
+  assertUnderCap(subscriptions, "transferSubscriptions", fromUserId);
 
   for (const sub of subscriptions) {
     await ctx.db.patch(sub._id, {
@@ -649,7 +750,7 @@ async function transferSubscriptions(
 }
 
 export const processTransfer = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
@@ -686,23 +787,25 @@ export const processTransfer = internalMutation({
 });
 
 export const processTemporaryEntitlementGrant = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await grantEntitlements(ctx, event);
     return null;
   },
 });
 
 export const processRefund = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
-    await upsertSubscription(ctx, event);
+    await recordEvent(ctx, event);
+    await upsertSubscription(ctx, event, {
+      refundedAtMs: event.event_timestamp_ms,
+    });
     if (event.app_user_id && event.entitlement_ids?.length) {
       await revokeEntitlements(ctx, event.app_user_id, event.entitlement_ids);
     }
@@ -711,11 +814,11 @@ export const processRefund = internalMutation({
 });
 
 export const processRefundReversed = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
     await upsertSubscription(ctx, event);
     await grantEntitlements(ctx, event);
     return null;
@@ -723,7 +826,7 @@ export const processRefundReversed = internalMutation({
 });
 
 export const processTest = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async () => {
     return null;
@@ -731,11 +834,11 @@ export const processTest = internalMutation({
 });
 
 export const processInvoiceIssuance = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
 
     // Store invoice record - use event.id as invoiceId (no separate invoice_id field)
     if (event.id && event.app_user_id && event.environment) {
@@ -764,11 +867,11 @@ export const processInvoiceIssuance = internalMutation({
 });
 
 export const processVirtualCurrencyTransaction = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
 
     if (!event.adjustments?.length || !event.app_user_id || !event.environment) {
       return null;
@@ -833,11 +936,11 @@ export const processVirtualCurrencyTransaction = internalMutation({
 });
 
 export const processExperimentEnrollment = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
 
     if (event.experiment_id && event.experiment_variant && event.app_user_id) {
       const experimentEvent = {
@@ -859,11 +962,11 @@ export const processExperimentEnrollment = internalMutation({
 });
 
 export const processSubscriberAlias = internalMutation({
-  args: { event: eventPayloadValidator },
+  args: { event: v.any() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
-    await upsertCustomer(ctx, event);
+    await recordEvent(ctx, event);
 
     const fromUserId = event.original_app_user_id;
     const toUserId = event.app_user_id;
@@ -875,5 +978,3 @@ export const processSubscriberAlias = internalMutation({
     return null;
   },
 });
-
-export { eventPayloadValidator };
