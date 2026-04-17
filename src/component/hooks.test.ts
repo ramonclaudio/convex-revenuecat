@@ -80,7 +80,7 @@ describe("lifecycle hooks", () => {
   describe("onEntitlementActivated", () => {
     test("fires on INITIAL_PURCHASE for each granted entitlement", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const payload = createPurchasePayload({
         id: "evt_hook_initial",
         app_user_id: "user_hook_initial",
@@ -101,7 +101,7 @@ describe("lifecycle hooks", () => {
         },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(2);
       const entIds = jobs
         .map((j) => (j.args as { entitlementId: string }).entitlementId)
@@ -117,7 +117,7 @@ describe("lifecycle hooks", () => {
 
     test("does not fire when the entitlement was already active", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_hook_already_active";
 
       // First purchase activates.
@@ -153,13 +153,13 @@ describe("lifecycle hooks", () => {
         },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(0);
     });
 
     test("does not fire when the same webhook is retried (dedup)", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const payload = createPurchasePayload({
         id: "evt_hook_dedup",
         app_user_id: "user_hook_dedup",
@@ -192,7 +192,7 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementActivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
     });
   });
@@ -200,7 +200,7 @@ describe("lifecycle hooks", () => {
   describe("onEntitlementDeactivated", () => {
     test("fires on EXPIRATION", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_hook_expire";
 
       await t.mutation(api.webhooks.process, {
@@ -233,7 +233,7 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementDeactivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
       expect(
         (jobs[0].args as { entitlementId: string }).entitlementId,
@@ -243,7 +243,7 @@ describe("lifecycle hooks", () => {
 
     test("fires on refund CANCELLATION with CUSTOMER_SUPPORT", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_hook_refund";
 
       await t.mutation(api.webhooks.process, {
@@ -278,7 +278,7 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementDeactivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
     });
   });
@@ -286,7 +286,7 @@ describe("lifecycle hooks", () => {
   describe("onEntitlementActivated + Deactivated together", () => {
     test("TRANSFER fires deactivate for source and activate for destination", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const source = "user_transfer_src";
       const dest = "user_transfer_dst";
 
@@ -325,7 +325,7 @@ describe("lifecycle hooks", () => {
         },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       const users = jobs.map((j) => (j.args as { appUserId: string }).appUserId).sort();
       expect(users).toEqual([dest, source]);
     });
@@ -334,7 +334,7 @@ describe("lifecycle hooks", () => {
   describe("sync path", () => {
     test("fires hooks when sync flips an entitlement active", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
 
       await t.mutation(api.sync.ingest, {
         appUserId: "user_sync_hook",
@@ -362,7 +362,7 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementActivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
       expect(
         (jobs[0].args as { entitlementId: string }).entitlementId,
@@ -371,7 +371,7 @@ describe("lifecycle hooks", () => {
 
     test("fires deactivate hook when sync catches an expired entitlement", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_sync_expire";
 
       // First sync activates.
@@ -427,7 +427,7 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementDeactivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
       expect(
         (jobs[0].args as { entitlementId: string }).entitlementId,
@@ -438,7 +438,7 @@ describe("lifecycle hooks", () => {
   describe("onCustomerDeleted", () => {
     test("fires after purge", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
 
       await t.mutation(api.webhooks.process, {
         event: {
@@ -459,7 +459,7 @@ describe("lifecycle hooks", () => {
         onCustomerDeleted: handle,
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
       expect(
         (jobs[0].args as { appUserId: string }).appUserId,
@@ -471,7 +471,7 @@ describe("lifecycle hooks", () => {
 
       await t.mutation(api.customers.purge, { appUserId: "ghost_user" });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(0);
     });
   });
@@ -479,7 +479,7 @@ describe("lifecycle hooks", () => {
   describe("args + sourceEventType", () => {
     test("onEntitlementActivated receives the full arg shape including sourceEventType", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const now = Date.now();
       const payload = {
         ...createPurchasePayload({
@@ -502,7 +502,7 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementActivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
       const args = jobs[0].args as {
         appUserId: string;
@@ -528,7 +528,7 @@ describe("lifecycle hooks", () => {
 
     test("sync-driven transitions report sourceEventType='SYNC'", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
 
       await t.mutation(api.sync.ingest, {
         appUserId: "user_sync_src",
@@ -556,7 +556,7 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementActivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
       expect(
         (jobs[0].args as { sourceEventType: string }).sourceEventType,
@@ -565,7 +565,7 @@ describe("lifecycle hooks", () => {
 
     test("onEntitlementDeactivated reports previous entitlement state", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_deact_args";
 
       await t.mutation(api.webhooks.process, {
@@ -598,7 +598,7 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementDeactivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(1);
       const args = jobs[0].args as {
         sourceEventType: string;
@@ -614,7 +614,7 @@ describe("lifecycle hooks", () => {
   describe("rollback safety", () => {
     test("scheduled hooks roll back when the outer mutation fails", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
 
       // Dispatch an event type that matches a handler but with a payload that
       // will cause the handler's `upsertSubscription` to bail — but we want
@@ -645,13 +645,13 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementActivated: handle },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(0);
     });
 
     test("schedules don't fire for events that don't change state", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
 
       await t.mutation(api.webhooks.process, {
         event: {
@@ -671,7 +671,7 @@ describe("lifecycle hooks", () => {
         },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(0);
     });
   });
@@ -679,7 +679,7 @@ describe("lifecycle hooks", () => {
   describe("aliases coverage", () => {
     test("SUBSCRIBER_ALIAS migration fires hooks using the aliases array", async () => {
       const t = initConvexTest();
-      const handle = await handleFor(t, internal.handlers.processTest);
+      const handle = await handleFor(t, internal.lib.noop);
       const anon = "$RCAnonymousID:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
       const real = "user_real";
 
@@ -726,7 +726,7 @@ describe("lifecycle hooks", () => {
         },
       });
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       const users = jobs
         .map((j) => (j.args as { appUserId: string }).appUserId)
         .sort();
@@ -756,7 +756,7 @@ describe("lifecycle hooks", () => {
 
       expect(result.processed).toBe(true);
 
-      const jobs = await scheduledJobsMatching(t, "processTest");
+      const jobs = await scheduledJobsMatching(t, "noop");
       expect(jobs).toHaveLength(0);
     });
   });
