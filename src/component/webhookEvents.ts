@@ -1,26 +1,14 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server.js";
-import { environmentValidator, storeValidator } from "./schema.js";
+import schema from "./schema.js";
 
-const webhookEventDoc = v.object({
+const webhookEventDoc = schema.tables.webhookEvents.validator.extend({
   _id: v.id("webhookEvents"),
   _creationTime: v.number(),
-  eventId: v.string(),
-  eventType: v.string(),
-  appId: v.optional(v.string()),
-  appUserId: v.optional(v.string()),
-  environment: environmentValidator,
-  store: v.optional(storeValidator),
-  payload: v.any(),
-  processedAt: v.number(),
-  status: v.union(v.literal("processed"), v.literal("failed"), v.literal("ignored")),
-  error: v.optional(v.string()),
 });
 
 export const getByEventId = query({
-  args: {
-    eventId: v.string(),
-  },
+  args: { eventId: v.string() },
   returns: v.union(v.null(), webhookEventDoc),
   handler: async (ctx, args) => {
     return await ctx.db
@@ -31,10 +19,7 @@ export const getByEventId = query({
 });
 
 export const listByUser = query({
-  args: {
-    appUserId: v.string(),
-    limit: v.optional(v.number()),
-  },
+  args: { appUserId: v.string(), limit: v.optional(v.number()) },
   returns: v.array(webhookEventDoc),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 100;
@@ -47,10 +32,7 @@ export const listByUser = query({
 });
 
 export const listByType = query({
-  args: {
-    eventType: v.string(),
-    limit: v.optional(v.number()),
-  },
+  args: { eventType: v.string(), limit: v.optional(v.number()) },
   returns: v.array(webhookEventDoc),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 100;
@@ -63,9 +45,7 @@ export const listByType = query({
 });
 
 export const listFailed = query({
-  args: {
-    limit: v.optional(v.number()),
-  },
+  args: { limit: v.optional(v.number()) },
   returns: v.array(webhookEventDoc),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 100;
