@@ -6,6 +6,7 @@ import type {
   Environment,
   Experiment,
   Invoice,
+  OwnershipType,
   Store,
   Subscription,
   Transfer,
@@ -163,14 +164,26 @@ export type EntitlementActivatedHookArgs = {
   appUserId: string;
   entitlementId: string;
   productId?: string;
+  purchasedAtMs?: number;
   expiresAtMs?: number;
   store?: Store;
+  ownershipType?: OwnershipType;
+  isSandbox: boolean;
+  // RC webhook `event.type` (e.g., "INITIAL_PURCHASE", "RENEWAL") or "SYNC"
+  // when the transition was detected by `syncSubscriber`.
+  sourceEventType: string;
 };
 
 export type EntitlementDeactivatedHookArgs = {
   appUserId: string;
   entitlementId: string;
   productId?: string;
+  purchasedAtMs?: number;
+  expiresAtMs?: number;
+  store?: Store;
+  ownershipType?: OwnershipType;
+  isSandbox: boolean;
+  sourceEventType: string;
 };
 
 export type CustomerDeletedHookArgs = {

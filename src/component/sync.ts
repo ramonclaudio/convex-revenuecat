@@ -88,11 +88,13 @@ export const ingest = mutation({
     let entitlementCount = 0;
     let nonSubscriptionCount = 0;
 
-    // Snapshot this user's active entitlements before we apply the REST
-    // snapshot so we can fire lifecycle hooks for any entitlement the sync
-    // flips. Covers activation (previously inactive or missing) and
-    // deactivation (e.g. sync catches a refund the webhook missed).
-    const beforeSnap = await snapshotEntitlements(ctx, [appUserId]);
+    // Snapshot ONLY when hooks are registered — avoids full entitlements
+    // reads per ingest for consumers who don't use hooks. Covers activation
+    // (previously inactive or missing) and deactivation (e.g. sync catches a
+    // refund the webhook missed).
+    const beforeSnap = hooks
+      ? await snapshotEntitlements(ctx, [appUserId])
+      : undefined;
 
     // --- Customer ---
     const existingCustomer = await ctx.db
@@ -370,8 +372,12 @@ export const ingest = mutation({
       entitlementCount++;
     }
 
-    const afterSnap = await snapshotEntitlements(ctx, [appUserId]);
-    await fireTransitionHooks(ctx, hooks, beforeSnap, afterSnap);
+    if (hooks && beforeSnap) {
+      const afterSnap = await snapshotEntitlements(ctx, [appUserId]);
+      // Sync-initiated transitions report a synthetic `"SYNC"` event type so
+      // consumers can distinguish webhook-driven from REST-driven flips.
+      await fireTransitionHooks(ctx, hooks, beforeSnap, afterSnap, "SYNC");
+    }
 
     return {
       subscriptions: subscriptionCount,

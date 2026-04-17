@@ -135,12 +135,15 @@ export const process = mutation({
     let error: string | undefined;
 
     if (handler) {
-      // Snapshot entitlement state for every user this event could touch so
-      // we can diff post-handler and fire lifecycle hooks for real
-      // transitions. Scheduling lives inside this mutation's transaction —
-      // if the handler throws, scheduled hooks roll back with the rest.
-      const affected = affectedUserIds(payload);
-      const beforeSnap = await snapshotEntitlements(ctx, affected);
+      // Snapshot entitlement state ONLY when hooks are registered — snapshots
+      // are full-table-per-user reads we'd otherwise pay twice per webhook
+      // for consumers who don't use hooks (the default). Scheduling lives
+      // inside this mutation's transaction; if the handler throws, scheduled
+      // hook writes roll back with the rest.
+      const affected = hooks ? affectedUserIds(payload) : [];
+      const beforeSnap = hooks
+        ? await snapshotEntitlements(ctx, affected)
+        : undefined;
 
       try {
         await ctx.runMutation(handler, { event: payload });
@@ -162,8 +165,16 @@ export const process = mutation({
         });
       }
 
-      const afterSnap = await snapshotEntitlements(ctx, affected);
-      await fireTransitionHooks(ctx, hooks, beforeSnap, afterSnap);
+      if (hooks && beforeSnap) {
+        const afterSnap = await snapshotEntitlements(ctx, affected);
+        await fireTransitionHooks(
+          ctx,
+          hooks,
+          beforeSnap,
+          afterSnap,
+          event.type,
+        );
+      }
     }
 
     await ctx.db.insert("webhookEvents", {
