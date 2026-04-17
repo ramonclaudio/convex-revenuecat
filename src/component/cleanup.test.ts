@@ -91,8 +91,9 @@ describe("cleanup", () => {
         });
       });
 
-      const deleted = await t.mutation(internal.cleanup.webhookEvents, {});
-      expect(deleted).toBe(1);
+      const result = await t.mutation(internal.cleanup.webhookEvents, {});
+      expect(result.deleted).toBe(1);
+      expect(result.scheduledContinuation).toBe(false);
 
       const remaining = await t.run(async (ctx) => {
         return await ctx.db.query("webhookEvents").collect();
@@ -105,8 +106,82 @@ describe("cleanup", () => {
     test("should handle empty table", async () => {
       const t = initConvexTest();
 
-      const deleted = await t.mutation(internal.cleanup.webhookEvents, {});
-      expect(deleted).toBe(0);
+      const result = await t.mutation(internal.cleanup.webhookEvents, {});
+      expect(result.deleted).toBe(0);
+      expect(result.scheduledContinuation).toBe(false);
+    });
+
+    test("drains past the prior 500-per-run cap in a single invocation", async () => {
+      const t = initConvexTest();
+      const now = Date.now();
+      const thirtyOneDaysAgo = now - 31 * 24 * 60 * 60 * 1000;
+
+      // Seed more than the old 500-cap worth of stale events to prove the
+      // cron no longer stalls under high inflow.
+      await t.run(async (ctx) => {
+        for (let i = 0; i < 1200; i++) {
+          await ctx.db.insert("webhookEvents", {
+            eventId: `old_${i}`,
+            eventType: "TEST",
+            environment: "SANDBOX",
+            payload: {},
+            processedAt: thirtyOneDaysAgo - i,
+            status: "processed",
+          });
+        }
+      });
+
+      const result = await t.mutation(internal.cleanup.webhookEvents, {});
+      expect(result.deleted).toBe(1200);
+      expect(result.scheduledContinuation).toBe(false);
+
+      const remaining = await t.run(async (ctx) => {
+        return await ctx.db.query("webhookEvents").collect();
+      });
+      expect(remaining).toHaveLength(0);
+    });
+
+    test("stops early when encountering a not-yet-expired event", async () => {
+      const t = initConvexTest();
+      const now = Date.now();
+      const thirtyOneDaysAgo = now - 31 * 24 * 60 * 60 * 1000;
+      const twentyNineDaysAgo = now - 29 * 24 * 60 * 60 * 1000;
+
+      // Two old, one recent interleaved; ascending scan stops at the recent one.
+      await t.run(async (ctx) => {
+        await ctx.db.insert("webhookEvents", {
+          eventId: "old_1",
+          eventType: "TEST",
+          environment: "SANDBOX",
+          payload: {},
+          processedAt: thirtyOneDaysAgo,
+          status: "processed",
+        });
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.insert("webhookEvents", {
+          eventId: "old_2",
+          eventType: "TEST",
+          environment: "SANDBOX",
+          payload: {},
+          processedAt: thirtyOneDaysAgo + 1,
+          status: "processed",
+        });
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.insert("webhookEvents", {
+          eventId: "recent_1",
+          eventType: "TEST",
+          environment: "SANDBOX",
+          payload: {},
+          processedAt: twentyNineDaysAgo,
+          status: "processed",
+        });
+      });
+
+      const result = await t.mutation(internal.cleanup.webhookEvents, {});
+      expect(result.deleted).toBe(2);
+      expect(result.scheduledContinuation).toBe(false);
     });
   });
 });
