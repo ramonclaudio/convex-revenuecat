@@ -8,6 +8,8 @@ const revenuecat = new RevenueCat(components.revenuecat);
 const storeValidator = v.union(
   v.literal("AMAZON"),
   v.literal("APP_STORE"),
+  v.literal("EXTERNAL"),
+  v.literal("GALAXY"),
   v.literal("MAC_APP_STORE"),
   v.literal("PADDLE"),
   v.literal("PLAY_STORE"),
@@ -16,6 +18,12 @@ const storeValidator = v.union(
   v.literal("ROKU"),
   v.literal("STRIPE"),
   v.literal("TEST_STORE"),
+  v.literal("UNKNOWN_STORE"),
+);
+
+const ownershipTypeValidator = v.union(
+  v.literal("PURCHASED"),
+  v.literal("FAMILY_SHARED"),
 );
 
 const entitlementValidator = v.object({
@@ -31,6 +39,7 @@ const entitlementValidator = v.object({
   isSandbox: v.boolean(),
   unsubscribeDetectedAt: v.optional(v.number()),
   billingIssueDetectedAt: v.optional(v.number()),
+  ownershipType: v.optional(ownershipTypeValidator),
   updatedAt: v.number(),
 });
 
@@ -54,6 +63,7 @@ const subscriptionValidator = v.object({
   originalTransactionId: v.string(),
   transactionId: v.string(),
   isFamilyShare: v.boolean(),
+  ownershipType: v.optional(ownershipTypeValidator),
   isTrialConversion: v.optional(v.boolean()),
   autoRenewStatus: v.optional(v.boolean()),
   cancelReason: v.optional(v.string()),
@@ -71,6 +81,8 @@ const subscriptionValidator = v.object({
   presentedOfferingId: v.optional(v.string()),
   renewalNumber: v.optional(v.number()),
   newProductId: v.optional(v.string()),
+  refundedAtMs: v.optional(v.number()),
+  originalPurchasedAtMs: v.optional(v.number()),
   updatedAt: v.number(),
 });
 
