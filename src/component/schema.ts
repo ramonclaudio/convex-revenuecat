@@ -32,10 +32,14 @@ export const periodTypeValidator = v.union(
   v.literal("PREPAID"),
 );
 
-// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
+// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing,
+// UNKNOWN = ownership type not reported by the store (real Android SDK wire
+// value; see EntitlementInfo.kt ownership enum). Required at runtime so
+// REST sync and webhooks don't crash on RC payloads that carry "UNKNOWN".
 export const ownershipTypeValidator = v.union(
   v.literal("PURCHASED"),
   v.literal("FAMILY_SHARED"),
+  v.literal("UNKNOWN"),
 );
 
 export const subscriberAttributeValidator = v.object({
@@ -103,6 +107,11 @@ export default defineSchema({
     // Distinct from purchasedAtMs: the first purchase of this subscription
     // chain. Stable across renewals. Useful for loyalty and tenure queries.
     originalPurchasedAtMs: v.optional(v.number()),
+    // Set when a user-initiated unsubscribe was detected but the subscription
+    // is still within its paid period. Populated from REST `unsubscribe_detected_at`
+    // and from CANCELLATION events with cancel_reason "UNSUBSCRIBE". Lets
+    // consumers distinguish "will not renew" from "already expired".
+    unsubscribeDetectedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_app_user", ["appUserId"])

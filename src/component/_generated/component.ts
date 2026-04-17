@@ -27,8 +27,9 @@ type Store =
 
 type Environment = "SANDBOX" | "PRODUCTION";
 type PeriodType = "TRIAL" | "INTRO" | "NORMAL" | "PROMOTIONAL" | "PREPAID";
-// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
-type OwnershipType = "PURCHASED" | "FAMILY_SHARED";
+// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing,
+// UNKNOWN = ownership not reported by the store (real Android SDK wire value)
+type OwnershipType = "PURCHASED" | "FAMILY_SHARED" | "UNKNOWN";
 
 interface EntitlementDoc {
   _id: string;
@@ -81,6 +82,7 @@ interface SubscriptionDoc {
   newProductId?: string;
   refundedAtMs?: number;
   originalPurchasedAtMs?: number;
+  unsubscribeDetectedAt?: number;
   updatedAt: number;
 }
 
@@ -300,6 +302,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         virtualCurrencyBalances: number;
         virtualCurrencyTransactions: number;
         webhookEvents: number;
+        transfers: number;
       },
       Name
     >;

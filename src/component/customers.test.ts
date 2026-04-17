@@ -244,6 +244,7 @@ describe("customers", () => {
         virtualCurrencyBalances: 0,
         virtualCurrencyTransactions: 0,
         webhookEvents: 0,
+        transfers: 0,
       });
     });
   });

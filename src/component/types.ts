@@ -72,6 +72,9 @@ export type Subscription = {
   // First purchase in this subscription chain — stable across renewals.
   // Populated by syncSubscriber from `original_purchase_date`.
   originalPurchasedAtMs?: number;
+  // Set on CANCELLATION with reason UNSUBSCRIBE and from REST
+  // `unsubscribe_detected_at`. Distinct from refund/billing-error cancels.
+  unsubscribeDetectedAt?: number;
   updatedAt: number;
 };
 

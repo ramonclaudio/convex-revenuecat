@@ -45,8 +45,35 @@ const mapStore = (s: string): Store => {
 };
 const mapEnvironment = (sandbox: boolean) =>
   sandbox ? ("SANDBOX" as const) : ("PRODUCTION" as const);
-const mapPeriodType = (s: string) => s.toUpperCase() as "NORMAL";
-const mapOwnership = (s?: string) => s?.toUpperCase() as "PURCHASED" | undefined;
+
+const KNOWN_PERIOD_TYPES = new Set(["TRIAL", "INTRO", "NORMAL", "PROMOTIONAL", "PREPAID"]);
+// Unknown period_type falls back to NORMAL instead of crashing validation.
+// Mirrors Android SDK's `optPeriodType` which defaults unknown values to NORMAL
+// (EntitlementInfoFactories.kt). Forward-compat against new period types.
+const mapPeriodType = (s: string): "TRIAL" | "INTRO" | "NORMAL" | "PROMOTIONAL" | "PREPAID" => {
+  const upper = s.toUpperCase();
+  return (KNOWN_PERIOD_TYPES.has(upper) ? upper : "NORMAL") as
+    | "TRIAL"
+    | "INTRO"
+    | "NORMAL"
+    | "PROMOTIONAL"
+    | "PREPAID";
+};
+
+const KNOWN_OWNERSHIP_TYPES = new Set(["PURCHASED", "FAMILY_SHARED", "UNKNOWN"]);
+// Android SDK emits `ownership_type: "UNKNOWN"` as a real wire value when the
+// store doesn't report ownership info. Anything outside the known set maps to
+// undefined rather than crashing the validator.
+const mapOwnership = (s?: string): "PURCHASED" | "FAMILY_SHARED" | "UNKNOWN" | undefined => {
+  if (!s) return undefined;
+  const upper = s.toUpperCase();
+  return (KNOWN_OWNERSHIP_TYPES.has(upper) ? upper : undefined) as
+    | "PURCHASED"
+    | "FAMILY_SHARED"
+    | "UNKNOWN"
+    | undefined;
+};
+
 
 function parseDate(d: string | null | undefined): number | undefined {
   if (!d) return undefined;
@@ -64,15 +91,12 @@ function parseDate(d: string | null | undefined): number | undefined {
 export const ingest = mutation({
   args: {
     appUserId: v.string(),
-    subscriber: v.object({
-      entitlements: v.optional(v.any()),
-      subscriptions: v.optional(v.any()),
-      non_subscriptions: v.optional(v.any()),
-      subscriber_attributes: v.optional(v.any()),
-      first_seen: v.optional(v.string()),
-      last_seen: v.optional(v.string()),
-      original_app_user_id: v.optional(v.string()),
-    }),
+    // Accept `v.any()` because RC's REST subscriber response carries many
+    // top-level fields beyond what we read (management_url, last_purchase_date,
+    // first_seen_attribution_network_info, etc.) and RC reserves the right to
+    // add more. A strict `v.object` would reject the real response shape.
+    // The TypeScript `RevenueCatSubscriber` type documents the fields we consume.
+    subscriber: v.any(),
     hooks: hooksValidator,
   },
   returns: v.object({
@@ -102,7 +126,11 @@ export const ingest = mutation({
       .withIndex("by_app_user_id", (q) => q.eq("appUserId", appUserId))
       .first();
 
-    // subscriber_attributes $-keys are encoded by the client SDK (transformPayload)
+    // `subscriber_attributes` $-keys are encoded to `__dollar__*` by the client
+    // SDK's `transformPayload` because Convex rejects `$` at every nesting
+    // level (document fields AND record keys). We store the encoded form and
+    // provide `decodeSubscriberAttributes` in the client SDK for read-time
+    // decoding.
     const rawAttrs = subscriber.subscriber_attributes as
       | Record<string, { value: string; updated_at_ms: number }>
       | undefined;
@@ -211,6 +239,8 @@ export const ingest = mutation({
           auto_resume_date?: string | null;
           unsubscribe_detected_at?: string | null;
           refunded_at?: string | null;
+          auto_renew_status?: boolean | null;
+          price?: { amount: number | string; currency: string } | null;
         };
 
         const store = mapStore(s.store);
@@ -219,6 +249,14 @@ export const ingest = mutation({
         const transactionId = s.store_transaction_id ?? productId;
         const entIds = productEntitlements.get(productId) ?? [];
         const ownershipType = mapOwnership(s.ownership_type);
+
+        // Coerce `amount` to number — Android SDK types it `Double` but the
+        // wire format has been observed as a string in test fixtures.
+        const priceAmount =
+          typeof s.price?.amount === "string"
+            ? Number(s.price.amount)
+            : s.price?.amount;
+        const priceCurrency = s.price?.currency;
 
         const existing = await ctx.db
           .query("subscriptions")
@@ -241,7 +279,21 @@ export const ingest = mutation({
           billingIssueDetectedAt: parseDate(s.billing_issues_detected_at),
           gracePeriodExpirationAtMs: parseDate(s.grace_period_expires_date),
           autoResumeAtMs: parseDate(s.auto_resume_date),
+          unsubscribeDetectedAt: parseDate(s.unsubscribe_detected_at),
           refundedAtMs: parseDate(s.refunded_at),
+          // REST sync is authoritative: clear `cancelReason` on reconciliation
+          // since REST doesn't carry it. A stale CUSTOMER_SUPPORT/UNSUBSCRIBE
+          // reason from a prior webhook would otherwise persist across resyncs.
+          cancelReason: undefined,
+          // `auto_renew_status` is documented but not always present; fall back
+          // to undefined rather than forcing a value.
+          autoRenewStatus:
+            typeof s.auto_renew_status === "boolean" ? s.auto_renew_status : undefined,
+          // Price fields from REST. Coerce USD-only into priceUsd; store the
+          // purchase-currency amount and ISO code for revenue reporting.
+          priceUsd: priceCurrency === "USD" ? priceAmount : undefined,
+          currency: priceCurrency,
+          priceInPurchasedCurrency: priceAmount,
           updatedAt: now,
         };
 
@@ -279,15 +331,22 @@ export const ingest = mutation({
           id: string;
           is_sandbox?: boolean;
           purchase_date?: string;
+          original_purchase_date?: string;
           store?: string;
           store_transaction_id?: string;
-          price?: { amount: number; currency: string };
+          price?: { amount: number | string; currency: string };
         }>;
         const entIds = productEntitlements.get(productId) ?? [];
 
         for (const p of purchases) {
           const transactionId = p.store_transaction_id ?? p.id;
           const isSandbox = p.is_sandbox ?? false;
+          // Unknown store falls back to UNKNOWN_STORE (matches subscription path),
+          // not APP_STORE — avoids silently misattributing non-iOS purchases.
+          const store = p.store ? mapStore(p.store) : ("UNKNOWN_STORE" as const);
+          const priceAmount =
+            typeof p.price?.amount === "string" ? Number(p.price.amount) : p.price?.amount;
+          const priceCurrency = p.price?.currency;
 
           const existing = await ctx.db
             .query("subscriptions")
@@ -300,15 +359,19 @@ export const ingest = mutation({
             appUserId,
             productId,
             entitlementIds: entIds.length > 0 ? entIds : undefined,
-            store: p.store ? mapStore(p.store) : ("APP_STORE" as const),
+            store,
             environment: mapEnvironment(isSandbox),
             periodType: "NORMAL" as const,
             purchasedAtMs: parseDate(p.purchase_date) ?? now,
+            originalPurchasedAtMs: parseDate(p.original_purchase_date),
             expirationAtMs: undefined,
             isFamilyShare: false,
-            priceUsd: p.price?.currency === "USD" ? p.price.amount : undefined,
-            currency: p.price?.currency,
-            priceInPurchasedCurrency: p.price?.amount,
+            // One-time purchases are owned by the purchaser. RC REST doesn't
+            // carry ownership_type on non_subscriptions; default to PURCHASED.
+            ownershipType: "PURCHASED" as const,
+            priceUsd: priceCurrency === "USD" ? priceAmount : undefined,
+            currency: priceCurrency,
+            priceInPurchasedCurrency: priceAmount,
             updatedAt: now,
           };
 
@@ -323,12 +386,14 @@ export const ingest = mutation({
           }
           nonSubscriptionCount++;
 
-          // Propagate store/sandbox info to entitlements linked to this product.
+          // Propagate store/sandbox/ownership info to entitlements linked to
+          // this product so single-seat filtering works for lifetime purchases.
           for (const entId of entIds) {
             const d = entitlementState.get(entId);
             if (d) {
               d.store = data.store;
               d.isSandbox = isSandbox;
+              d.ownershipType = d.ownershipType ?? "PURCHASED";
             }
           }
         }

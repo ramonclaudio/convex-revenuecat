@@ -70,6 +70,7 @@ export const purge = mutation({
     virtualCurrencyBalances: v.number(),
     virtualCurrencyTransactions: v.number(),
     webhookEvents: v.number(),
+    transfers: v.number(),
   }),
   handler: async (ctx, args) => {
     const { appUserId } = args;
@@ -109,7 +110,32 @@ export const purge = mutation({
       virtualCurrencyBalances: await purgeTable("virtualCurrencyBalances"),
       virtualCurrencyTransactions: await purgeTable("virtualCurrencyTransactions"),
       webhookEvents: await purgeTable("webhookEvents"),
+      transfers: 0,
     };
+
+    // Transfers: no `appUserId` column (keyed on transferredFrom/transferredTo
+    // string arrays). Filter in-memory. For GDPR, any transfer involving this
+    // user must be deleted — the arrays contain the app_user_id verbatim.
+    // Bounded by PURGE_SAFETY_CAP against runaway pathological users.
+    const allTransfers = await ctx.db
+      .query("transfers")
+      .order("desc")
+      .take(PURGE_SAFETY_CAP + 1);
+    if (allTransfers.length > PURGE_SAFETY_CAP) {
+      throw new ConvexError({
+        code: "PURGE_SAFETY_CAP_EXCEEDED",
+        message: `purge aborted: transfers table exceeds ${PURGE_SAFETY_CAP} rows for scan`,
+      });
+    }
+    for (const transfer of allTransfers) {
+      if (
+        transfer.transferredFrom.includes(appUserId) ||
+        transfer.transferredTo.includes(appUserId)
+      ) {
+        await ctx.db.delete(transfer._id);
+        counts.transfers++;
+      }
+    }
 
     const customer = await ctx.db
       .query("customers")

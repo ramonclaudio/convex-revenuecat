@@ -20,6 +20,12 @@ const RATE_LIMIT_MAX_REQUESTS = 100;
 const RATE_LIMIT_WINDOW_MS = 60000;
 const RATE_LIMIT_KEY_PREFIX = "webhook";
 
+// RC's documented event IDs are UUID-shaped (~36 chars) with optional prefixing.
+// Cap at 128 bytes defensively — an attacker with a valid auth token could
+// otherwise fill `webhookEvents.eventId` (and its index) with megabyte strings,
+// inflating storage and degrading dedup-index lookups.
+const MAX_EVENT_ID_LENGTH = 128;
+
 const EVENT_HANDLERS = {
   INITIAL_PURCHASE: internal.handlers.processInitialPurchase,
   RENEWAL: internal.handlers.processRenewal,
@@ -103,8 +109,27 @@ export const process = mutation({
     if (!event.id?.trim()) {
       throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event ID is required" });
     }
+    if (event.id.length > MAX_EVENT_ID_LENGTH) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: `Event ID exceeds max length of ${MAX_EVENT_ID_LENGTH} bytes`,
+      });
+    }
     if (!event.type?.trim()) {
       throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event type is required" });
+    }
+
+    // Dedup FIRST, rate-limit SECOND. Replays of a known event.id must be
+    // free — otherwise an attacker with a single valid event.id can exhaust
+    // the rate-limit bucket (100/min) by replaying it, dropping legitimate
+    // RC webhooks via 429 until permanent drop.
+    const existing = await ctx.db
+      .query("webhookEvents")
+      .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
+      .first();
+
+    if (existing) {
+      return { processed: false, eventId: event.id };
     }
 
     const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? "global"}`;
@@ -118,15 +143,6 @@ export const process = mutation({
         message: `Rate limit exceeded. Try again after ${new Date(rateCheck.resetAt).toISOString()}`,
         data: { resetAt: rateCheck.resetAt, remaining: rateCheck.remaining },
       });
-    }
-
-    const existing = await ctx.db
-      .query("webhookEvents")
-      .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
-      .first();
-
-    if (existing) {
-      return { processed: false, eventId: event.id };
     }
 
     const eventType = event.type as EventType;
