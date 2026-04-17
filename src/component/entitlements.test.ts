@@ -127,13 +127,16 @@ describe("entitlements", () => {
     expect(active[0].entitlementId).toBe("premium");
   });
 
-  test("getActive includes entitlement with billingIssueDetectedAt despite expiration", async () => {
+  test("getActive includes entitlement in grace period (expiresAtMs extended to grace end)", async () => {
     const t = initConvexTest();
+    const graceEnd = Date.now() + 7 * 24 * 60 * 60 * 1000;
 
+    // BILLING_ISSUE handler extends expiresAtMs to the grace period end, so
+    // downstream queries treat it like any other active entitlement.
     const entId = await t.mutation(internal.entitlements.grant, {
       appUserId: "user_billing_active",
       entitlementId: "premium",
-      expiresAtMs: Date.now() - 1000,
+      expiresAtMs: graceEnd,
       isSandbox: false,
     });
 
@@ -190,13 +193,18 @@ describe("entitlements", () => {
     expect(result).toBe(false);
   });
 
-  test("billing issue keeps entitlement active past expiresAtMs", async () => {
+  test("billingIssueDetectedAt alone does NOT keep access past expiresAtMs", async () => {
     const t = initConvexTest();
 
+    // Simulate a state where billingIssueDetectedAt is set but expiresAtMs
+    // has passed without extension. This is what leaks access if we rely on
+    // the flag alone (e.g. EXPIRATION dropped, grace already elapsed).
+    // Correct behavior: no access. BILLING_ISSUE handler is responsible for
+    // extending expiresAtMs to the grace period end during processing.
     const entId = await t.mutation(internal.entitlements.grant, {
       appUserId: "user_billing",
       entitlementId: "premium",
-      expiresAtMs: Date.now() - 1000, // Past expiration
+      expiresAtMs: Date.now() - 1000,
       isSandbox: false,
     });
 
@@ -211,7 +219,32 @@ describe("entitlements", () => {
       entitlementId: "premium",
     });
 
-    expect(result).toBe(true);
+    expect(result).toBe(false);
+  });
+
+  test("grace period access requires expiresAtMs in the future", async () => {
+    const t = initConvexTest();
+    const graceEnd = Date.now() + 3 * 24 * 60 * 60 * 1000;
+
+    const entId = await t.mutation(internal.entitlements.grant, {
+      appUserId: "user_grace",
+      entitlementId: "premium",
+      expiresAtMs: graceEnd,
+      isSandbox: false,
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(entId, {
+        billingIssueDetectedAt: Date.now() - 500,
+      });
+    });
+
+    expect(
+      await t.query(api.entitlements.check, {
+        appUserId: "user_grace",
+        entitlementId: "premium",
+      }),
+    ).toBe(true);
   });
 
   test("EXPIRATION clears billingIssueDetectedAt - no dirty state", async () => {

@@ -1,3 +1,24 @@
+/**
+ * Access-gate invariant: `expiresAtMs` is the single source of truth for when
+ * access ends. Every code path that affects whether an entitlement is active
+ * must honor this — `isActive && (expiresAtMs === undefined || expiresAtMs > now)`.
+ *
+ * Contracts that maintain it:
+ *   - `handlers.ts:processBillingIssue` extends `expiresAtMs` to the grace
+ *     period end so grace is folded into the expiry check. Lifetime
+ *     entitlements (expiresAtMs === undefined) stay lifetime.
+ *   - `sync.ts:ingest` folds `grace_period_expires_date` into the effective
+ *     expiry for the same reason.
+ *   - `handlers.ts:extendEntitlements` and `grantEntitlements` push
+ *     `expiresAtMs` forward on RENEWAL / INITIAL_PURCHASE / REFUND_REVERSED.
+ *   - `handlers.ts:revokeEntitlements` sets `isActive: false` on EXPIRATION
+ *     and refund-CANCELLATION; the expiry check is the second line of defense.
+ *
+ * Do NOT short-circuit `hasEntitlement` on auxiliary flags (e.g. a bare
+ * `billingIssueDetectedAt` check) — that historically leaked access
+ * indefinitely if EXPIRATION was delayed or dropped. Mirror the iOS SDK's
+ * `EntitlementInfo.isActive`: pure expiry-date comparison.
+ */
 import { v } from "convex/values";
 import { query, internalMutation } from "./_generated/server.js";
 import schema, { storeValidator } from "./schema.js";
@@ -24,16 +45,15 @@ export const check = query({
     if (!entitlement || !entitlement.isActive) {
       return false;
     }
-
-    if (entitlement.billingIssueDetectedAt) {
+    // Lifetime (no expiry) stays active forever.
+    if (!entitlement.expiresAtMs) {
       return true;
     }
-
-    if (entitlement.expiresAtMs && entitlement.expiresAtMs < Date.now()) {
-      return false;
-    }
-
-    return true;
+    // Grace period is encoded into expiresAtMs via processBillingIssue/sync.
+    // Do NOT short-circuit on billingIssueDetectedAt — if EXPIRATION fails to
+    // arrive after grace ends, that would leak access indefinitely. Mirror
+    // the iOS SDK's EntitlementInfo.isActive: pure expiration-date check.
+    return entitlement.expiresAtMs > Date.now();
   },
 });
 
@@ -62,9 +82,9 @@ export const getActive = query({
       .withIndex("by_app_user", (q) => q.eq("appUserId", args.appUserId))
       .collect();
 
+    // Grace period is encoded into expiresAtMs. See `check` for rationale.
     return entitlements.filter((e) => {
       if (!e.isActive) return false;
-      if (e.billingIssueDetectedAt) return true;
       return !e.expiresAtMs || e.expiresAtMs > now;
     });
   },
