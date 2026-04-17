@@ -1,4 +1,4 @@
-import { httpActionGeneric } from "convex/server";
+import { createFunctionHandle, httpActionGeneric } from "convex/server";
 import type { GenericActionCtx, GenericDataModel, FunctionReference } from "convex/server";
 import type {
   Customer,
@@ -38,7 +38,7 @@ type ClientComponentApi = {
   };
   customers: {
     get: FunctionReference<"query", AnyVisibility, { appUserId: string }, Customer | null>;
-    purge: FunctionReference<"mutation", AnyVisibility, { appUserId: string }, DeleteCustomerResult>;
+    purge: FunctionReference<"mutation", AnyVisibility, { appUserId: string; onCustomerDeleted?: string }, DeleteCustomerResult>;
   };
   experiments: {
     get: FunctionReference<"query", AnyVisibility, { appUserId: string; experimentId: string }, Experiment | null>;
@@ -58,10 +58,10 @@ type ClientComponentApi = {
     listTransactions: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode?: string }, VirtualCurrencyTransaction[]>;
   };
   webhooks: {
-    process: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown> }, { processed: boolean; eventId: string; rateLimited?: boolean }>;
+    process: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown>; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, { processed: boolean; eventId: string; rateLimited?: boolean }>;
   };
   sync: {
-    ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: RevenueCatSubscriberInput }, SyncResult>;
+    ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: RevenueCatSubscriberInput; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, SyncResult>;
   };
 };
 
@@ -159,6 +159,64 @@ export type GracePeriodStatus = GracePeriodReturn;
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
 type MutCtx = Pick<GenericActionCtx<GenericDataModel>, "runMutation">;
 
+export type EntitlementActivatedHookArgs = {
+  appUserId: string;
+  entitlementId: string;
+  productId?: string;
+  expiresAtMs?: number;
+  store?: Store;
+};
+
+export type EntitlementDeactivatedHookArgs = {
+  appUserId: string;
+  entitlementId: string;
+  productId?: string;
+};
+
+export type CustomerDeletedHookArgs = {
+  appUserId: string;
+};
+
+export type EntitlementActivatedHook = FunctionReference<
+  "mutation" | "action",
+  "public" | "internal",
+  EntitlementActivatedHookArgs,
+  unknown
+>;
+
+export type EntitlementDeactivatedHook = FunctionReference<
+  "mutation" | "action",
+  "public" | "internal",
+  EntitlementDeactivatedHookArgs,
+  unknown
+>;
+
+export type CustomerDeletedHook = FunctionReference<
+  "mutation" | "action",
+  "public" | "internal",
+  CustomerDeletedHookArgs,
+  unknown
+>;
+
+export type LifecycleHooks = {
+  /**
+   * Fires when an entitlement transitions from not-active to active for a
+   * user. Triggered by webhook (INITIAL_PURCHASE, RENEWAL, REFUND_REVERSED,
+   * TRANSFER onto a user, SUBSCRIBER_ALIAS) and by `syncSubscriber`.
+   */
+  onEntitlementActivated?: EntitlementActivatedHook;
+  /**
+   * Fires when an entitlement transitions from active to not-active.
+   * Triggered by EXPIRATION, refund CANCELLATION, TRANSFER off a user, and
+   * sync reconciliation that detects a previously-unseen revocation.
+   */
+  onEntitlementDeactivated?: EntitlementDeactivatedHook;
+  /**
+   * Fires after `deleteCustomer` purges component-local rows for a user.
+   */
+  onCustomerDeleted?: CustomerDeletedHook;
+};
+
 export interface RevenueCatOptions {
   /**
    * Authorization header value for webhook authentication.
@@ -166,6 +224,13 @@ export interface RevenueCatOptions {
    * Can be a raw value or "Bearer <token>" format.
    */
   REVENUECAT_WEBHOOK_AUTH?: string;
+  /**
+   * Lifecycle hooks invoked when entitlement state transitions or a customer
+   * is deleted. Every hook is optional. Hooks are scheduled from inside the
+   * component mutation that made the change, so scheduling is atomic with
+   * the state write — a rolled-back mutation never fires its hooks.
+   */
+  hooks?: LifecycleHooks;
 }
 
 /**
@@ -226,6 +291,43 @@ function normalizeStore(store: unknown): string | undefined {
   const upper = store.toUpperCase();
   const candidate = upper === "UNKNOWN" ? "UNKNOWN_STORE" : upper;
   return KNOWN_STORES.has(candidate) ? candidate : "UNKNOWN_STORE";
+}
+
+/**
+ * Convert configured entitlement hooks into FunctionHandle strings the
+ * component mutations can pass directly to `ctx.scheduler.runAfter`. We use
+ * handles (not `FunctionReference` objects) because Convex strips the
+ * symbol-keyed markers FunctionReferences rely on when they cross a mutation
+ * boundary as args.
+ */
+async function buildHooksArg(
+  hooks: LifecycleHooks | undefined,
+): Promise<
+  | {
+      onEntitlementActivated?: string;
+      onEntitlementDeactivated?: string;
+    }
+  | undefined
+> {
+  if (!hooks) return undefined;
+  const result: {
+    onEntitlementActivated?: string;
+    onEntitlementDeactivated?: string;
+  } = {};
+  if (hooks.onEntitlementActivated) {
+    result.onEntitlementActivated = await createFunctionHandle(
+      hooks.onEntitlementActivated,
+    );
+  }
+  if (hooks.onEntitlementDeactivated) {
+    result.onEntitlementDeactivated = await createFunctionHandle(
+      hooks.onEntitlementDeactivated,
+    );
+  }
+  if (!result.onEntitlementActivated && !result.onEntitlementDeactivated) {
+    return undefined;
+  }
+  return result;
 }
 
 /**
@@ -298,7 +400,13 @@ export class RevenueCat {
     ctx: MutCtx,
     args: { appUserId: string },
   ): Promise<DeleteCustomerResult> {
-    return ctx.runMutation(this.component.customers.purge, args) as Promise<DeleteCustomerResult>;
+    const onCustomerDeleted = this.options.hooks?.onCustomerDeleted
+      ? await createFunctionHandle(this.options.hooks.onCustomerDeleted)
+      : undefined;
+    return ctx.runMutation(this.component.customers.purge, {
+      appUserId: args.appUserId,
+      onCustomerDeleted,
+    }) as Promise<DeleteCustomerResult>;
   }
 
   async getExperiment(
@@ -381,15 +489,18 @@ export class RevenueCat {
     ctx: MutCtx,
     args: { appUserId: string; subscriber: RevenueCatSubscriber },
   ): Promise<SyncResult> {
+    const hooks = await buildHooksArg(this.options.hooks);
     return ctx.runMutation(this.component.sync.ingest, {
       appUserId: args.appUserId,
       subscriber: transformPayload(args.subscriber) as Record<string, unknown>,
+      hooks,
     }) as Promise<SyncResult>;
   }
 
   httpHandler() {
     const component = this.component;
     const expectedAuth = this.options.REVENUECAT_WEBHOOK_AUTH;
+    const configuredHooks = this.options.hooks;
 
     return httpActionGeneric(async (ctx, request) => {
       if (expectedAuth) {
@@ -433,6 +544,8 @@ export class RevenueCat {
         sanitizedEvent.store = normalizedStore;
       }
 
+      const hooksArg = await buildHooksArg(configuredHooks);
+
       try {
         const result = await ctx.runMutation(component.webhooks.process, {
           event: {
@@ -444,6 +557,7 @@ export class RevenueCat {
             store: normalizedStore,
           },
           payload: sanitizedEvent,
+          hooks: hooksArg,
         });
 
         return new Response(JSON.stringify(result), {
