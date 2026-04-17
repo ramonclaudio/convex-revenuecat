@@ -1,4 +1,5 @@
 import { ConvexError, v } from "convex/values";
+import type { FunctionHandle } from "convex/server";
 import { mutation, query } from "./_generated/server.js";
 import schema from "./schema.js";
 
@@ -53,7 +54,13 @@ export const getByOriginalId = query({
  * rows for this user — fails loudly rather than silently truncating.
  */
 export const purge = mutation({
-  args: { appUserId: v.string() },
+  args: {
+    appUserId: v.string(),
+    // Optional FunctionHandle (from `createFunctionHandle`) fired after the
+    // purge commits. Receives `{ appUserId }`. Scheduling is atomic with the
+    // purge — if any write throws, the hook doesn't fire.
+    onCustomerDeleted: v.optional(v.string()),
+  },
   returns: v.object({
     customer: v.number(),
     subscriptions: v.number(),
@@ -111,6 +118,17 @@ export const purge = mutation({
     if (customer) {
       await ctx.db.delete(customer._id);
       counts.customer = 1;
+    }
+
+    if (args.onCustomerDeleted) {
+      await ctx.scheduler.runAfter(
+        0,
+        args.onCustomerDeleted as FunctionHandle<"mutation" | "action",
+          { appUserId: string },
+          unknown
+        >,
+        { appUserId },
+      );
     }
 
     return counts;

@@ -1,8 +1,20 @@
 import { v, type Infer } from "convex/values";
 import { mutation } from "./_generated/server.js";
 import { storeValidator } from "./schema.js";
+import {
+  fireTransitionHooks,
+  resolveHooks,
+  snapshotEntitlements,
+} from "./transitions.js";
 
 type Store = Infer<typeof storeValidator>;
+
+const hooksValidator = v.optional(
+  v.object({
+    onEntitlementActivated: v.optional(v.string()),
+    onEntitlementDeactivated: v.optional(v.string()),
+  }),
+);
 
 const KNOWN_STORES = new Set<Store>([
   "APP_STORE",
@@ -61,6 +73,7 @@ export const ingest = mutation({
       last_seen: v.optional(v.string()),
       original_app_user_id: v.optional(v.string()),
     }),
+    hooks: hooksValidator,
   },
   returns: v.object({
     subscriptions: v.number(),
@@ -69,10 +82,17 @@ export const ingest = mutation({
   }),
   handler: async (ctx, args) => {
     const { appUserId, subscriber } = args;
+    const hooks = resolveHooks(args.hooks);
     const now = Date.now();
     let subscriptionCount = 0;
     let entitlementCount = 0;
     let nonSubscriptionCount = 0;
+
+    // Snapshot this user's active entitlements before we apply the REST
+    // snapshot so we can fire lifecycle hooks for any entitlement the sync
+    // flips. Covers activation (previously inactive or missing) and
+    // deactivation (e.g. sync catches a refund the webhook missed).
+    const beforeSnap = await snapshotEntitlements(ctx, [appUserId]);
 
     // --- Customer ---
     const existingCustomer = await ctx.db
@@ -349,6 +369,9 @@ export const ingest = mutation({
       }
       entitlementCount++;
     }
+
+    const afterSnap = await snapshotEntitlements(ctx, [appUserId]);
+    await fireTransitionHooks(ctx, hooks, beforeSnap, afterSnap);
 
     return {
       subscriptions: subscriptionCount,

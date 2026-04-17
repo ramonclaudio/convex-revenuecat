@@ -290,7 +290,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
     purge: FunctionReference<
       "mutation",
       "public",
-      { appUserId: string },
+      { appUserId: string; onCustomerDeleted?: string },
       {
         customer: number;
         subscriptions: number;
@@ -446,6 +446,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           last_seen?: string;
           original_app_user_id?: string;
         };
+        hooks?: {
+          onEntitlementActivated?: string;
+          onEntitlementDeactivated?: string;
+        };
       },
       { subscriptions: number; entitlements: number; nonSubscriptions: number },
       Name
@@ -465,6 +469,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           store?: Store;
         };
         payload: any;
+        hooks?: {
+          onEntitlementActivated?: string;
+          onEntitlementDeactivated?: string;
+        };
         _skipRateLimit?: boolean;
       },
       { processed: boolean; eventId: string; rateLimited?: boolean },

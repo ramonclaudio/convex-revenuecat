@@ -2,6 +2,19 @@ import { v, ConvexError } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server.js";
 import { internal } from "./_generated/api.js";
 import { environmentValidator, storeValidator } from "./schema.js";
+import {
+  affectedUserIds,
+  fireTransitionHooks,
+  resolveHooks,
+  snapshotEntitlements,
+} from "./transitions.js";
+
+const hooksValidator = v.optional(
+  v.object({
+    onEntitlementActivated: v.optional(v.string()),
+    onEntitlementDeactivated: v.optional(v.string()),
+  }),
+);
 
 const RATE_LIMIT_MAX_REQUESTS = 100;
 const RATE_LIMIT_WINDOW_MS = 60000;
@@ -75,6 +88,7 @@ export const process = mutation({
       store: v.optional(storeValidator),
     }),
     payload: v.any(),
+    hooks: hooksValidator,
   },
   returns: v.object({
     processed: v.boolean(),
@@ -83,6 +97,7 @@ export const process = mutation({
   }),
   handler: async (ctx, args) => {
     const { event, payload } = args;
+    const hooks = resolveHooks(args.hooks);
     const now = Date.now();
 
     if (!event.id?.trim()) {
@@ -120,6 +135,13 @@ export const process = mutation({
     let error: string | undefined;
 
     if (handler) {
+      // Snapshot entitlement state for every user this event could touch so
+      // we can diff post-handler and fire lifecycle hooks for real
+      // transitions. Scheduling lives inside this mutation's transaction —
+      // if the handler throws, scheduled hooks roll back with the rest.
+      const affected = affectedUserIds(payload);
+      const beforeSnap = await snapshotEntitlements(ctx, affected);
+
       try {
         await ctx.runMutation(handler, { event: payload });
         status = "processed";
@@ -139,6 +161,9 @@ export const process = mutation({
           message: `Handler failed: ${error}`,
         });
       }
+
+      const afterSnap = await snapshotEntitlements(ctx, affected);
+      await fireTransitionHooks(ctx, hooks, beforeSnap, afterSnap);
     }
 
     await ctx.db.insert("webhookEvents", {
