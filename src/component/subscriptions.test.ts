@@ -160,7 +160,7 @@ describe("subscriptions", () => {
     expect(sub).toBeNull();
   });
 
-  test("processCancellation sets cancel reason but keeps entitlements", async () => {
+  test("processCancellation with UNSUBSCRIBE sets cancel reason and keeps entitlements", async () => {
     const t = initConvexTest();
 
     await t.mutation(internal.handlers.processInitialPurchase, {
@@ -174,7 +174,7 @@ describe("subscriptions", () => {
       event: makeEventPayload({
         app_user_id: "user_cancel",
         original_transaction_id: "txn_cancel",
-        cancel_reason: "CUSTOMER_SUPPORT",
+        cancel_reason: "UNSUBSCRIBE",
       }),
     });
 
@@ -182,13 +182,42 @@ describe("subscriptions", () => {
       appUserId: "user_cancel",
     });
 
-    expect(subs[0].cancelReason).toBe("CUSTOMER_SUPPORT");
+    expect(subs[0].cancelReason).toBe("UNSUBSCRIBE");
     expect(subs[0].autoRenewStatus).toBe(false);
 
     const entitlements = await t.query(api.entitlements.getActive, {
       appUserId: "user_cancel",
     });
     expect(entitlements).toHaveLength(1);
+  });
+
+  test("processCancellation with CUSTOMER_SUPPORT (refund) revokes entitlements", async () => {
+    const t = initConvexTest();
+
+    await t.mutation(internal.handlers.processInitialPurchase, {
+      event: makeEventPayload({
+        app_user_id: "user_refund_cancel",
+        original_transaction_id: "txn_refund_cancel",
+      }),
+    });
+
+    await t.mutation(internal.handlers.processCancellation, {
+      event: makeEventPayload({
+        app_user_id: "user_refund_cancel",
+        original_transaction_id: "txn_refund_cancel",
+        cancel_reason: "CUSTOMER_SUPPORT",
+      }),
+    });
+
+    const subs = await t.query(api.subscriptions.getByUser, {
+      appUserId: "user_refund_cancel",
+    });
+    expect(subs[0].cancelReason).toBe("CUSTOMER_SUPPORT");
+
+    const entitlements = await t.query(api.entitlements.getActive, {
+      appUserId: "user_refund_cancel",
+    });
+    expect(entitlements).toHaveLength(0);
   });
 
   test("processExpiration revokes entitlements", async () => {
