@@ -1,49 +1,78 @@
 import { httpActionGeneric } from "convex/server";
 import type { GenericActionCtx, GenericDataModel, FunctionReference } from "convex/server";
+import type {
+  Customer,
+  Entitlement,
+  Environment,
+  Experiment,
+  Invoice,
+  Store,
+  Subscription,
+  Transfer,
+  VirtualCurrencyBalance,
+  VirtualCurrencyTransaction,
+} from "../component/types.js";
 
 // Convex generates component types with "internal" visibility in consumer apps
 // regardless of how they're defined in the component. Define the expected API
 // shape directly to avoid visibility mismatches.
 type AnyVisibility = "public" | "internal";
 
+type GracePeriodReturn = {
+  inGracePeriod: boolean;
+  gracePeriodExpiresAt?: number;
+  billingIssueDetectedAt?: number;
+};
+
 type ClientComponentApi = {
   entitlements: {
     check: FunctionReference<"query", AnyVisibility, { appUserId: string; entitlementId: string }, boolean>;
-    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
-    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, Entitlement[]>;
+    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, Entitlement[]>;
   };
   subscriptions: {
-    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
-    getByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
-    isInGracePeriod: FunctionReference<"query", AnyVisibility, { originalTransactionId: string }, { inGracePeriod: boolean; gracePeriodExpiresAt?: number; billingIssueDetectedAt?: number }>;
-    getInGracePeriod: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
+    getByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
+    isInGracePeriod: FunctionReference<"query", AnyVisibility, { originalTransactionId: string }, GracePeriodReturn>;
+    getInGracePeriod: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
   };
   customers: {
-    get: FunctionReference<"query", AnyVisibility, { appUserId: string }, any>;
+    get: FunctionReference<"query", AnyVisibility, { appUserId: string }, Customer | null>;
+    purge: FunctionReference<"mutation", AnyVisibility, { appUserId: string }, DeleteCustomerResult>;
   };
   experiments: {
-    get: FunctionReference<"query", AnyVisibility, { appUserId: string; experimentId: string }, any>;
-    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    get: FunctionReference<"query", AnyVisibility, { appUserId: string; experimentId: string }, Experiment | null>;
+    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, Experiment[]>;
   };
   transfers: {
-    getByEventId: FunctionReference<"query", AnyVisibility, { eventId: string }, any>;
-    list: FunctionReference<"query", AnyVisibility, { limit?: number }, any[]>;
+    getByEventId: FunctionReference<"query", AnyVisibility, { eventId: string }, Transfer | null>;
+    list: FunctionReference<"query", AnyVisibility, { limit?: number }, Transfer[]>;
   };
   invoices: {
-    get: FunctionReference<"query", AnyVisibility, { invoiceId: string }, any>;
-    listByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    get: FunctionReference<"query", AnyVisibility, { invoiceId: string }, Invoice | null>;
+    listByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, Invoice[]>;
   };
   virtualCurrency: {
-    getBalance: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode: string }, any>;
-    listBalances: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
-    listTransactions: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode?: string }, any[]>;
+    getBalance: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode: string }, VirtualCurrencyBalance | null>;
+    listBalances: FunctionReference<"query", AnyVisibility, { appUserId: string }, VirtualCurrencyBalance[]>;
+    listTransactions: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode?: string }, VirtualCurrencyTransaction[]>;
   };
   webhooks: {
-    process: FunctionReference<"mutation", AnyVisibility, { event: any; payload: any }, { processed: boolean; eventId: string }>;
+    process: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown> }, { processed: boolean; eventId: string; rateLimited?: boolean }>;
   };
   sync: {
-    ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: { entitlements?: any; subscriptions?: any; subscriber_attributes?: any; first_seen?: string; last_seen?: string; original_app_user_id?: string } }, { subscriptions: number; entitlements: number }>;
+    ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: RevenueCatSubscriberInput }, SyncResult>;
   };
+};
+
+type RevenueCatSubscriberInput = {
+  entitlements?: Record<string, unknown>;
+  subscriptions?: Record<string, unknown>;
+  non_subscriptions?: Record<string, unknown>;
+  subscriber_attributes?: Record<string, unknown>;
+  first_seen?: string;
+  last_seen?: string;
+  original_app_user_id?: string;
 };
 
 export type {
@@ -111,26 +140,21 @@ export type RevenueCatSubscriber = {
 export type SyncResult = {
   subscriptions: number;
   entitlements: number;
+  nonSubscriptions: number;
 };
 
-import type {
-  Store,
-  Environment,
-  Entitlement,
-  Subscription,
-  Customer,
-  Experiment,
-  Transfer,
-  Invoice,
-  VirtualCurrencyBalance,
-  VirtualCurrencyTransaction,
-} from "../component/types.js";
-
-export type GracePeriodStatus = {
-  inGracePeriod: boolean;
-  gracePeriodExpiresAt?: number;
-  billingIssueDetectedAt?: number;
+export type DeleteCustomerResult = {
+  customer: number;
+  subscriptions: number;
+  entitlements: number;
+  experiments: number;
+  invoices: number;
+  virtualCurrencyBalances: number;
+  virtualCurrencyTransactions: number;
+  webhookEvents: number;
 };
+
+export type GracePeriodStatus = GracePeriodReturn;
 
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
 type MutCtx = Pick<GenericActionCtx<GenericDataModel>, "runMutation">;
@@ -169,6 +193,39 @@ function extractAuthToken(header: string): string {
     return header.slice(bearerPrefix.length);
   }
   return header;
+}
+
+const KNOWN_STORES: ReadonlySet<string> = new Set([
+  "APP_STORE",
+  "MAC_APP_STORE",
+  "PLAY_STORE",
+  "AMAZON",
+  "STRIPE",
+  "PROMOTIONAL",
+  "RC_BILLING",
+  "EXTERNAL",
+  "PADDLE",
+  "TEST_STORE",
+  "GALAXY",
+  "ROKU",
+  "UNKNOWN_STORE",
+]);
+
+/**
+ * Normalize a webhook `store` value to the form our schema expects.
+ *
+ * The Android SDK Store enum uses `unknown` as the wire value for the
+ * `UNKNOWN_STORE` case. We map `"UNKNOWN"` to `"UNKNOWN_STORE"` and uppercase
+ * anything lower-case. Values not in the known set fall back to
+ * `UNKNOWN_STORE` so a future RC store addition doesn't reject the event at
+ * the outer schema validator (the inner handler validators already accept
+ * `v.any()` for the payload).
+ */
+function normalizeStore(store: unknown): string | undefined {
+  if (typeof store !== "string") return undefined;
+  const upper = store.toUpperCase();
+  const candidate = upper === "UNKNOWN" ? "UNKNOWN_STORE" : upper;
+  return KNOWN_STORES.has(candidate) ? candidate : "UNKNOWN_STORE";
 }
 
 /**
@@ -224,6 +281,24 @@ export class RevenueCat {
 
   async getCustomer(ctx: QueryCtx, args: { appUserId: string }): Promise<Customer | null> {
     return ctx.runQuery(this.component.customers.get, args) as Promise<Customer | null>;
+  }
+
+  /**
+   * Purge all component-local data for a user.
+   *
+   * Deletes customer, subscriptions, entitlements, experiments, invoices,
+   * virtual currency balances/transactions, and webhookEvents keyed to the
+   * given appUserId. Returns per-table deletion counts.
+   *
+   * Does NOT call RevenueCat's REST API. To also purge RevenueCat-side,
+   * call `DELETE /v1/subscribers/{app_user_id}` from a Convex action
+   * with a secret API key.
+   */
+  async deleteCustomer(
+    ctx: MutCtx,
+    args: { appUserId: string },
+  ): Promise<DeleteCustomerResult> {
+    return ctx.runMutation(this.component.customers.purge, args) as Promise<DeleteCustomerResult>;
   }
 
   async getExperiment(
@@ -351,6 +426,12 @@ export class RevenueCat {
       }
 
       const sanitizedEvent = transformPayload(event) as Record<string, unknown>;
+      const normalizedStore = normalizeStore(event.store) as Store | undefined;
+      if (normalizedStore && normalizedStore !== event.store) {
+        // Keep the payload consistent with the outer event object so inner
+        // handlers see the normalized form if they inspect `event.store`.
+        sanitizedEvent.store = normalizedStore;
+      }
 
       try {
         const result = await ctx.runMutation(component.webhooks.process, {
@@ -360,7 +441,7 @@ export class RevenueCat {
             app_id: event.app_id as string | undefined,
             app_user_id: event.app_user_id as string | undefined,
             environment: (event.environment as Environment) ?? "PRODUCTION",
-            store: event.store as Store | undefined,
+            store: normalizedStore,
           },
           payload: sanitizedEvent,
         });
