@@ -9,24 +9,41 @@ type EntitlementDoc = Doc<"entitlements">;
  * (appUserId, entitlementId) transition from not-active to active, regardless
  * of the triggering event type (INITIAL_PURCHASE, RENEWAL, REFUND_REVERSED,
  * TRANSFER onto a user, SUBSCRIBER_ALIAS, sync-driven activation, etc).
+ *
+ * `sourceEventType` is the RC webhook `event.type` that caused the
+ * transition (e.g., `"INITIAL_PURCHASE"`), or `"SYNC"` when the transition
+ * was detected by `syncSubscriber`.
  */
 export type EntitlementActivatedArgs = {
   appUserId: string;
   entitlementId: string;
   productId?: string;
+  purchasedAtMs?: number;
   expiresAtMs?: number;
   store?: EntitlementDoc["store"];
+  ownershipType?: EntitlementDoc["ownershipType"];
+  isSandbox: boolean;
+  sourceEventType: string;
 };
 
 /**
  * Arguments delivered to `onEntitlementDeactivated`. Fires once per
  * (appUserId, entitlementId) transition from active to not-active, whether
  * caused by EXPIRATION, refund CANCELLATION, TRANSFER off a user, or sync.
+ *
+ * Fields reflect the entitlement's state BEFORE deactivation so consumers
+ * can log/attribute/notify with the product that the user just lost.
  */
 export type EntitlementDeactivatedArgs = {
   appUserId: string;
   entitlementId: string;
   productId?: string;
+  purchasedAtMs?: number;
+  expiresAtMs?: number;
+  store?: EntitlementDoc["store"];
+  ownershipType?: EntitlementDoc["ownershipType"];
+  isSandbox: boolean;
+  sourceEventType: string;
 };
 
 // Hooks cross the component boundary as `FunctionHandle` strings (produced via
@@ -60,7 +77,9 @@ function isEffectivelyActive(ent: EntitlementDoc, now: number): boolean {
 /**
  * Collect every appUserId the payload could have modified. Most events carry
  * `app_user_id`; SUBSCRIBER_ALIAS carries `original_app_user_id`; TRANSFER
- * carries `transferred_from` and `transferred_to` arrays.
+ * carries `transferred_from` and `transferred_to` arrays; every event type
+ * carries `aliases` (every app_user_id ever used by the subscriber, per RC
+ * webhook docs), which SUBSCRIBER_ALIAS migrations can reach into.
  */
 export function affectedUserIds(payload: Record<string, unknown>): string[] {
   const ids = new Set<string>();
@@ -69,7 +88,7 @@ export function affectedUserIds(payload: Record<string, unknown>): string[] {
   };
   add(payload.app_user_id);
   add(payload.original_app_user_id);
-  for (const key of ["transferred_from", "transferred_to"] as const) {
+  for (const key of ["transferred_from", "transferred_to", "aliases"] as const) {
     const arr = payload[key];
     if (Array.isArray(arr)) for (const v of arr) add(v);
   }
@@ -115,6 +134,7 @@ export async function fireTransitionHooks(
   hooks: LifecycleHooks | undefined,
   before: Map<string, Map<string, EntitlementDoc>>,
   after: Map<string, Map<string, EntitlementDoc>>,
+  sourceEventType: string,
 ): Promise<void> {
   if (!hooks) return;
   const { onEntitlementActivated, onEntitlementDeactivated } = hooks;
@@ -132,8 +152,12 @@ export async function fireTransitionHooks(
             appUserId: userId,
             entitlementId: entId,
             productId: ent.productId,
+            purchasedAtMs: ent.purchasedAtMs,
             expiresAtMs: ent.expiresAtMs,
             store: ent.store,
+            ownershipType: ent.ownershipType,
+            isSandbox: ent.isSandbox,
+            sourceEventType,
           });
         }
       }
@@ -146,6 +170,12 @@ export async function fireTransitionHooks(
             appUserId: userId,
             entitlementId: entId,
             productId: ent.productId,
+            purchasedAtMs: ent.purchasedAtMs,
+            expiresAtMs: ent.expiresAtMs,
+            store: ent.store,
+            ownershipType: ent.ownershipType,
+            isSandbox: ent.isSandbox,
+            sourceEventType,
           });
         }
       }
