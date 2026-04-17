@@ -26,6 +26,10 @@ export type Entitlement = {
   isSandbox: boolean;
   unsubscribeDetectedAt?: number;
   billingIssueDetectedAt?: number;
+  // PURCHASED = direct purchase; FAMILY_SHARED = received via Family Sharing.
+  // Populated from the linked subscription when known. Consumers can filter
+  // family-shared entitlements for single-seat products.
+  ownershipType?: OwnershipType;
   updatedAt: number;
 };
 
@@ -62,6 +66,12 @@ export type Subscription = {
   presentedOfferingId?: string;
   renewalNumber?: number;
   newProductId?: string;
+  // Set when a refund is detected (CANCELLATION with CUSTOMER_SUPPORT or
+  // price < 0, or from subscriber REST `refunded_at`).
+  refundedAtMs?: number;
+  // First purchase in this subscription chain — stable across renewals.
+  // Populated by syncSubscriber from `original_purchase_date`.
+  originalPurchasedAtMs?: number;
   updatedAt: number;
 };
 
