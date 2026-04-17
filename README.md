@@ -228,11 +228,17 @@ export const onGranted = internalMutation({
     appUserId: v.string(),
     entitlementId: v.string(),
     productId: v.optional(v.string()),
+    purchasedAtMs: v.optional(v.number()),
     expiresAtMs: v.optional(v.number()),
     store: v.optional(v.string()),
+    ownershipType: v.optional(v.string()),
+    isSandbox: v.boolean(),
+    sourceEventType: v.string(),
   },
-  handler: async (ctx, { appUserId, entitlementId }) => {
+  handler: async (ctx, { appUserId, entitlementId, sourceEventType }) => {
     // Send welcome email, provision external service, etc.
+    // Branch on sourceEventType to handle INITIAL_PURCHASE vs RENEWAL vs
+    // REFUND_REVERSED vs TRANSFER vs SUBSCRIBER_ALIAS vs SYNC.
   },
 });
 
@@ -241,9 +247,17 @@ export const onRevoked = internalMutation({
     appUserId: v.string(),
     entitlementId: v.string(),
     productId: v.optional(v.string()),
+    purchasedAtMs: v.optional(v.number()),
+    expiresAtMs: v.optional(v.number()),
+    store: v.optional(v.string()),
+    ownershipType: v.optional(v.string()),
+    isSandbox: v.boolean(),
+    sourceEventType: v.string(),
   },
-  handler: async (ctx, { appUserId, entitlementId }) => {
+  handler: async (ctx, { appUserId, entitlementId, sourceEventType }) => {
     // Tear down external resources, downgrade UI, etc.
+    // sourceEventType distinguishes EXPIRATION vs CANCELLATION (refund) vs
+    // TRANSFER vs SYNC.
   },
 });
 
@@ -261,12 +275,15 @@ Firing rules:
 - `onEntitlementDeactivated` — fires when an active entitlement transitions to not-active. Covers `EXPIRATION`, refund `CANCELLATION` (`cancel_reason: "CUSTOMER_SUPPORT"` or `price < 0`), `TRANSFER` off a user, and sync reconciliation.
 - `onCustomerDeleted` — fires after `deleteCustomer` purges the component-local rows for an `appUserId`.
 
+Hook arguments include `sourceEventType` (the RC webhook `event.type` that caused the transition, or `"SYNC"` when detected by `syncSubscriber`) plus the entitlement's `productId`, `purchasedAtMs`, `expiresAtMs`, `store`, `ownershipType`, and `isSandbox`. `onEntitlementDeactivated` reports the entitlement's state **before** deactivation so consumers can log, attribute, or notify with the lost product.
+
 Per-event semantics:
 
 - Multi-entitlement events fire one hook invocation per transitioning entitlement.
 - Idempotent events fire at most once per transition. A retry with the same `event.id` dedups before the handler runs.
 - `TRANSFER` fires `onEntitlementDeactivated` for the source user and `onEntitlementActivated` for the destination.
-- If both hook functions throw, the enclosing component mutation rolls back and RC retries the webhook.
+- Hooks run via Convex's scheduler **after** the enclosing mutation commits. A rolled-back mutation never schedules its hooks (scheduler writes are part of the transaction). A hook throwing does NOT retry the webhook — scheduled mutations retry exactly-once per Convex scheduler policy, scheduled actions at-most-once. Make hooks idempotent.
+- Snapshots that power transition detection only run when at least one hook is configured, so consumers without hooks pay zero overhead.
 
 ### Cross-platform coverage
 

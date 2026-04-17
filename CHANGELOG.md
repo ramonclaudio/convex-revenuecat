@@ -23,10 +23,17 @@
 ### Added
 
 - **Lifecycle hooks.** `RevenueCatOptions.hooks` accepts three optional FunctionReferences that fire from inside the component mutation that made the state change:
-  - `onEntitlementActivated(ctx, { appUserId, entitlementId, productId?, expiresAtMs?, store? })` — fires when an entitlement moves from not-active to active (INITIAL_PURCHASE, RENEWAL, REFUND_REVERSED, TRANSFER onto a user, SUBSCRIBER_ALIAS, or sync-detected activation).
-  - `onEntitlementDeactivated(ctx, { appUserId, entitlementId, productId? })` — fires on EXPIRATION, refund CANCELLATION, TRANSFER off a user, or sync reconciliation.
+  - `onEntitlementActivated(ctx, { appUserId, entitlementId, productId?, purchasedAtMs?, expiresAtMs?, store?, ownershipType?, isSandbox, sourceEventType })` — fires when an entitlement moves from not-active to active (INITIAL_PURCHASE, RENEWAL, REFUND_REVERSED, TRANSFER onto a user, SUBSCRIBER_ALIAS, or sync-detected activation).
+  - `onEntitlementDeactivated(ctx, { appUserId, entitlementId, productId?, purchasedAtMs?, expiresAtMs?, store?, ownershipType?, isSandbox, sourceEventType })` — fires on EXPIRATION, refund CANCELLATION, TRANSFER off a user, or sync reconciliation. Reports the entitlement's state BEFORE deactivation.
   - `onCustomerDeleted(ctx, { appUserId })` — fires after `deleteCustomer` purges rows.
-  Scheduling is atomic: a rolled-back mutation never fires its hooks. Webhook retries (same `event.id`) don't double-fire because the outer dedup short-circuits before the snapshot runs. Hook function references are converted to `FunctionHandle` strings via Convex's `createFunctionHandle` before crossing the component boundary.
+
+  Scheduling is atomic with the enclosing mutation — rollback discards scheduled hook writes. Webhook retries (same `event.id`) don't double-fire because the outer dedup short-circuits before the snapshot runs. Hooks themselves run AFTER the mutation commits via Convex's scheduler; a hook throwing does NOT retry the webhook (scheduled mutations retry exactly-once, actions at-most-once; make hooks idempotent). Function references are converted to `FunctionHandle` strings via Convex's `createFunctionHandle` before crossing the component boundary.
+
+  `sourceEventType` carries the RC webhook `event.type` that caused the transition (e.g., `"INITIAL_PURCHASE"`, `"EXPIRATION"`) or `"SYNC"` when detected by `syncSubscriber`. Lets consumers branch without inspecting every entitlement's prior state.
+
+  Transition-detection snapshots only run when at least one hook is configured. Consumers without hooks pay zero overhead per webhook/sync.
+
+  `affectedUserIds` covers `app_user_id`, `original_app_user_id`, `transferred_from`, `transferred_to`, and `aliases` — so SUBSCRIBER_ALIAS migrations between anon and real IDs correctly fire hooks for both.
 - **`deleteCustomer(ctx, { appUserId })`** client method. Purges all component-local rows for a user: customer, subscriptions, entitlements, experiments, invoices, virtual currency balances/transactions, and webhookEvents. Does not call RevenueCat's REST API; pair with `DELETE /v1/subscribers/{app_user_id}` from an action if you also want to purge RC-side (GDPR).
 - **`syncSubscriber` hydrates `non_subscriptions`.** One-time/lifetime purchases from `GET /v1/subscribers/{id}` are now ingested into the `subscriptions` table alongside subscriptions. Returns `{ subscriptions, entitlements, nonSubscriptions }`.
 - **Experiment upserts run on every event with an `experiments[]` array**, not just purchase events. RC includes the array on every event; mid-cycle re-enrollments are now captured.
