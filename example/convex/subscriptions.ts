@@ -24,6 +24,7 @@ const storeValidator = v.union(
 const ownershipTypeValidator = v.union(
   v.literal("PURCHASED"),
   v.literal("FAMILY_SHARED"),
+  v.literal("UNKNOWN"),
 );
 
 const entitlementValidator = v.object({
@@ -83,6 +84,7 @@ const subscriptionValidator = v.object({
   newProductId: v.optional(v.string()),
   refundedAtMs: v.optional(v.number()),
   originalPurchasedAtMs: v.optional(v.number()),
+  unsubscribeDetectedAt: v.optional(v.number()),
   updatedAt: v.number(),
 });
 

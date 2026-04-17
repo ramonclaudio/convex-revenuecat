@@ -310,16 +310,45 @@ If you call `syncSubscriber` or the RC REST API from your actions, RC applies th
 | v2 Project Configuration | Project Configuration | 60 req/min |
 | v2 Charts & Metrics | Charts & Metrics | 5 req/min |
 
+## PII and subscriber attributes
+
+Webhooks carry subscriber attributes with RC-reserved `$`-prefixed keys (`$email`, `$phoneNumber`, `$apnsTokens`, `$fcmTokens`, `$displayName`, `$ip`, etc.). Two things to know:
+
+**Raw payloads are redacted by default.** The `webhookEvents` audit table keeps 30 days of payloads for debugging. Out of the box, the default `redactPayload` strips the reserved PII keys from `subscriber_attributes` before writing to that table. Override or disable:
+
+```typescript
+new RevenueCat(components.revenuecat, {
+  REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
+  redactPayload: (payload) => {
+    // Custom redactor. Return whatever should be persisted.
+    return payload;
+  },
+  // Or disable entirely (not recommended):
+  // redactPayload: "off",
+});
+```
+
+**Customer attributes are stored with `__dollar__` encoded keys.** Convex rejects `$` at every nesting level, so we encode on write. Decode on read:
+
+```typescript
+import { decodeSubscriberAttributes } from "convex-revenuecat";
+
+const customer = await revenuecat.getCustomer(ctx, { appUserId });
+const attrs = decodeSubscriberAttributes(customer?.attributes);
+console.log(attrs?.$email?.value); // "user@example.com"
+```
+
 ## Limitations
 
 - No automatic backfill. Existing subscribers before webhook setup won't appear until they trigger a new event or you call `syncSubscriber` for each user.
-- Raw payloads stored for debugging. May contain subscriber attributes (`$email`, `$displayName`, etc. when set via the SDK). Auto-deleted after 30 days.
-- Rate limited at 100 req/min per app. Built-in, no config needed.
+- Raw payloads stored for 30 days; PII keys redacted by default (see above).
+- Rate limited at 100 req/min per app. Dedup runs BEFORE the rate-limit check so webhook replays (same `event.id`) don't consume the rate budget.
 - Transfer/alias/purge operations cap at 500 records per user to stay under Convex's per-transaction write budget. Pathological accounts (more than 500 entitlements or subscriptions for a single user) will throw instead of silently corrupting state.
+- `event.id` is capped at 128 bytes to defend against storage DoS.
 
 ## GDPR / data deletion
 
-`deleteCustomer(ctx, { appUserId })` purges all component-local rows for a user: customer, subscriptions, entitlements, experiments, invoices, virtual currency balances/transactions, and webhook events. Call from a mutation or action.
+`deleteCustomer(ctx, { appUserId })` purges all component-local rows for a user: customer, subscriptions, entitlements, experiments, invoices, virtual currency balances/transactions, webhook events, and transfers. Call from a mutation or action.
 
 To also purge RevenueCat-side, call `DELETE /v1/subscribers/{app_user_id}` from a Convex action with a secret API key. RC confirms the delete endpoint is sufficient for GDPR erasure on their side.
 

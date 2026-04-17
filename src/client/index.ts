@@ -153,7 +153,49 @@ export type DeleteCustomerResult = {
   virtualCurrencyBalances: number;
   virtualCurrencyTransactions: number;
   webhookEvents: number;
+  transfers: number;
 };
+
+/**
+ * Decode encoded subscriber attribute keys back to RC's documented names.
+ *
+ * The component stores `subscriber_attributes` with `__dollar__email` rather
+ * than `$email` because Convex rejects `$` at every nesting level. Consumers
+ * querying `customer.attributes` should pipe through this helper to get back
+ * the RC-native key names (`$email`, `$phoneNumber`, etc.) that downstream
+ * analytics/CRM pipelines expect.
+ */
+export function decodeSubscriberAttributes<T>(
+  attrs: Record<string, T> | undefined,
+): Record<string, T> | undefined {
+  if (!attrs) return undefined;
+  const result: Record<string, T> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    const decoded = key.startsWith("__dollar__") ? `$${key.slice(10)}` : key;
+    result[decoded] = value;
+  }
+  return result;
+}
+
+/**
+ * Keys considered PII in RC's subscriber_attributes. These are the RC-reserved
+ * `$`-prefixed attributes that carry personal data. Used by the default
+ * `redactPayload` to strip them from the stored webhook audit log.
+ */
+const DEFAULT_PII_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
+  "$email",
+  "$phoneNumber",
+  "$displayName",
+  "$apnsTokens",
+  "$fcmTokens",
+  "$gpsAdId",
+  "$androidIdfa",
+  "$idfa",
+  "$idfv",
+  "$ip",
+  "$firstName",
+  "$lastName",
+]);
 
 export type GracePeriodStatus = GracePeriodReturn;
 
@@ -244,6 +286,36 @@ export interface RevenueCatOptions {
    * the state write — a rolled-back mutation never fires its hooks.
    */
   hooks?: LifecycleHooks;
+  /**
+   * Optional payload-redactor run before webhook events are persisted to the
+   * component's `webhookEvents` audit table. Receives the sanitized payload
+   * (null keys stripped, `$` keys encoded) and returns what to store. Default:
+   * strips RC-reserved PII keys (`$email`, `$phoneNumber`, etc.) from
+   * `subscriber_attributes`. Pass a function to customize; pass `"off"` to
+   * disable redaction (not recommended for GDPR-sensitive apps).
+   */
+  redactPayload?: ((payload: Record<string, unknown>) => Record<string, unknown>) | "off";
+}
+
+/**
+ * Default PII redactor: removes RC's reserved personal-data attribute keys
+ * from `subscriber_attributes` before storing the payload for 30-day audit.
+ * Non-destructive (clones the payload), idempotent.
+ */
+function defaultRedactPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const attrs = payload.subscriber_attributes as Record<string, unknown> | undefined;
+  if (!attrs || typeof attrs !== "object") return payload;
+  const redacted: Record<string, unknown> = { ...payload };
+  const filteredAttrs: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    // Keys reach this layer already `__dollar__`-encoded by transformPayload;
+    // match on the decoded form against the reserved set.
+    const decoded = key.startsWith("__dollar__") ? `$${key.slice(10)}` : key;
+    if (DEFAULT_PII_ATTRIBUTE_KEYS.has(decoded)) continue;
+    filteredAttrs[key] = value;
+  }
+  redacted.subscriber_attributes = filteredAttrs;
+  return redacted;
 }
 
 /**
@@ -366,7 +438,19 @@ export class RevenueCat {
   constructor(
     public component: ClientComponentApi,
     public options: RevenueCatOptions = {},
-  ) {}
+  ) {
+    // Empty-string auth is a footgun: `if (expectedAuth)` treats `""` as
+    // "no auth configured" and accepts unauthenticated requests. Consumers
+    // commonly write `process.env.REVENUECAT_WEBHOOK_AUTH ?? ""`. Fail loud
+    // at construction rather than silently disabling auth.
+    if (options.REVENUECAT_WEBHOOK_AUTH === "") {
+      throw new Error(
+        "[convex-revenuecat] REVENUECAT_WEBHOOK_AUTH cannot be empty string. " +
+          "Omit the field entirely to disable auth (strongly discouraged), or " +
+          "provide a non-empty secret.",
+      );
+    }
+  }
 
   async hasEntitlement(
     ctx: QueryCtx,
@@ -514,6 +598,10 @@ export class RevenueCat {
     const component = this.component;
     const expectedAuth = this.options.REVENUECAT_WEBHOOK_AUTH;
     const configuredHooks = this.options.hooks;
+    const redactPayload =
+      this.options.redactPayload === "off"
+        ? undefined
+        : (this.options.redactPayload ?? defaultRedactPayload);
 
     return httpActionGeneric(async (ctx, request) => {
       if (expectedAuth) {
@@ -549,7 +637,19 @@ export class RevenueCat {
         });
       }
 
-      const sanitizedEvent = transformPayload(event) as Record<string, unknown>;
+      // Reject oversized event IDs at the HTTP boundary so we don't waste a
+      // mutation round-trip to bounce them. Matches the component-side cap.
+      if (event.id.length > 128) {
+        return new Response(JSON.stringify({ error: "Event ID too long" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      let sanitizedEvent = transformPayload(event) as Record<string, unknown>;
+      if (redactPayload) {
+        sanitizedEvent = redactPayload(sanitizedEvent);
+      }
       const normalizedStore = normalizeStore(event.store) as Store | undefined;
       if (normalizedStore && normalizedStore !== event.store) {
         // Keep the payload consistent with the outer event object so inner
