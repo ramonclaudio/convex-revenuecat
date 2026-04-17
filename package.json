@@ -49,7 +49,13 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.d.ts",
+    "!src/**/*.test.js",
+    "!src/**/*.test.js.map",
+    "!**/tsconfig*.json",
+    "!**/.DS_Store"
   ],
   "exports": {
     "./package.json": "./package.json",
