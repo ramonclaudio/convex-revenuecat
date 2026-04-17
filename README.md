@@ -199,6 +199,75 @@ const active = await revenuecat.getActiveEntitlements(ctx, { appUserId });
 const paidAccess = active.filter((e) => e.ownershipType !== "FAMILY_SHARED");
 ```
 
+## Lifecycle hooks
+
+Register mutations or actions that fire when an entitlement transitions or a customer is deleted. Every hook is optional. Scheduling happens inside the component mutation that made the change, so hooks are atomic with state writes — a rolled-back mutation never fires its hooks, and retries of the same webhook (same `event.id`) don't double-fire.
+
+```typescript
+// convex/revenuecat.ts
+import { RevenueCat } from "convex-revenuecat";
+import { components, internal } from "./_generated/api";
+
+export const revenuecat = new RevenueCat(components.revenuecat, {
+  REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
+  hooks: {
+    onEntitlementActivated: internal.subscriptions.onGranted,
+    onEntitlementDeactivated: internal.subscriptions.onRevoked,
+    onCustomerDeleted: internal.subscriptions.onDeleted,
+  },
+});
+```
+
+```typescript
+// convex/subscriptions.ts
+import { v } from "convex/values";
+import { internalMutation } from "./_generated/server";
+
+export const onGranted = internalMutation({
+  args: {
+    appUserId: v.string(),
+    entitlementId: v.string(),
+    productId: v.optional(v.string()),
+    expiresAtMs: v.optional(v.number()),
+    store: v.optional(v.string()),
+  },
+  handler: async (ctx, { appUserId, entitlementId }) => {
+    // Send welcome email, provision external service, etc.
+  },
+});
+
+export const onRevoked = internalMutation({
+  args: {
+    appUserId: v.string(),
+    entitlementId: v.string(),
+    productId: v.optional(v.string()),
+  },
+  handler: async (ctx, { appUserId, entitlementId }) => {
+    // Tear down external resources, downgrade UI, etc.
+  },
+});
+
+export const onDeleted = internalMutation({
+  args: { appUserId: v.string() },
+  handler: async (ctx, { appUserId }) => {
+    // Purge your own app-side data for this user.
+  },
+});
+```
+
+Firing rules:
+
+- `onEntitlementActivated` — fires when an entitlement moves from not-active to active for an `appUserId`. Triggers include `INITIAL_PURCHASE`, `RENEWAL` restoring after revoke, `REFUND_REVERSED`, `TRANSFER` onto a user, `SUBSCRIBER_ALIAS`, and `syncSubscriber` catching a change the webhook missed.
+- `onEntitlementDeactivated` — fires when an active entitlement transitions to not-active. Covers `EXPIRATION`, refund `CANCELLATION` (`cancel_reason: "CUSTOMER_SUPPORT"` or `price < 0`), `TRANSFER` off a user, and sync reconciliation.
+- `onCustomerDeleted` — fires after `deleteCustomer` purges the component-local rows for an `appUserId`.
+
+Per-event semantics:
+
+- Multi-entitlement events fire one hook invocation per transitioning entitlement.
+- Idempotent events fire at most once per transition. A retry with the same `event.id` dedups before the handler runs.
+- `TRANSFER` fires `onEntitlementDeactivated` for the source user and `onEntitlementActivated` for the destination.
+- If both hook functions throw, the enclosing component mutation rolls back and RC retries the webhook.
+
 ### Cross-platform coverage
 
 Handlers accept webhook payloads from all RevenueCat stores: Apple App Store, Mac App Store, Google Play Store, Amazon Appstore, Stripe, Paddle, Roku, Samsung Galaxy Store, RevenueCat Web Billing, the External Purchases API, and promotional/test grants. `store` values unknown to a given schema version normalize to `UNKNOWN_STORE` rather than rejecting the event. Payload fields not present in the component's validator are accepted and stored in `webhookEvents.payload` (RC reserves the right to add fields without versioning).
