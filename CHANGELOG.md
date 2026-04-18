@@ -4,7 +4,7 @@
 
 ### Removed
 
-- **Unused scripts and dev deps**: `dev:backend`, `all`, and `version` scripts removed from `package.json`. The `dev:backend` role is now covered by `dev` using Convex 1.34+'s `--start` flag. `all` was an unused composite. `version` was a vim-based CHANGELOG hook we no longer use.
+- **Unused scripts and dev deps**: `dev:backend`, `all`, `version`, `prepack`, and `prepublishOnly` removed from `package.json`. The `dev:backend` role is now covered by `dev` using Convex 1.34+'s `--start` flag. `all` was an unused composite. `version` was a vim-based CHANGELOG hook we no longer use. `prepack` and `prepublishOnly` never fire in practice because we publish from `.github/workflows/publish.yml` on tag push (CI validates explicitly before `npm publish`), not from local `npm pack` / `npm publish`.
 - **`npm-run-all2`** and **`path-exists-cli`** dev dependencies. `validate` is now serial (`npm test && npm run lint && npm run typecheck`) which removes the last need for `run-p`. `predev` uses `convex init` instead of `path-exists`.
 - **`.github/assets/`** directory with two unreferenced SVG icons.
 
