@@ -173,10 +173,10 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 | `RENEWAL` | Extends expiration, clears stale billing/cancel state |
 | `CANCELLATION` | Keeps access until expiration. Refunds are the exception: revokes immediately when `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` (covers Google self-serve refunds and dashboard refunds where `cancel_reason` stays `DEVELOPER_INITIATED`) |
 | `EXPIRATION` | Revokes entitlements |
-| `BILLING_ISSUE` | Extends entitlement `expiresAtMs` to the grace period end so access continues during retry. If the issue resolves, `RENEWAL` extends further; if not, `EXPIRATION` fires at grace end and revokes. Even if `EXPIRATION` is dropped, access stops at grace end as a hard ceiling |
+| `BILLING_ISSUE` | Extends entitlement `expiresAtMs` to the grace period end so access continues during retry, and sets `autoRenewStatus: false` until `RENEWAL` resolves. If the issue resolves, `RENEWAL` extends further; if not, `EXPIRATION` fires at grace end and revokes. Even if `EXPIRATION` is dropped, access stops at grace end as a hard ceiling |
 | `SUBSCRIPTION_PAUSED` | Does not revoke |
 | `SUBSCRIPTION_EXTENDED` | Extends expiration |
-| `TRANSFER` | Moves entitlements and subscriptions between users |
+| `TRANSFER` | Moves entitlements and subscriptions between users. When the source is a `$RCAnonymousID:` ID with no active data remaining, the source customer row and its audit trail are dropped to mirror iOS/Android `DeviceCache.clearCaches` |
 | `UNCANCELLATION` | Clears cancellation status |
 | `PRODUCT_CHANGE` | Updates product on subscription |
 | `NON_RENEWING_PURCHASE` | Grants entitlements for one-time purchase |
@@ -187,7 +187,7 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 | `VIRTUAL_CURRENCY_TRANSACTION` | Currency adjustment |
 | `EXPERIMENT_ENROLLMENT` | A/B test enrollment tracked |
 | `REFUND` *(legacy)* | Revokes entitlements. As of 2026 RC emits refunds as `CANCELLATION` with `cancel_reason: "CUSTOMER_SUPPORT"`. Handler retained for legacy projects |
-| `SUBSCRIBER_ALIAS` *(legacy)* | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291); new projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
+| `SUBSCRIBER_ALIAS` *(legacy)* | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. Drops the anonymous source customer row after merge. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291); new projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
 
 `CANCELLATION` does NOT revoke entitlements for normal unsubscribes. Users keep access until `EXPIRATION`. Refunds are the exception: a `CANCELLATION` where `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` revokes entitlements immediately. `price < 0` catches Google Play self-serve refunds and dashboard-issued refunds that leave `cancel_reason` as `DEVELOPER_INITIATED`; gating on `cancel_reason` alone leaks access in those cases.
 
@@ -196,6 +196,18 @@ Per RC docs, CANCELLATION only fires for a refund of the subscription's **latest
 ### Access-check semantics
 
 `hasEntitlement` mirrors the iOS SDK's `EntitlementInfo.isActive`: pure `expiresAtMs > now` (with lifetime entitlements as the no-expiry case). Grace period is encoded into `expiresAtMs` by the `BILLING_ISSUE` handler and `syncSubscriber`, not signaled via a separate flag. This avoids the "indefinite access if EXPIRATION drops" bug where a `billingIssueDetectedAt` short-circuit would keep entitlements active forever after a failed grace period without retry.
+
+### Derived `willRenew`
+
+`Subscription.autoRenewStatus` is the iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew` signal, **not** the raw user-preference toggle. It's `false` whenever any of these hold: lifetime entitlement (no `expirationAtMs`), `periodType === "PREPAID"`, `store === "PROMOTIONAL"`, `unsubscribeDetectedAt` set, or `billingIssueDetectedAt` set. Webhook and REST sync paths both compute it from the same five-signal check so stored values converge.
+
+Consumers reading `Subscription` docs can re-derive on the client with the `willRenew` helper:
+
+```typescript
+import { willRenew } from "convex-revenuecat";
+
+const active = subs.filter(willRenew);
+```
 
 ### Family sharing
 
