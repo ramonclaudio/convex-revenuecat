@@ -176,7 +176,7 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 | `BILLING_ISSUE` | Extends entitlement `expiresAtMs` to the grace period end so access continues during retry, and sets `autoRenewStatus: false` until `RENEWAL` resolves. If the issue resolves, `RENEWAL` extends further; if not, `EXPIRATION` fires at grace end and revokes. Even if `EXPIRATION` is dropped, access stops at grace end as a hard ceiling |
 | `SUBSCRIPTION_PAUSED` | Does not revoke |
 | `SUBSCRIPTION_EXTENDED` | Extends expiration |
-| `TRANSFER` | Moves entitlements and subscriptions between users. When the source is a `$RCAnonymousID:` ID with no active data remaining, the source customer row and its audit trail are dropped to mirror iOS/Android `DeviceCache.clearCaches` |
+| `TRANSFER` | Moves entitlements and subscriptions between users. When the source is a `$RCAnonymousID:` ID with no active data remaining, the source customer row and its audit trail are dropped, matching the "anonymous ID is dead after merge" semantic that iOS `DeviceCache.clearCaches` and Android `deviceCache.clearCachesForAppUserID` apply client-side |
 | `UNCANCELLATION` | Clears cancellation status |
 | `PRODUCT_CHANGE` | Updates product on subscription |
 | `NON_RENEWING_PURCHASE` | Grants entitlements for one-time purchase |
