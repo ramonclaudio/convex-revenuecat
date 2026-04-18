@@ -1,26 +1,34 @@
 {
   "name": "convex-revenuecat",
-  "description": "Convex component for RevenueCat subscription management",
+  "description": "Convex component that mirrors RevenueCat subscription state. Webhook + REST sync with lifecycle hooks for entitlement transitions.",
   "repository": "github:ramonclaudio/convex-revenuecat",
   "homepage": "https://github.com/ramonclaudio/convex-revenuecat#readme",
   "bugs": {
     "url": "https://github.com/ramonclaudio/convex-revenuecat/issues"
   },
   "version": "0.2.0",
-  "author": "Ray <github@ramonclaudio>",
+  "author": {
+    "name": "Ray",
+    "url": "https://github.com/ramonclaudio"
+  },
   "license": "Apache-2.0",
   "engines": {
-    "node": ">=18"
+    "node": ">=20.0.0"
   },
   "keywords": [
     "convex",
-    "component",
+    "convex-component",
     "revenuecat",
     "subscriptions",
     "entitlements",
     "in-app-purchases",
     "iap",
-    "webhooks"
+    "webhooks",
+    "gdpr",
+    "typescript",
+    "realtime",
+    "backend",
+    "serverless"
   ],
   "type": "module",
   "sideEffects": false,
@@ -42,10 +50,7 @@
   "files": [
     "dist",
     "src",
-    "!src/**/*.test.ts",
-    "!src/**/*.test.d.ts",
-    "!src/**/*.test.js",
-    "!src/**/*.test.js.map",
+    "!**/*.test.*",
     "!**/tsconfig*.json",
     "!**/.DS_Store"
   ],
@@ -89,8 +94,8 @@
     "convex": "^1.35.1",
     "convex-test": "0.0.49",
     "eslint": "10.2.1",
-    "jiti": "^2.6.1",
     "globals": "^17.5.0",
+    "jiti": "^2.6.1",
     "pkg-pr-new": "^0.0.66",
     "prettier": "3.8.3",
     "typescript": "6.0.3",

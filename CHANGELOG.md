@@ -20,6 +20,7 @@
 
 ### Changed
 
+- **`package.json` metadata pass**: `description` now matches the GitHub About blurb and mentions webhook + REST sync and lifecycle hooks. `author` moved from an invalid email stub to `{ name: "Ray", url: "https://github.com/ramonclaudio" }`. `engines.node` bumped from `>=18` to `>=20.0.0` (Node 18 EOL'd April 2025). `keywords` expanded from 8 to 13 to match the GitHub topic list (`convex-component`, `gdpr`, `typescript`, `realtime`, `backend`, `serverless` added). `files` glob collapses four `*.test.*` patterns into a single `!**/*.test.*`. `jiti` alphabetized in devDependencies.
 - **Peer dependency**: `convex` bumped from `^1.31.6` to `^1.32.0`. `convex-test` requires this minimum and our test helper (`convex-revenuecat/test`) depends on `convex-test`. Consumers on `convex@1.31.x` should upgrade; nothing in the component's runtime surface required the bump, the test helper did.
 - **Dev toolchain** refreshed for April 2026. `convex` → `1.35.1`, `convex-test` → `0.0.49`, `eslint` → `10.2.1` (+ `@eslint/js@10.0.1`, `@convex-dev/eslint-plugin@2.0.0`, new `jiti` peer), `typescript` → `6.0.3`, `vitest` → `4.1.4`, plus patch bumps on `@types/node`, `globals`, `prettier`, `typescript-eslint`.
 - **Dropped unused `rollup` override** (not present in the dep tree) and the `ajv` override (no longer needed now that `eslint@10` removed its `ajv@6` transitive path).
