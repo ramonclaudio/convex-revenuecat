@@ -2,31 +2,55 @@
 
 ## [Unreleased]
 
-### Removed
+## [0.2.1] - 2026-04-18
 
-- **Unused scripts and dev deps**: `dev:backend`, `all`, `version`, `prepack`, `prepublishOnly`, `preversion`, `alpha`, and `release` removed from `package.json`. The `dev:backend` role is now covered by `dev` using Convex 1.34+'s `--start` flag. `all` was an unused composite. `version` was a vim-based CHANGELOG hook we no longer use. `prepack` and `prepublishOnly` never fire in practice because we publish from `.github/workflows/publish.yml` on tag push (CI validates explicitly before `npm publish`), not from local `npm pack` / `npm publish`. `preversion` / `alpha` / `release` never fire either because the `release` skill tags directly instead of calling `npm version`; CI runs a full clean install + validate on every publish anyway.
-- **`npm-run-all2`** and **`path-exists-cli`** dev dependencies. `validate` is now serial (`npm test && npm run lint && npm run typecheck`) which removes the last need for `run-p`. `predev` uses `convex init` instead of `path-exists`.
-- **`.github/assets/`** directory with two unreferenced SVG icons.
+Three themes land together: a parity sweep against RevenueCat's iOS/Android SDKs (correctness fixes), a dev toolchain refresh for April 2026, and a package metadata overhaul. No breaking consumer API; one additive helper (`willRenew`).
+
+### Upgrade notes
+
+- **Peer dependency: `convex` now `^1.35.1`** (was `^1.31.6`). Matches what CI tests against; prior ranges claimed support for older Convex versions that were never verified. Consumers on older Convex should upgrade. No code in this component requires a Convex API newer than 1.20.
+- **Node 20+ required**: `engines.node` bumped from `>=18` to `>=20.0.0` (Node 18 EOL'd April 2025).
+- `Subscription.autoRenewStatus` now mirrors iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`: derived from five signals (lifetime, `PREPAID` period, `PROMOTIONAL` store, `unsubscribeDetectedAt`, `billingIssueDetectedAt`) rather than stored verbatim from webhooks. If you were reading the stored value as the raw user preference, switch to deriving from primitives or use the new `willRenew(sub)` client helper.
+- `isInGracePeriod` and `getInGracePeriod` no longer require `expirationAtMs <= now`. Pre-expiry billing retry windows (Google Play fires `BILLING_ISSUE` before the current period ends) now return `inGracePeriod: true` as the iOS/Android SDKs do.
+
+### Fixed
+
+- `extendEntitlements` and `grantEntitlements` now preserve the prior `expiresAtMs` when a `RENEWAL` / `PRODUCT_CHANGE` / `REFUND_REVERSED` webhook arrives without `expiration_at_ms`. Convex `patch({ expiresAtMs: undefined })` REMOVES the field, which our gate reads as lifetime; a malformed partial payload could silently grant infinite access. Cross-referenced against iOS `EntitlementInfo.swift:255` and Android `DateHelper.kt:22`, both treat `expirationDate == nil` as lifetime.
+- `processRenewal` now clears every stale period-specific marker on successful renewal: `billingIssueDetectedAt`, `gracePeriodExpirationAtMs`, `autoResumeAtMs`, `newProductId`, `expirationReason`, `unsubscribeDetectedAt`. Matches iOS `SubscriptionInfo.swift:44` contract: "If and when the billing issue gets resolved, this field is set to nil." Previously only the entitlement doc was cleared; the subscription doc carried phantom pending state into the next period.
+- `processExpiration` now clears `autoResumeAtMs` and `gracePeriodExpirationAtMs`, and sets `autoRenewStatus: false`. Prior state leaked "resumes on ..." and grace-period UI signals onto already-dead subs.
+- `processCancellation` with `cancel_reason === "BILLING_ERROR"` now sets `billingIssueDetectedAt`. RC's BILLING_ERROR cancel is the same logical state as a BILLING_ISSUE event (auto-retry gave up); without the marker, derived `willRenew` and grace-period queries returned incoherent answers.
+- `processBillingIssue` now sets `autoRenewStatus: false`. Mirrors iOS/Android `willRenew` which returns false whenever `billingIssuesDetectedAt != nil`.
+- `processUncancellation` now clears `unsubscribeDetectedAt` so derived `willRenew` flips back to true.
+- `upsertSubscription` now computes `autoRenewStatus` from the five-signal derivation after overrides land. Covers `PREPAID` period type and `PROMOTIONAL` store, which previously stored `autoRenewStatus: true` despite the SDKs returning `willRenew: false`.
+- `transferEntitlements` and `aliasEntitlements` now pick the strictly more generous expiry (lifetime beats finite; among finites, later wins) via a shared `isSourceMoreGenerous` helper. Closes a previously-open hole where a lifetime entitlement on either side could be regressed to the other's finite expiry, and where an out-of-order `TRANSFER` could overwrite a fresh destination renewal with stale source state.
+- `transferSubscriptions` now dedups on `originalTransactionId`: if the destination already has a sub for the same transaction (retried TRANSFER, or race with a concurrent webhook ingest), the older record is dropped. Previously, two rows could share the same `originalTransactionId` across `appUserId` values.
+- `processTransfer` and `processSubscriberAlias` now drop the source `customers` row (and its orphan entitlement/subscription/experiment audit rows) when the source is a `$RCAnonymousID:` ID and no active data remains. Matches the "anonymous ID is dead after merge" semantic that iOS `DeviceCache.clearCaches` and Android `deviceCache.clearCachesForAppUserID` apply client-side. Partial transfers are detected and skipped to preserve audit state.
+- `sync.ts` ingestion now derives `autoRenewStatus` via the same helper as the webhook path, so REST and webhook paths converge on the same value. Previously, sync left `autoRenewStatus: undefined` because the field the code was reading (`auto_renew_status`) does not exist in RC's v1 REST response (verified against the v1 OpenAPI spec and both native SDK decoders); dropped the speculative read alongside the derivation fix.
+- `webhooks.ts`: removed an unreachable `status = "failed"` assignment and inlined error-message extraction inside the catch block. Flagged by ESLint 10's `no-useless-assignment` rule; no runtime behavior change.
+- `example/convex/tsconfig.json`: added `"types": ["node"]` so `process.env` resolves under TypeScript 6.
 
 ### Added
 
-- **Convex AI files** (`AGENTS.md`, `CLAUDE.md`, `skills-lock.json`, `example/convex/_generated/ai/guidelines.md`) generated by `npx convex ai-files install`. AI coding assistants (Cursor, Claude Code, etc.) now have Convex-specific guidelines on hand when working in the repo, overriding stale patterns from training data. Matches the current Convex component template.
-
-### Removed
-
-- **`renovate.json`**: the Renovate GitHub App is not installed on the repo (zero PRs ever opened by `renovate[bot]`). The config was a dead template artifact.
-- **`initTemplate.mjs` reference** in `eslint.config.js` ignores. The file doesn't exist in this repo; it was a stale leftover from the Convex component template.
-- **`/docs/.vitepress/cache` and `explorations`** from `.gitignore`. Neither directory exists.
+- `willRenew(sub)` client SDK helper that re-derives the five-signal check on read. Useful when mixing stored state with live adjustments or reading docs that pre-date the derivation logic.
+- **Convex AI files** (`AGENTS.md`, `CLAUDE.md`, `skills-lock.json`, `example/convex/_generated/ai/guidelines.md`) generated by `npx convex ai-files install`. Ships the Convex-specific guidelines the toolchain expects so coding assistants working in the repo override stale patterns from training data. Matches the current Convex component template.
 
 ### Changed
 
-- **`package.json` metadata pass**: `description` now matches the GitHub About blurb and mentions webhook + REST sync and lifecycle hooks. `author` moved from an invalid email stub to `{ name: "Ray", url: "https://github.com/ramonclaudio" }`. `engines.node` bumped from `>=18` to `>=20.0.0` (Node 18 EOL'd April 2025). `keywords` expanded from 8 to 13 to match the GitHub topic list (`convex-component`, `gdpr`, `typescript`, `realtime`, `backend`, `serverless` added). `files` glob collapses four `*.test.*` patterns into a single `!**/*.test.*`. `jiti` alphabetized in devDependencies.
-- **Peer dependency**: `convex` bumped from `^1.31.6` to `^1.35.1`. This matches what CI tests against; the prior ranges (`^1.31.6`, then briefly `^1.32.0`) claimed support for older Convex versions that were never verified. Consumers on older Convex should upgrade. No code in this component requires a Convex API newer than 1.20.
+- **`package.json` metadata pass**: `description` now matches the GitHub About blurb and mentions webhook + REST sync and lifecycle hooks. `author` moved from an invalid email stub to `{ name: "Ray", url: "https://github.com/ramonclaudio" }`. `keywords` expanded from 8 to 13 to match the GitHub topic list (`convex-component`, `gdpr`, `typescript`, `realtime`, `backend`, `serverless` added). `files` glob collapses four `*.test.*` patterns into a single `!**/*.test.*`. `jiti` alphabetized in devDependencies.
 - **Dev dep pinning**: `convex`, `@vitest/coverage-v8`, and `pkg-pr-new` switched from caret to exact versions. Matches what CI tests against and what the Convex ecosystem pins (siblings `@convex-dev/action-cache` and the upstream template both pin `convex` exactly). `@vitest/coverage-v8` must match `vitest` exactly per vitest's own contract; `pkg-pr-new` is on `0.0.x` which has no semver guarantees.
-- **Dev toolchain** refreshed for April 2026. `convex` → `1.35.1`, `convex-test` → `0.0.49`, `eslint` → `10.2.1` (+ `@eslint/js@10.0.1`, `@convex-dev/eslint-plugin@2.0.0`, new `jiti` peer), `typescript` → `6.0.3`, `vitest` → `4.1.4`, plus patch bumps on `@types/node`, `globals`, `prettier`, `typescript-eslint`.
-- **Dropped unused `rollup` override** (not present in the dep tree) and the `ajv` override (no longer needed now that `eslint@10` removed its `ajv@6` transitive path).
-- **`example/convex/tsconfig.json`**: added `"types": ["node"]` so `process.env` resolves under TypeScript 6.
-- **`webhooks.ts`**: removed an unreachable `status = "failed"` assignment and moved error-message extraction inline inside the catch block. Flagged by ESLint 10's `no-useless-assignment` rule; no runtime behavior change.
+- **Dev toolchain** refreshed for April 2026: `convex` → `1.35.1`, `convex-test` → `0.0.49`, `eslint` → `10.2.1` (+ `@eslint/js@10.0.1`, `@convex-dev/eslint-plugin@2.0.0`, new `jiti` peer), `typescript` → `6.0.3`, `vitest` → `4.1.4`, plus patch bumps on `@types/node`, `globals`, `prettier`, `typescript-eslint`.
+
+### Removed
+
+- `auto_renew_status` read in `sync.ts`. Not present in RC's v1 REST `/v1/subscribers/{id}` response per the published OpenAPI spec; not decoded by iOS `CustomerInfoResponse.Subscription` or Android `SubscriptionInfoResponse`.
+- `items` optional field from the `EventPayload` TypeScript type in `handlers.ts`. Not listed in RC's webhook event schema and never read by any handler. Speculative handling of undocumented fields is against `CONTRIBUTING.md`.
+- **Unused scripts**: `dev:backend`, `all`, `version`, `prepack`, `prepublishOnly`, `preversion`, `alpha`, `release` from `package.json`. `dev:backend` is covered by `dev` via Convex 1.34+'s `--start` flag. `all` was an unused composite. `version` was a vim CHANGELOG hook. `prepack` / `prepublishOnly` don't fire in practice because publish runs from `.github/workflows/publish.yml` on tag push. `preversion` / `alpha` / `release` don't fire either because the `release` skill tags directly instead of calling `npm version`.
+- **`npm-run-all2`** and **`path-exists-cli`** dev dependencies. `validate` is now serial (`npm test && npm run lint && npm run typecheck`), removing the last need for `run-p`. `predev` uses `convex init` instead of `path-exists`.
+- **`.github/assets/`** directory with two unreferenced SVG icons.
+- **`renovate.json`**: Renovate GitHub App is not installed on the repo (zero PRs ever opened by `renovate[bot]`). Dead template artifact.
+- **`initTemplate.mjs` reference** in `eslint.config.js` ignores. File doesn't exist in this repo; stale leftover from the Convex component template.
+- **`/docs/.vitepress/cache` and `explorations`** from `.gitignore`. Neither directory exists.
+- **`rollup` override** (not present in the dep tree) and the **`ajv` override** (no longer needed now that `eslint@10` removed its `ajv@6` transitive path).
 
 ## [0.2.0] - 2026-04-18
 
