@@ -19,7 +19,7 @@ pnpm add convex-revenuecat
 bun add convex-revenuecat
 ```
 
-Requires Convex `>=1.31.6`.
+Requires Convex `>=1.35.1`.
 
 ## Setup
 
