@@ -23,10 +23,14 @@ Two private channels, either works. Prefer the first.
 Include as much of the following as you can:
 
 - The package version affected.
-- A description of the issue and the security impact (what can an attacker do, under what conditions).
-- Reproduction steps. A minimal Convex project or a captured webhook payload is ideal.
+- Type of issue (e.g., auth bypass, state tampering, PII leak, dependency CVE).
+- A description of the issue and the security impact: what an attacker can do, under what conditions.
+- Location of the affected code: tag, branch, commit hash, or a direct GitHub URL.
+- Reproduction steps, or proof-of-concept code if you have it. A minimal Convex project or a captured webhook payload is ideal.
 - Any proposed mitigation or patch.
 - Whether you have already disclosed this privately anywhere else.
+
+English is preferred for all communication.
 
 Please don't send screenshots of tokens, production `REVENUECAT_WEBHOOK_AUTH` values, or real customer `app_user_id`s. Redact or fabricate them in the report.
 
