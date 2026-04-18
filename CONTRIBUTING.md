@@ -319,6 +319,11 @@ Test plan is required on every PR. List the exact steps that verified the change
 
 ## Security
 
-Report vulnerabilities by email through the contact on the maintainer's GitHub profile. A written `SECURITY.md` is pending.
+Do not open a public issue or PR for vulnerabilities. See [`SECURITY.md`](SECURITY.md) for the full policy, including scope, safe harbor, and disclosure timeline.
 
-Do not open a public PR that references an active vulnerability. Open it against a private fork and loop the maintainer in.
+Two private channels, either works:
+
+1. [GitHub Private Vulnerability Reporting](https://github.com/ramonclaudio/convex-revenuecat/security/advisories/new).
+2. Email `security@ramonclaudio.com`.
+
+If you need to discuss a fix in code, open the PR against a private fork and loop me in on the advisory rather than pushing to a public branch.
