@@ -13,6 +13,10 @@ This is not a replacement for the [RevenueCat SDK](https://www.revenuecat.com/do
 
 ```bash
 npm install convex-revenuecat
+# or
+pnpm add convex-revenuecat
+# or
+bun add convex-revenuecat
 ```
 
 Requires Convex `>=1.31.6`.
