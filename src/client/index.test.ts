@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { RevenueCat } from "./index.js";
+import { RevenueCat, willRenew } from "./index.js";
+import type { Subscription } from "./index.js";
 import { components, initConvexTest } from "./setup.test.js";
 
 function createEventPayload(
@@ -343,6 +344,51 @@ describe("RevenueCat client", () => {
 
       expect(result).not.toBeNull();
       expect(result?.appUserId).toBe("user_client_4");
+    });
+  });
+
+  describe("willRenew helper", () => {
+    function sub(overrides: Partial<Subscription> = {}): Subscription {
+      return {
+        _id: "x" as Subscription["_id"],
+        _creationTime: 0,
+        appUserId: "u",
+        productId: "p",
+        store: "APP_STORE",
+        environment: "PRODUCTION",
+        periodType: "NORMAL",
+        purchasedAtMs: 0,
+        expirationAtMs: Date.now() + 86400000,
+        originalTransactionId: "otxn",
+        transactionId: "txn",
+        isFamilyShare: false,
+        updatedAt: 0,
+        ...overrides,
+      };
+    }
+
+    test("returns true for a normal active sub", () => {
+      expect(willRenew(sub())).toBe(true);
+    });
+
+    test("returns false for lifetime (no expiration)", () => {
+      expect(willRenew(sub({ expirationAtMs: undefined }))).toBe(false);
+    });
+
+    test("returns false for PREPAID period type", () => {
+      expect(willRenew(sub({ periodType: "PREPAID" }))).toBe(false);
+    });
+
+    test("returns false for PROMOTIONAL store", () => {
+      expect(willRenew(sub({ store: "PROMOTIONAL" }))).toBe(false);
+    });
+
+    test("returns false when unsubscribeDetectedAt is set", () => {
+      expect(willRenew(sub({ unsubscribeDetectedAt: Date.now() }))).toBe(false);
+    });
+
+    test("returns false when billingIssueDetectedAt is set", () => {
+      expect(willRenew(sub({ billingIssueDetectedAt: Date.now() }))).toBe(false);
     });
   });
 });
