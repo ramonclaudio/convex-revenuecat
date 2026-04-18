@@ -28,6 +28,33 @@
 - **`example/convex/tsconfig.json`**: added `"types": ["node"]` so `process.env` resolves under TypeScript 6.
 - **`webhooks.ts`**: removed an unreachable `status = "failed"` assignment and moved error-message extraction inline inside the catch block. Flagged by ESLint 10's `no-useless-assignment` rule; no runtime behavior change.
 
+## [0.2.1] - 2026-04-18
+
+Parity sweep against `RevenueCat/purchases-ios`, `purchases-android`, `react-native-purchases-docs`, and `purchases-ios-docs`. Eleven correctness fixes; no schema changes, no consumer API changes.
+
+### Upgrade notes
+
+- `Subscription.autoRenewStatus` now mirrors iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`: derived from five signals (lifetime, `PREPAID` period, `PROMOTIONAL` store, `unsubscribeDetectedAt`, `billingIssueDetectedAt`) rather than stored verbatim from webhooks. If you were reading the stored value as the raw user preference, switch to deriving from primitives or use the new `willRenew(sub)` client helper.
+- `isInGracePeriod` and `getInGracePeriod` no longer require `expirationAtMs <= now`. Pre-expiry billing retry windows (Google Play fires `BILLING_ISSUE` before the current period ends) now return `inGracePeriod: true` as the iOS/Android SDKs do.
+
+### Fixed
+
+- `extendEntitlements` and `grantEntitlements` now preserve the prior `expiresAtMs` when a `RENEWAL` / `PRODUCT_CHANGE` / `REFUND_REVERSED` webhook arrives without `expiration_at_ms`. Convex `patch({ expiresAtMs: undefined })` REMOVES the field, which our gate reads as lifetime; a malformed partial payload could silently grant infinite access. Cross-referenced against iOS `EntitlementInfo.swift:255` and Android `DateHelper.kt:22`, both treat `expirationDate == nil` as lifetime.
+- `processRenewal` now clears every stale period-specific marker on successful renewal: `billingIssueDetectedAt`, `gracePeriodExpirationAtMs`, `autoResumeAtMs`, `newProductId`, `expirationReason`, `unsubscribeDetectedAt`. Matches iOS `SubscriptionInfo.swift:44` contract: "If and when the billing issue gets resolved, this field is set to nil." Previously only the entitlement doc was cleared; the subscription doc carried phantom pending state into the next period.
+- `processExpiration` now clears `autoResumeAtMs` and `gracePeriodExpirationAtMs`, and sets `autoRenewStatus: false`. Prior state leaked "resumes on ..." and grace-period UI signals onto already-dead subs.
+- `processCancellation` with `cancel_reason === "BILLING_ERROR"` now sets `billingIssueDetectedAt`. RC's BILLING_ERROR cancel is the same logical state as a BILLING_ISSUE event (auto-retry gave up); without the marker, derived `willRenew` and grace-period queries returned incoherent answers.
+- `processBillingIssue` now sets `autoRenewStatus: false`. Mirrors iOS/Android `willRenew` which returns false whenever `billingIssuesDetectedAt != nil`.
+- `processUncancellation` now clears `unsubscribeDetectedAt` so derived `willRenew` flips back to true.
+- `upsertSubscription` now computes `autoRenewStatus` from the five-signal derivation after overrides land. Covers `PREPAID` period type and `PROMOTIONAL` store, which previously stored `autoRenewStatus: true` despite the SDKs returning `willRenew: false`.
+- `transferEntitlements` gains the `sourceIsNewer` guard that `aliasEntitlements:785-787` already had. Out-of-order `TRANSFER` events can no longer regress a freshly-renewed `expiresAtMs` on the destination when a source with an older expiry is moved in.
+- `transferSubscriptions` now dedups on `originalTransactionId`: if the destination already has a sub for the same transaction (retried TRANSFER, or race with a concurrent webhook ingest), the older record is dropped. Previously, two rows could share the same `originalTransactionId` across `appUserId` values.
+- `processTransfer` and `processSubscriberAlias` now drop the source `customers` row (and its orphan entitlement/subscription/experiment audit rows) when the source is a `$RCAnonymousID:` ID and no active data remains. Matches iOS `DeviceCache.clearCaches` / Android equivalent semantics: anonymous IDs are dead after a merge. Partial transfers are detected and skipped to preserve audit state.
+- `sync.ts` ingestion now derives `autoRenewStatus` via the same helper as the webhook path, so REST and webhook paths converge on the same value. Previously, sync wrote `auto_renew_status: true` on a billing-retry sub that a webhook would have written as `false`.
+
+### Added
+
+- `willRenew(sub)` client SDK helper that re-derives the five-signal check on read. Useful when mixing stored state with live adjustments or reading docs that pre-date the derivation logic.
+
 ## [0.2.0] - 2026-04-18
 
 ### Upgrade notes
