@@ -88,27 +88,6 @@ npm run build:clean   # Clean + rebuild
 - No TODOs without a linked issue.
 - No dead code. If it's unused, delete it.
 
-## Release
-
-Releases are cut from `main`. The flow:
-
-```bash
-npm run release   # patch bump (0.y.z -> 0.y.z+1)
-npm run alpha     # prerelease (adds `-alpha.N`)
-```
-
-Version rules for pre-1.0:
-
-- **PATCH** (`0.2.0 → 0.2.1`) is for backward-compatible bug fixes only. No observable behavior changes, no new API, no changed return shapes.
-- **MINOR** (`0.2.x → 0.3.0`) for anything that changes observable behavior, adds public API, tightens types, or adds required fields to existing return shapes. In pre-1.0 this also stands in for breaking changes (see `0.1.x → 0.2.0` as the template).
-- **MAJOR** (`1.0.0`) once the API surface is stable enough to commit to.
-
-Tag-driven GitHub Action handles the npm publish. Before tagging:
-
-1. Confirm `CHANGELOG.md` has a dated heading for the version.
-2. Run `npm run validate`.
-3. Run `npm audit --audit-level=high` (should be clean).
-
 ## Security
 
 Report vulnerabilities by email rather than public issues. A written `SECURITY.md` is coming; in the meantime, reach the maintainer through the contact on their GitHub profile.
