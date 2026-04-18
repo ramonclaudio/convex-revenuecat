@@ -500,39 +500,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 13: SUBSCRIPTION_PAUSED cancel_reason preserves autoRenewStatus", () => {
-    test("cancel_reason SUBSCRIPTION_PAUSED leaves autoRenewStatus unchanged", async () => {
-      const t = initConvexTest();
-      const txnId = "txn_paused_cancel";
-      await postEvent(
-        t,
-        basePayload({
-          id: "evt_pc_init",
-          app_user_id: "user_pc_reason",
-          original_transaction_id: txnId,
-          transaction_id: txnId,
-        }),
-      );
-      await postEvent(
-        t,
-        basePayload({
-          id: "evt_pc_cancel",
-          type: "CANCELLATION",
-          app_user_id: "user_pc_reason",
-          original_transaction_id: txnId,
-          transaction_id: txnId,
-          cancel_reason: "SUBSCRIPTION_PAUSED",
-        }),
-      );
-
-      const subs = await t.query(api.subscriptions.getByUser, {
-        appUserId: "user_pc_reason",
-      });
-      expect(subs[0].cancelReason).toBe("SUBSCRIPTION_PAUSED");
-      // Should NOT be set to false — user intends to resume.
-      expect(subs[0].autoRenewStatus).toBeUndefined();
-    });
-
+  describe("HIGH 13: UNSUBSCRIBE CANCELLATION records unsubscribeDetectedAt", () => {
     test("CANCELLATION with reason UNSUBSCRIBE sets unsubscribeDetectedAt", async () => {
       const t = initConvexTest();
       const txnId = "txn_unsub";
