@@ -148,10 +148,9 @@ export const process = mutation({
     const eventType = event.type as EventType;
     const handler = EVENT_HANDLERS[eventType];
     let status: "processed" | "failed" | "ignored" = "ignored";
-    let error: string | undefined;
 
     if (handler) {
-      // Snapshot entitlement state ONLY when hooks are registered — snapshots
+      // Snapshot entitlement state ONLY when hooks are registered. Snapshots
       // are full-table-per-user reads we'd otherwise pay twice per webhook
       // for consumers who don't use hooks (the default). Scheduling lives
       // inside this mutation's transaction; if the handler throws, scheduled
@@ -165,19 +164,17 @@ export const process = mutation({
         await ctx.runMutation(handler, { event: payload });
         status = "processed";
       } catch (e) {
-        status = "failed";
-        error = e instanceof Error ? e.message : String(e);
-
-        // NOTE: do NOT insert into webhookEvents here — throwing rolls back the
+        // NOTE: do NOT insert into webhookEvents here. Throwing rolls back the
         // entire mutation transaction, so any db write in this catch block is
         // silently discarded. The event intentionally stays out of webhookEvents
         // so the dedup check doesn't block RC's retry on the next attempt.
         if (e instanceof ConvexError) {
           throw e;
         }
+        const message = e instanceof Error ? e.message : String(e);
         throw new ConvexError({
           code: "INTERNAL_ERROR",
-          message: `Handler failed: ${error}`,
+          message: `Handler failed: ${message}`,
         });
       }
 
@@ -203,7 +200,6 @@ export const process = mutation({
       payload,
       processedAt: now,
       status,
-      error,
     });
 
     return { processed: status === "processed", eventId: event.id };
