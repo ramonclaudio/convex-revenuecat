@@ -37,10 +37,7 @@
     "test:watch": "vitest --typecheck --clearScreen false",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:coverage": "vitest run --coverage --coverage.reporter=text",
-    "validate": "npm test && npm run lint && npm run typecheck",
-    "preversion": "npm ci && npm run build:clean && npm run validate",
-    "alpha": "npm version prerelease --preid alpha && git push --follow-tags",
-    "release": "npm version patch && git push --follow-tags"
+    "validate": "npm test && npm run lint && npm run typecheck"
   },
   "files": [
     "dist",
