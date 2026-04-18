@@ -24,8 +24,14 @@ dist-ssr
 
 # Cache
 .eslintcache
-/docs/.vitepress/cache
-explorations
+
+# Local planning workspace
+plans/
 
 # Auto-generated Convex README
 example/convex/README.md
+
+# Override global gitignore: this repo publishes Convex AI files with the package
+!AGENTS.md
+!CLAUDE.md
+!skills-lock.json
