@@ -128,7 +128,7 @@ Sample payloads for every RC event type live in `src/component/handlers.test.ts`
 - Webhook handler `args` use `v.any()`, not `v.object`. Cast to `EventPayload` inside the handler. RC adds fields without versioning.
 - Query return validators use `schema.tables.X.validator.extend({ _id: v.id("X"), _creationTime: v.number() })`. No re-declared field lists.
 - `hasEntitlement` and `getActive` stay pure expiry: `isActive && (expiresAtMs === undefined || expiresAtMs > now)`. No short-circuits on `billingIssueDetectedAt` or any auxiliary flag. Grace is folded into `expiresAtMs` by `processBillingIssue` and `syncSubscriber`.
-- Every webhook handler begins with `await recordEvent(ctx, event)`. Do not call `upsertCustomer` or `upsertExperiments` directly.
+- Single-user webhook handlers begin with `await recordEvent(ctx, event)`. Do not call `upsertCustomer` or `upsertExperiments` directly. Two handlers skip `recordEvent` for structural reasons: `processTransfer` calls `upsertCustomer` per participant in `transferred_from` and `transferred_to`, and `processTest` is a no-op.
 - New entitlement state transitions flow through `snapshotEntitlements` + `fireTransitionHooks` in `webhooks.ts`. Do not schedule hooks from inside a handler.
 - Internal writes use `internalMutation`. Public mutations require review.
 - Small functions. One concern per function. Early returns.
@@ -172,7 +172,7 @@ Cover for every new webhook handler:
 
 For webhook-processing changes:
 
-1. Post a captured payload to the HTTP handler via `convex-test`'s HTTP simulation.
+1. Call `t.mutation(api.webhooks.process, { event, payload, hooks? })` with a captured payload. This is the pattern every existing handler test uses. To also exercise the HTTP layer (auth, malformed body handling), use `t.fetch("/webhooks/revenuecat", { method: "POST", body })`.
 2. Assert state via public query methods (`hasEntitlement`, `getActiveSubscriptions`).
 3. Assert side effects: `_scheduled_functions` rows for hooks, `webhookEvents` rows for the audit log.
 
@@ -310,7 +310,7 @@ Test plan:
 - `npm run validate` passes locally
 - Regression test at `src/component/handlers.test.ts:<line>` fails on main, passes on this branch
 - Integration test at `example/convex/example.test.ts:<line>` covers the consumer path
-- Manual: posted captured payload to `http://localhost:3210/webhooks/revenuecat`, verified entitlement revokes via `hasEntitlement`
+- Manual: posted captured payload to the dev deployment's `https://<deployment>.convex.site/webhooks/revenuecat`, verified entitlement revokes via `hasEntitlement`
 
 Breaking change: <only if applicable; describe consumer impact>
 ```
