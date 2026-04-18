@@ -128,7 +128,10 @@ export const syncUser = action({
 });
 ```
 
-Call on app foreground, after purchases, or on a schedule. Requires a **secret** API key (not the public SDK key) set as `REVENUECAT_API_KEY` in your Convex environment.
+Call on app foreground, after purchases, or on a schedule.
+
+> [!WARNING]
+> This requires a **secret** API key, not the public SDK key you pass to `Purchases.configure`. Set it as `REVENUECAT_API_KEY` in your Convex environment. Using the public key will fail at runtime or grant the wrong permissions.
 
 ## API
 
@@ -297,7 +300,8 @@ RC's retry policy: 5 retries at 5, 10, 20, 40, and 80 minutes after first failur
 
 ## Authentication
 
-RevenueCat does not sign webhook payloads (no HMAC, no `X-RevenueCat-Signature` header). The only auth mechanism is the dashboard-configured `Authorization` header shared secret. Rotate it from the RC dashboard if leaked.
+> [!IMPORTANT]
+> RevenueCat does not sign webhook payloads. There's no HMAC and no `X-RevenueCat-Signature` header. The only auth mechanism is the dashboard-configured `Authorization` header shared secret. Rotate it from the RC dashboard if you suspect leakage.
 
 ## RevenueCat REST API rate limits
 
