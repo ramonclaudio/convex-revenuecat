@@ -1,9 +1,13 @@
 {
   "name": "convex-revenuecat",
   "description": "Convex component that mirrors RevenueCat subscription state. Webhook + REST sync with lifecycle hooks for entitlement transitions.",
-  "repository": "github:ramonclaudio/convex-revenuecat",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ramonclaudio/convex-revenuecat.git"
+  },
   "homepage": "https://github.com/ramonclaudio/convex-revenuecat#readme",
   "bugs": {
+    "email": "security@ramonclaudio.com",
     "url": "https://github.com/ramonclaudio/convex-revenuecat/issues"
   },
   "version": "0.2.0",
