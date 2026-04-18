@@ -163,6 +163,19 @@ All query methods return empty arrays or `null` for missing users (never throw).
 | `getVirtualCurrencyTransactions(ctx, { appUserId, currencyCode? })` | `VirtualCurrencyTransaction[]` |
 | `syncSubscriber(ctx, { appUserId, subscriber })` | `SyncResult` |
 
+### Helpers
+
+Standalone functions exported from `convex-revenuecat` for use on the client or in any query:
+
+| Helper | Returns |
+|:-------|:--------|
+| `willRenew(sub)` | `boolean` |
+| `decodeSubscriberAttributes(attrs)` | `Record<string, T> \| undefined` |
+
+`willRenew(sub)` re-derives the iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew` signal from a `Subscription` doc (lifetime, `PREPAID`, `PROMOTIONAL`, `unsubscribeDetectedAt`, `billingIssueDetectedAt`). Matches the value already stored in `autoRenewStatus`; useful when mixing stored state with live adjustments.
+
+`decodeSubscriberAttributes(attrs)` rewrites `__dollar__`-encoded keys back to RC-native `$`-prefixed names (`$email`, `$phoneNumber`, etc.). See [Decoding attribute keys](#decoding-attribute-keys).
+
 ## Webhook Events
 
 RevenueCat emits 17 canonical event types. The component handles all of them plus two legacy events (`REFUND`, `SUBSCRIBER_ALIAS`) that older projects still receive:
@@ -191,7 +204,7 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 
 `CANCELLATION` does NOT revoke entitlements for normal unsubscribes. Users keep access until `EXPIRATION`. Refunds are the exception: a `CANCELLATION` where `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` revokes entitlements immediately. `price < 0` catches Google Play self-serve refunds and dashboard-issued refunds that leave `cancel_reason` as `DEVELOPER_INITIATED`; gating on `cancel_reason` alone leaks access in those cases.
 
-Per RC docs, CANCELLATION only fires for a refund of the subscription's **latest** period. Earlier-period refunds don't trigger the event. A refund also doesn't necessarily deactivate auto-renewal: if the subscription auto-renews to a new period, a subsequent `RENEWAL` restores access. For extra safety on cancellation events, callers can optionally call `syncSubscriber` to cross-check against `GET /v1/subscribers/{app_user_id}`.
+A refund doesn't necessarily deactivate auto-renewal: if the subscription auto-renews to a new period, a subsequent `RENEWAL` restores access. For extra safety on cancellation events, callers can optionally call `syncSubscriber` to cross-check against `GET /v1/subscribers/{app_user_id}`.
 
 ### Access-check semantics
 
