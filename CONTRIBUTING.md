@@ -319,7 +319,7 @@ Test plan is required on every PR. List the exact steps that verified the change
 
 ## Security
 
-Do not open a public issue or PR for vulnerabilities. See [`SECURITY.md`](SECURITY.md) for the full policy, including scope, safe harbor, and disclosure timeline.
+Do not open a public issue or PR for vulnerabilities. See [`SECURITY.md`](SECURITY.md) for the full policy, including scope, good-faith research norms, and disclosure timeline.
 
 Two private channels, either works:
 
