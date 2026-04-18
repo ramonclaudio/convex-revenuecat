@@ -82,15 +82,19 @@ export const isInGracePeriod = query({
     }
 
     const now = Date.now();
-    const { gracePeriodExpirationAtMs, billingIssueDetectedAt, expirationAtMs } = subscription;
+    const { gracePeriodExpirationAtMs, billingIssueDetectedAt } = subscription;
 
-    // In grace period if:
-    // 1. Billing issue detected AND
-    // 2. Grace period expiration is set AND in the future
-    // 3. Normal expiration has passed (or is about to)
-    const hasGracePeriod = gracePeriodExpirationAtMs && gracePeriodExpirationAtMs > now;
-    const normalExpired = expirationAtMs && expirationAtMs <= now;
-    const inGracePeriod = Boolean(billingIssueDetectedAt && hasGracePeriod && normalExpired);
+    // iOS `SubscriptionInfo.billingIssuesDetectedAt != nil && gracePeriodExpiresDate != nil
+    // && now < gracePeriodExpiresDate` is the SDK-matching check. The prior
+    // implementation also required `expirationAtMs <= now`, which missed
+    // pre-expiry billing retry windows (Google Play fires BILLING_ISSUE
+    // before the current period ends, and RC may extend grace past the
+    // original expiry).
+    const inGracePeriod = Boolean(
+      billingIssueDetectedAt &&
+        gracePeriodExpirationAtMs &&
+        gracePeriodExpirationAtMs > now,
+    );
 
     return {
       inGracePeriod,
@@ -116,10 +120,13 @@ export const getInGracePeriod = query({
       .collect();
 
     return subscriptions.filter((s) => {
-      const { gracePeriodExpirationAtMs, billingIssueDetectedAt, expirationAtMs } = s;
-      const hasGracePeriod = gracePeriodExpirationAtMs && gracePeriodExpirationAtMs > now;
-      const normalExpired = expirationAtMs && expirationAtMs <= now;
-      return Boolean(billingIssueDetectedAt && hasGracePeriod && normalExpired);
+      // Same SDK-matching check as `isInGracePeriod`. See that handler for
+      // rationale on dropping the `normalExpired` clause.
+      return Boolean(
+        s.billingIssueDetectedAt &&
+          s.gracePeriodExpirationAtMs &&
+          s.gracePeriodExpirationAtMs > now,
+      );
     });
   },
 });
