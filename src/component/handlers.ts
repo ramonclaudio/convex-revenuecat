@@ -588,14 +588,15 @@ export const processCancellation = internalMutation({
     // Per RC docs: "refunds can be given without cancelling a subscription ...
     // autorenewal preference may still be active." Only force autoRenewStatus
     // to false for genuine cancellations (UNSUBSCRIBE, DEVELOPER_INITIATED,
-    // PRICE_INCREASE, BILLING_ERROR, UNKNOWN). For refund-only cases AND for
-    // SUBSCRIPTION_PAUSED (user intends to resume on Play Store), leave
+    // PRICE_INCREASE, BILLING_ERROR, UNKNOWN). For refund-only cases leave
     // autoRenewStatus alone so a subsequent RENEWAL can arrive truthfully.
-    const isPaused = event.cancel_reason === "SUBSCRIPTION_PAUSED";
+    // Pause is never a cancel_reason — Play Store pauses flow as their own
+    // SUBSCRIPTION_PAUSED event type, then EXPIRATION with
+    // expiration_reason=SUBSCRIPTION_PAUSED. See event-types-and-fields docs.
     const overrides: Parameters<typeof upsertSubscription>[2] = {
       cancelReason: event.cancel_reason,
     };
-    if (!isRefund && !isPaused) {
+    if (!isRefund) {
       overrides.autoRenewStatus = false;
     }
     if (isRefund) {
