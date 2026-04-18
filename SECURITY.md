@@ -60,16 +60,9 @@ The following are out of scope:
 - Denial-of-service scenarios that require controlling a valid `REVENUECAT_WEBHOOK_AUTH` secret and sending traffic faster than the documented 100 req/min rate limit. If you find a DoS vector that doesn't require the shared secret, that's in scope.
 - Findings from automated scanners that don't demonstrate a real exploitation path.
 
-## Safe harbor
+## Good-faith research
 
-If you report in good faith, follow this policy, and avoid the following, I will not pursue legal action or take negative action against your account:
-
-- Data exfiltration beyond what's necessary to demonstrate the issue.
-- Public disclosure before the coordinated window closes.
-- Attacks against third-party infrastructure or other users' deployments.
-- Social engineering of maintainers or users.
-
-Good-faith testing against a deployment you control is fine. Testing against someone else's deployment without permission is not.
+Testing against a deployment you control is fine. Don't exfiltrate more data than necessary to demonstrate an issue, don't publish before the coordinated window closes, and don't test against third-party deployments without permission.
 
 ## Credit
 
