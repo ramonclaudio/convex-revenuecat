@@ -87,6 +87,23 @@ async function purgeAnonymousCustomerIfEmpty(
   }
 }
 
+// Returns true iff `source` covers strictly more time than `dest`. Lifetime
+// entitlements (undefined expiresAtMs) beat any finite expiry; among finites,
+// later wins. Used by `transferEntitlements` and `aliasEntitlements` to pick
+// which side's state survives when both users own the same entitlement ID.
+function isSourceMoreGenerous(
+  sourceExpiresAtMs: number | undefined,
+  destExpiresAtMs: number | undefined,
+): boolean {
+  if (sourceExpiresAtMs === undefined) {
+    // Source is lifetime. Wins unless dest is also lifetime (tie, dest keeps).
+    return destExpiresAtMs !== undefined;
+  }
+  // Source is finite. Can only win if dest is also finite and source is later;
+  // a lifetime dest always keeps (lifetime > any finite).
+  return destExpiresAtMs !== undefined && sourceExpiresAtMs > destExpiresAtMs;
+}
+
 // iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`:
 // will this sub auto-charge at next period boundary? Lifetime, prepaid,
 // promotional, unsubscribed, and billing-issue subs all return false. We store
@@ -568,15 +585,16 @@ async function transferEntitlements(
       // loss of grace-period signals, and unsubscribe state on restore flows.
       // Matches aliasEntitlements' conditional-spread pattern for status flags.
       if (destExisting) {
-        // Out-of-order guard: if the destination already has a newer expiry
-        // (from a fresh RENEWAL on the destination while this TRANSFER
-        // queued), don't regress it to the source's older value. Mirrors
-        // `aliasEntitlements`' `sourceIsNewer` pattern. Lifetime destination
-        // (undefined expiresAtMs) always wins.
-        const sourceIsNewer =
-          destExisting.expiresAtMs !== undefined &&
-          ent.expiresAtMs !== undefined &&
-          ent.expiresAtMs > destExisting.expiresAtMs;
+        // Out-of-order guard: keep whichever side covers more time. Lifetime
+        // source beats finite dest; finite-later source beats finite-earlier
+        // dest; lifetime dest always wins against finite source. Without this
+        // a fresh RENEWAL on the destination could be overwritten by a queued
+        // TRANSFER carrying older state, and a lifetime entitlement on either
+        // side could get regressed to the other's finite expiry.
+        const sourceIsNewer = isSourceMoreGenerous(
+          ent.expiresAtMs,
+          destExisting.expiresAtMs,
+        );
         await ctx.db.patch(destExisting._id, {
           isActive: true,
           productId: sourceIsNewer ? ent.productId : destExisting.productId,
@@ -948,10 +966,9 @@ async function aliasEntitlements(
       .first();
 
     if (existing) {
-      // Both IDs are the same person — keep the record with the later expiry
-      const sourceIsNewer =
-        ent.expiresAtMs !== undefined &&
-        (existing.expiresAtMs === undefined || ent.expiresAtMs > existing.expiresAtMs);
+      // Both IDs are the same person — keep whichever record is strictly more
+      // generous. Lifetime beats any finite; among finites, later wins.
+      const sourceIsNewer = isSourceMoreGenerous(ent.expiresAtMs, existing.expiresAtMs);
       if (sourceIsNewer) {
         await ctx.db.patch(existing._id, {
           isActive: ent.isActive,
