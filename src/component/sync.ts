@@ -240,7 +240,6 @@ export const ingest = mutation({
           auto_resume_date?: string | null;
           unsubscribe_detected_at?: string | null;
           refunded_at?: string | null;
-          auto_renew_status?: boolean | null;
           price?: { amount: number | string; currency: string } | null;
         };
 
@@ -268,23 +267,19 @@ export const ingest = mutation({
         const billingIssueDetectedAt = parseDate(s.billing_issues_detected_at);
         const unsubscribeDetectedAt = parseDate(s.unsubscribe_detected_at);
         const expirationAtMs = parseDate(s.expires_date);
-        // iOS `EntitlementInfo.willRenew` semantics. The REST `auto_renew_status`
-        // is the raw user preference (may be true during a billing-retry
-        // window) — we fold that preference into the 5-signal derived check
-        // so the stored `autoRenewStatus` matches what iOS/Android `willRenew`
-        // returns. An explicit `auto_renew_status: false` from RC (user
-        // cancelled) always wins; true is AND-ed against the derived check.
-        const explicitRawPreference =
-          typeof s.auto_renew_status === "boolean" ? s.auto_renew_status : undefined;
-        const derived = deriveWillRenew({
+        // iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`
+        // semantics. RC's v1 REST `/v1/subscribers/{id}` response carries no
+        // explicit auto-renew field (verified against the v1 OpenAPI spec and
+        // both SDK decoders); `willRenew` is derived entirely from primitives.
+        // We compute it from the same five signals the SDKs use so sync and
+        // webhook paths converge on the same stored value.
+        const autoRenewStatus = deriveWillRenew({
           periodType,
           store,
           expirationAtMs,
           unsubscribeDetectedAt,
           billingIssueDetectedAt,
         });
-        const autoRenewStatus =
-          explicitRawPreference === false ? false : derived;
 
         const data = {
           appUserId,

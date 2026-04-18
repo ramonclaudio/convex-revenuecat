@@ -49,11 +49,16 @@ Parity sweep against `RevenueCat/purchases-ios`, `purchases-android`, `react-nat
 - `transferEntitlements` and `aliasEntitlements` now pick the strictly more generous expiry (lifetime beats finite; among finites, later wins) via a shared `isSourceMoreGenerous` helper. Closes a previously-open hole where a lifetime entitlement on either side could be regressed to the other's finite expiry, and where an out-of-order `TRANSFER` could overwrite a fresh destination renewal with stale source state.
 - `transferSubscriptions` now dedups on `originalTransactionId`: if the destination already has a sub for the same transaction (retried TRANSFER, or race with a concurrent webhook ingest), the older record is dropped. Previously, two rows could share the same `originalTransactionId` across `appUserId` values.
 - `processTransfer` and `processSubscriberAlias` now drop the source `customers` row (and its orphan entitlement/subscription/experiment audit rows) when the source is a `$RCAnonymousID:` ID and no active data remains. Matches the "anonymous ID is dead after merge" semantic that iOS `DeviceCache.clearCaches` and Android `deviceCache.clearCachesForAppUserID` apply client-side. Partial transfers are detected and skipped to preserve audit state.
-- `sync.ts` ingestion now derives `autoRenewStatus` via the same helper as the webhook path, so REST and webhook paths converge on the same value. Previously, sync wrote `auto_renew_status: true` on a billing-retry sub that a webhook would have written as `false`.
+- `sync.ts` ingestion now derives `autoRenewStatus` via the same helper as the webhook path, so REST and webhook paths converge on the same value. Previously, sync left `autoRenewStatus: undefined` because the field the code was reading (`auto_renew_status`) does not exist in RC's v1 REST response (verified against the v1 OpenAPI spec and both native SDK decoders); dropped the speculative read alongside the derivation fix.
 
 ### Added
 
 - `willRenew(sub)` client SDK helper that re-derives the five-signal check on read. Useful when mixing stored state with live adjustments or reading docs that pre-date the derivation logic.
+
+### Removed
+
+- `auto_renew_status` read in `sync.ts`. Not present in RC's v1 REST `/v1/subscribers/{id}` response per the published OpenAPI spec; not decoded by iOS `CustomerInfoResponse.Subscription` or Android `SubscriptionInfoResponse`.
+- `items` optional field from the `EventPayload` TypeScript type in `handlers.ts`. Not listed in RC's webhook event schema and never read by any handler. Speculative handling of undocumented fields is against `CONTRIBUTING.md`.
 
 ## [0.2.0] - 2026-04-18
 

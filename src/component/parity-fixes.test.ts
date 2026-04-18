@@ -1000,24 +1000,6 @@ describe("parity fixes 2026-04-18", () => {
       expect(subs[0].autoRenewStatus).toBe(false);
     });
 
-    test("explicit auto_renew_status false wins over derived true", async () => {
-      const t = initConvexTest();
-      await ingestSub(t, "sync_raw_false", {
-        store: "APP_STORE",
-        is_sandbox: false,
-        period_type: "normal",
-        expires_date: isoIn(30),
-        purchase_date: "2026-01-01T00:00:00Z",
-        original_purchase_date: "2026-01-01T00:00:00Z",
-        store_transaction_id: "sync_raw_false_txn",
-        auto_renew_status: false,
-      });
-      const subs = await t.query(api.subscriptions.getByUser, {
-        appUserId: "sync_raw_false",
-      });
-      expect(subs[0].autoRenewStatus).toBe(false);
-    });
-
     test("healthy normal sub stores autoRenewStatus true", async () => {
       const t = initConvexTest();
       await ingestSub(t, "sync_healthy", {
