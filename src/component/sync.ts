@@ -6,6 +6,7 @@ import {
   resolveHooks,
   snapshotEntitlements,
 } from "./transitions.js";
+import { deriveWillRenew } from "./handlers.js";
 
 type Store = Infer<typeof storeValidator>;
 
@@ -239,7 +240,6 @@ export const ingest = mutation({
           auto_resume_date?: string | null;
           unsubscribe_detected_at?: string | null;
           refunded_at?: string | null;
-          auto_renew_status?: boolean | null;
           price?: { amount: number | string; currency: string } | null;
         };
 
@@ -264,6 +264,23 @@ export const ingest = mutation({
           .filter((q) => q.eq(q.field("productId"), productId))
           .first();
 
+        const billingIssueDetectedAt = parseDate(s.billing_issues_detected_at);
+        const unsubscribeDetectedAt = parseDate(s.unsubscribe_detected_at);
+        const expirationAtMs = parseDate(s.expires_date);
+        // iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`
+        // semantics. RC's v1 REST `/v1/subscribers/{id}` response carries no
+        // explicit auto-renew field (verified against the v1 OpenAPI spec and
+        // both SDK decoders); `willRenew` is derived entirely from primitives.
+        // We compute it from the same five signals the SDKs use so sync and
+        // webhook paths converge on the same stored value.
+        const autoRenewStatus = deriveWillRenew({
+          periodType,
+          store,
+          expirationAtMs,
+          unsubscribeDetectedAt,
+          billingIssueDetectedAt,
+        });
+
         const data = {
           appUserId,
           productId,
@@ -273,22 +290,19 @@ export const ingest = mutation({
           periodType,
           purchasedAtMs: parseDate(s.purchase_date) ?? now,
           originalPurchasedAtMs: parseDate(s.original_purchase_date),
-          expirationAtMs: parseDate(s.expires_date),
+          expirationAtMs,
           isFamilyShare: s.ownership_type === "FAMILY_SHARED",
           ownershipType,
-          billingIssueDetectedAt: parseDate(s.billing_issues_detected_at),
+          billingIssueDetectedAt,
           gracePeriodExpirationAtMs: parseDate(s.grace_period_expires_date),
           autoResumeAtMs: parseDate(s.auto_resume_date),
-          unsubscribeDetectedAt: parseDate(s.unsubscribe_detected_at),
+          unsubscribeDetectedAt,
           refundedAtMs: parseDate(s.refunded_at),
           // REST sync is authoritative: clear `cancelReason` on reconciliation
           // since REST doesn't carry it. A stale CUSTOMER_SUPPORT/UNSUBSCRIBE
           // reason from a prior webhook would otherwise persist across resyncs.
           cancelReason: undefined,
-          // `auto_renew_status` is documented but not always present; fall back
-          // to undefined rather than forcing a value.
-          autoRenewStatus:
-            typeof s.auto_renew_status === "boolean" ? s.auto_renew_status : undefined,
+          autoRenewStatus,
           // Price fields from REST. Coerce USD-only into priceUsd; store the
           // purchase-currency amount and ISO code for revenue reporting.
           priceUsd: priceCurrency === "USD" ? priceAmount : undefined,

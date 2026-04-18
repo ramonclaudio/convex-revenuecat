@@ -157,6 +157,35 @@ export type DeleteCustomerResult = {
 };
 
 /**
+ * Mirror of iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`.
+ *
+ * The component already stores a derived `autoRenewStatus` on every subscription
+ * upsert (webhook and sync paths). This helper lets consumers re-derive on
+ * read from a `Subscription` doc, useful when mixing stored state with
+ * live adjustments or when reading a doc that pre-dates the derivation logic.
+ *
+ * Returns false for lifetime, prepaid, promotional, unsubscribed, or
+ * billing-issue subs. Matches the five-signal check in both native SDKs.
+ */
+export function willRenew(
+  sub: Pick<
+    Subscription,
+    | "periodType"
+    | "store"
+    | "expirationAtMs"
+    | "unsubscribeDetectedAt"
+    | "billingIssueDetectedAt"
+  >,
+): boolean {
+  if (sub.expirationAtMs === undefined) return false;
+  if (sub.periodType === "PREPAID") return false;
+  if (sub.store === "PROMOTIONAL") return false;
+  if (sub.unsubscribeDetectedAt !== undefined) return false;
+  if (sub.billingIssueDetectedAt !== undefined) return false;
+  return true;
+}
+
+/**
  * Decode encoded subscriber attribute keys back to RC's documented names.
  *
  * The component stores `subscriber_attributes` with `__dollar__email` rather

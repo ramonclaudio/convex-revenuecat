@@ -37,7 +37,7 @@
 - PRs without tests for a behaviour change or new public method.
 - Speculative handling of undocumented RC wire values (no docs citation, no captured payload, no SDK source).
 - Emojis in source, docs, comments, commits, `CHANGELOG.md`, or PR bodies.
-- Breaking changes without a MINOR version bump. Pre-1.0, consumer-observable changes are MINOR.
+- Breaking API changes without a MINOR version bump. Pre-1.0: MINOR (`0.x`) for breaking changes (removed or renamed exports, changed method signatures, schema changes, semantic changes that produce less correct values). PATCH (`0.0.y`) for bug fixes and additive helpers.
 - `console.log` or commented-out code in the diff.
 - TODOs without a linked GitHub issue.
 - Commit messages that don't follow the convention below.
@@ -285,7 +285,7 @@ No `Co-authored-by:` trailers. No AI attribution.
 - [ ] Integration test in `example/convex/` if public surface changed.
 - [ ] `CHANGELOG.md` updated under `## [Unreleased]`.
 - [ ] `README.md` updated if public API, webhook handling, hook args, or configuration options changed.
-- [ ] Version impact considered: MINOR bump required for consumer-observable changes pre-1.0.
+- [ ] Version impact considered: pre-1.0, MINOR (`0.x`) for breaking API changes, PATCH (`0.0.y`) for bug fixes and additive helpers. "Breaking" means removed or renamed exports, changed method signatures, schema changes, or semantic changes that produce less correct values than before.
 - [ ] No `console.log`, no commented-out code, no unused imports or exports.
 - [ ] No TODO without a linked issue (URL or `#123`).
 - [ ] No emojis in any file touched.

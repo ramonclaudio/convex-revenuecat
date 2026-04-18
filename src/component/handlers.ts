@@ -27,6 +27,104 @@ function assertUnderCap(collected: { length: number }, op: string, userId: strin
   }
 }
 
+// Anonymous app-user IDs have the `$RCAnonymousID:` prefix. RC's iOS/Android
+// SDKs clear cache for these IDs immediately after logIn succeeds (see
+// `DeviceCache.clearCaches`), treating them as dead. Mirror that: after a
+// TRANSFER / SUBSCRIBER_ALIAS completes, drop the source row if it's anonymous
+// and no data remains on it.
+function isAnonymousAppUserId(id: string): boolean {
+  return id.startsWith("$RCAnonymousID:");
+}
+
+async function purgeAnonymousCustomerIfEmpty(
+  ctx: MutationCtx,
+  userId: string,
+): Promise<void> {
+  if (!isAnonymousAppUserId(userId)) return;
+  const now = Date.now();
+
+  // `transferEntitlements` deactivates (not deletes) source rows for audit.
+  // For anonymous IDs that audit trail is worthless (the ID is dead after
+  // merge). A partial TRANSFER would leave some entitlements ACTIVE on the
+  // source; in that case bail out.
+  const ents = await ctx.db
+    .query("entitlements")
+    .withIndex("by_app_user", (q) => q.eq("appUserId", userId))
+    .take(TRANSFER_SAFETY_CAP + 1);
+  assertUnderCap(ents, "purgeAnonymousCustomerIfEmpty", userId);
+  if (ents.some((e) => e.isActive)) return;
+
+  const subs = await ctx.db
+    .query("subscriptions")
+    .withIndex("by_app_user", (q) => q.eq("appUserId", userId))
+    .take(TRANSFER_SAFETY_CAP + 1);
+  assertUnderCap(subs, "purgeAnonymousCustomerIfEmpty", userId);
+  if (subs.some((s) => !s.expirationAtMs || s.expirationAtMs > now)) return;
+
+  const exps = await ctx.db
+    .query("experiments")
+    .withIndex("by_app_user", (q) => q.eq("appUserId", userId))
+    .take(TRANSFER_SAFETY_CAP + 1);
+  assertUnderCap(exps, "purgeAnonymousCustomerIfEmpty", userId);
+
+  // No live data on this anonymous user: drop all orphan audit rows and the
+  // customer record. Mirror iOS/Android `DeviceCache.clearCaches` semantics.
+  for (const ent of ents) {
+    await ctx.db.delete(ent._id);
+  }
+  for (const sub of subs) {
+    await ctx.db.delete(sub._id);
+  }
+  for (const exp of exps) {
+    await ctx.db.delete(exp._id);
+  }
+  const customer = await ctx.db
+    .query("customers")
+    .withIndex("by_app_user_id", (q) => q.eq("appUserId", userId))
+    .first();
+  if (customer) {
+    await ctx.db.delete(customer._id);
+  }
+}
+
+// Returns true iff `source` covers strictly more time than `dest`. Lifetime
+// entitlements (undefined expiresAtMs) beat any finite expiry; among finites,
+// later wins. Used by `transferEntitlements` and `aliasEntitlements` to pick
+// which side's state survives when both users own the same entitlement ID.
+function isSourceMoreGenerous(
+  sourceExpiresAtMs: number | undefined,
+  destExpiresAtMs: number | undefined,
+): boolean {
+  if (sourceExpiresAtMs === undefined) {
+    // Source is lifetime. Wins unless dest is also lifetime (tie, dest keeps).
+    return destExpiresAtMs !== undefined;
+  }
+  // Source is finite. Can only win if dest is also finite and source is later;
+  // a lifetime dest always keeps (lifetime > any finite).
+  return destExpiresAtMs !== undefined && sourceExpiresAtMs > destExpiresAtMs;
+}
+
+// iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`:
+// will this sub auto-charge at next period boundary? Lifetime, prepaid,
+// promotional, unsubscribed, and billing-issue subs all return false. We store
+// the derived value as `autoRenewStatus` so a single query answers "will renew".
+// Raw user preference (separate concept in iOS) isn't exposed by webhook events,
+// so we can't model it distinctly without conflating signals.
+export function deriveWillRenew(sub: {
+  periodType?: string;
+  store?: string;
+  expirationAtMs?: number;
+  unsubscribeDetectedAt?: number;
+  billingIssueDetectedAt?: number;
+}): boolean {
+  if (sub.expirationAtMs === undefined) return false;
+  if (sub.periodType === "PREPAID") return false;
+  if (sub.store === "PROMOTIONAL") return false;
+  if (sub.unsubscribeDetectedAt !== undefined) return false;
+  if (sub.billingIssueDetectedAt !== undefined) return false;
+  return true;
+}
+
 // Kept for the `EventPayload` TypeScript type only. Handler args use
 // `v.any()` at runtime because Convex's `v.object` rejects unknown fields,
 // and RevenueCat explicitly reserves the right to add new fields within an
@@ -104,8 +202,6 @@ const eventPayloadValidator = v.object({
   metadata: v.optional(v.any()),
   product_display_name: v.optional(v.string()),
   purchase_environment: v.optional(environmentValidator),
-  // Undocumented field - kept as any for forward compatibility
-  items: v.optional(v.array(v.any())),
   subscriber_attributes: v.optional(subscriberAttributesValidator),
   experiments: v.optional(
     v.array(
@@ -237,6 +333,19 @@ async function upsertSubscription(
       .first();
   }
 
+  // Merge effective field values (event + overrides + existing) once so the
+  // derived `autoRenewStatus` reads from the final state. Without this merge,
+  // the clears in `processRenewal` (billingIssueDetectedAt: undefined) wouldn't
+  // be reflected in the derived willRenew computed on the same write.
+  const effectiveBillingIssue =
+    overrides && "billingIssueDetectedAt" in overrides
+      ? overrides.billingIssueDetectedAt
+      : existing?.billingIssueDetectedAt;
+  const effectiveUnsubscribe =
+    overrides && "unsubscribeDetectedAt" in overrides
+      ? overrides.unsubscribeDetectedAt
+      : existing?.unsubscribeDetectedAt;
+
   const subscriptionData = {
     appUserId,
     productId,
@@ -267,6 +376,22 @@ async function upsertSubscription(
     ...overrides,
     updatedAt: now,
   };
+
+  // Compute derived `autoRenewStatus` (willRenew) after overrides land so
+  // clears in this event propagate. Explicit `autoRenewStatus` in overrides
+  // (e.g. CANCELLATION non-refund) wins when false; true is AND-ed against
+  // the derived check so PREPAID/PROMOTIONAL/billing-issue can't force true.
+  const derivedWillRenew = deriveWillRenew({
+    periodType,
+    store,
+    expirationAtMs: event.expiration_at_ms,
+    unsubscribeDetectedAt: effectiveUnsubscribe,
+    billingIssueDetectedAt: effectiveBillingIssue,
+  });
+  const explicitOverride =
+    overrides && "autoRenewStatus" in overrides ? overrides.autoRenewStatus : undefined;
+  subscriptionData.autoRenewStatus =
+    explicitOverride === false ? false : derivedWillRenew;
 
   if (existing) {
     await ctx.db.patch(existing._id, {
@@ -299,7 +424,11 @@ async function grantEntitlements(ctx: MutationCtx, event: EventPayload): Promise
       await ctx.db.patch(existing._id, {
         isActive: true,
         productId: event.product_id,
-        expiresAtMs: event.expiration_at_ms,
+        // Guard against a malformed event that drops `expiration_at_ms`:
+        // Convex patch with undefined REMOVES the field, which our gate
+        // reads as lifetime. Fall back to the prior expiry so a partial
+        // payload can't silently grant infinite access.
+        expiresAtMs: event.expiration_at_ms ?? existing.expiresAtMs,
         purchasedAtMs: event.purchased_at_ms,
         store: event.store,
         isSandbox,
@@ -388,7 +517,11 @@ async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promis
     if (existing) {
       await ctx.db.patch(existing._id, {
         isActive: true,
-        expiresAtMs: event.expiration_at_ms,
+        // Guard against a malformed RENEWAL/PRODUCT_CHANGE/REFUND_REVERSED that
+        // drops `expiration_at_ms`: Convex patch with undefined REMOVES the
+        // field, which our gate reads as lifetime. Fall back to the prior
+        // expiry so a partial payload can't silently grant infinite access.
+        expiresAtMs: event.expiration_at_ms ?? existing.expiresAtMs,
         // Propagate product_id so PRODUCT_CHANGE (and RENEWAL onto a changed
         // product) keeps the entitlement's productId in sync with the live
         // subscription. Fall back to existing when absent.
@@ -450,13 +583,23 @@ async function transferEntitlements(
       // loss of grace-period signals, and unsubscribe state on restore flows.
       // Matches aliasEntitlements' conditional-spread pattern for status flags.
       if (destExisting) {
+        // Out-of-order guard: keep whichever side covers more time. Lifetime
+        // source beats finite dest; finite-later source beats finite-earlier
+        // dest; lifetime dest always wins against finite source. Without this
+        // a fresh RENEWAL on the destination could be overwritten by a queued
+        // TRANSFER carrying older state, and a lifetime entitlement on either
+        // side could get regressed to the other's finite expiry.
+        const sourceIsNewer = isSourceMoreGenerous(
+          ent.expiresAtMs,
+          destExisting.expiresAtMs,
+        );
         await ctx.db.patch(destExisting._id, {
           isActive: true,
-          productId: ent.productId,
-          expiresAtMs: ent.expiresAtMs,
-          purchasedAtMs: ent.purchasedAtMs,
-          store: ent.store,
-          isSandbox: ent.isSandbox,
+          productId: sourceIsNewer ? ent.productId : destExisting.productId,
+          expiresAtMs: sourceIsNewer ? ent.expiresAtMs : destExisting.expiresAtMs,
+          purchasedAtMs: sourceIsNewer ? ent.purchasedAtMs : destExisting.purchasedAtMs,
+          store: sourceIsNewer ? ent.store : destExisting.store,
+          isSandbox: sourceIsNewer ? ent.isSandbox : destExisting.isSandbox,
           ownershipType: ent.ownershipType ?? destExisting.ownershipType,
           ...(ent.billingIssueDetectedAt !== undefined
             ? { billingIssueDetectedAt: ent.billingIssueDetectedAt }
@@ -548,9 +691,11 @@ export const processRenewal = internalMutation({
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
-      // Subscription successfully renewed — clear any stale cancellation and
-      // billing issue state from a previous period. A successful renewal
-      // implies auto-renew is on; setting undefined would leave ambiguity.
+      // Subscription successfully renewed — clear every stale period-specific
+      // marker. A successful renewal supersedes prior cancellations, billing
+      // issues, pauses, pending product changes, and expiration reasons.
+      // `autoRenewStatus` is re-derived from the cleared state by
+      // `upsertSubscription`.
       cancelReason: undefined,
       autoRenewStatus: true,
       billingIssueDetectedAt: undefined,
@@ -559,7 +704,18 @@ export const processRenewal = internalMutation({
       // means it's resumed. Leaving a stale `autoResumeAtMs` would show a
       // phantom "resumes on …" date for a live renewing sub.
       autoResumeAtMs: undefined,
+      // A successful RENEWAL means any pending product change has landed;
+      // `newProductId` and `expirationReason` are now stale signals. Clear so
+      // consumers reading the live sub don't see phantom pending state.
+      expirationReason: undefined,
+      // UNSUBSCRIBE followed by a RENEWAL means the user un-cancelled. Clear
+      // the marker so `willRenew`/derived `autoRenewStatus` flips back true.
+      unsubscribeDetectedAt: undefined,
     });
+    // `newProductId` is cleared implicitly: `upsertSubscription` always sets
+    // it from `event.new_product_id`, which is absent on RENEWAL events, so a
+    // prior pending change gets patched to `undefined` (Convex drops the
+    // field) with no extra logic needed.
     await extendEntitlements(ctx, event);
     return null;
   },
@@ -609,6 +765,14 @@ export const processCancellation = internalMutation({
     if (event.cancel_reason === "UNSUBSCRIBE") {
       overrides.unsubscribeDetectedAt = event.event_timestamp_ms;
     }
+    // BILLING_ERROR cancel means RC gave up retrying the payment. Treat the
+    // same as BILLING_ISSUE for coherence: set `billingIssueDetectedAt` so
+    // derived `willRenew` is false and consumer grace-period queries return
+    // the correct state. Without this, the sub stays cancelled but the billing
+    // signal is missing from the stored state.
+    if (event.cancel_reason === "BILLING_ERROR") {
+      overrides.billingIssueDetectedAt = event.event_timestamp_ms;
+    }
     await upsertSubscription(ctx, event, overrides);
 
     const entitlementIds = getEntitlementIds(event);
@@ -628,6 +792,11 @@ export const processUncancellation = internalMutation({
     await upsertSubscription(ctx, event, {
       cancelReason: undefined,
       autoRenewStatus: true,
+      // UNCANCELLATION means the user re-enabled auto-renew after a prior
+      // UNSUBSCRIBE. Clear the marker so the derived `willRenew` flips back
+      // true; without this, the stale `unsubscribeDetectedAt` would keep
+      // `autoRenewStatus` at false.
+      unsubscribeDetectedAt: undefined,
     });
     return null;
   },
@@ -641,6 +810,14 @@ export const processExpiration = internalMutation({
     await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
       expirationReason: event.expiration_reason,
+      // Clear intent-to-continue markers: the sub has hard-expired, so a
+      // pending `autoResumeAtMs` (from a prior PAUSE) or a `gracePeriodExpirationAtMs`
+      // (from a prior BILLING_ISSUE) is stale. Without this, `isInGracePeriod`
+      // and "resumes on …" UI would show phantom state on an already-dead sub.
+      // `billingIssueDetectedAt` stays for forensic lookup.
+      autoResumeAtMs: undefined,
+      gracePeriodExpirationAtMs: undefined,
+      autoRenewStatus: false,
     });
     // Only revoke specific entitlements — if entitlement_ids is absent/null
     // (product not mapped to an entitlement), revoking all would incorrectly
@@ -662,6 +839,12 @@ export const processBillingIssue = internalMutation({
     await upsertSubscription(ctx, event, {
       billingIssueDetectedAt: event.event_timestamp_ms,
       gracePeriodExpirationAtMs: event.grace_period_expiration_at_ms,
+      // iOS/Android `willRenew` is false while billing issues are unresolved.
+      // `upsertSubscription` re-derives `autoRenewStatus` from the effective
+      // state, which now includes this `billingIssueDetectedAt`, so the
+      // stored `autoRenewStatus` flips to false automatically. We still pass
+      // an explicit false to document intent.
+      autoRenewStatus: false,
     });
 
     const billingEntitlementIds = getEntitlementIds(event);
@@ -781,10 +964,9 @@ async function aliasEntitlements(
       .first();
 
     if (existing) {
-      // Both IDs are the same person — keep the record with the later expiry
-      const sourceIsNewer =
-        ent.expiresAtMs !== undefined &&
-        (existing.expiresAtMs === undefined || ent.expiresAtMs > existing.expiresAtMs);
+      // Both IDs are the same person — keep whichever record is strictly more
+      // generous. Lifetime beats any finite; among finites, later wins.
+      const sourceIsNewer = isSourceMoreGenerous(ent.expiresAtMs, existing.expiresAtMs);
       if (sourceIsNewer) {
         await ctx.db.patch(existing._id, {
           isActive: ent.isActive,
@@ -825,10 +1007,36 @@ async function transferSubscriptions(
   assertUnderCap(subscriptions, "transferSubscriptions", fromUserId);
 
   for (const sub of subscriptions) {
-    await ctx.db.patch(sub._id, {
-      appUserId: toUserId,
-      updatedAt: now,
-    });
+    // Dedup on `originalTransactionId`: if the destination already has a sub
+    // for the same transaction (e.g. a retried TRANSFER or a race with a
+    // concurrent webhook ingest that upserted on the destination), keep the
+    // newer record. Without this, two rows share the same
+    // `originalTransactionId` across appUserIds, which violates the
+    // single-sub-per-transaction invariant.
+    const destExisting = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_original_transaction", (q) =>
+        q.eq("originalTransactionId", sub.originalTransactionId),
+      )
+      .filter((q) => q.eq(q.field("appUserId"), toUserId))
+      .first();
+
+    if (destExisting) {
+      if (sub.updatedAt > destExisting.updatedAt) {
+        await ctx.db.delete(destExisting._id);
+        await ctx.db.patch(sub._id, {
+          appUserId: toUserId,
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.delete(sub._id);
+      }
+    } else {
+      await ctx.db.patch(sub._id, {
+        appUserId: toUserId,
+        updatedAt: now,
+      });
+    }
   }
 }
 
@@ -895,6 +1103,16 @@ export const processTransfer = internalMutation({
         await transferEntitlements(ctx, sourceUserId, destUserId, entitlementIds);
         await transferSubscriptions(ctx, sourceUserId, destUserId);
       }
+    }
+
+    // Drop the source customer row if it's an anonymous ID with no data left.
+    // RC's iOS/Android SDKs treat anonymous IDs as dead after merge (see
+    // `DeviceCache.clearCaches`); we mirror that so the customers table doesn't
+    // accumulate zombie rows for every logIn. Partial-entitlement transfers
+    // leave source data in place, and `purgeAnonymousCustomerIfEmpty` no-ops
+    // in that case.
+    for (const sourceUserId of sourceUsers) {
+      await purgeAnonymousCustomerIfEmpty(ctx, sourceUserId);
     }
 
     // Store transfer record
@@ -1113,6 +1331,8 @@ export const processSubscriberAlias = internalMutation({
       // Preserve A/B test enrollment across login. Without this, conversion
       // attribution resets when an anonymous user logs in.
       await aliasExperiments(ctx, fromUserId, toUserId);
+      // Match iOS/Android SDK behavior: anonymous IDs are dead after merge.
+      await purgeAnonymousCustomerIfEmpty(ctx, fromUserId);
     }
 
     return null;
