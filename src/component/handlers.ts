@@ -202,8 +202,6 @@ const eventPayloadValidator = v.object({
   metadata: v.optional(v.any()),
   product_display_name: v.optional(v.string()),
   purchase_environment: v.optional(environmentValidator),
-  // Undocumented field - kept as any for forward compatibility
-  items: v.optional(v.array(v.any())),
   subscriber_attributes: v.optional(subscriberAttributesValidator),
   experiments: v.optional(
     v.array(
