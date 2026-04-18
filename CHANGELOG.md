@@ -1,6 +1,13 @@
 # Changelog
 
-## [0.2.0] - 2026-04-17
+## [0.2.0] - 2026-04-18
+
+### Upgrade notes
+
+Two user-visible behavior changes from 0.1.x. Both are correctness fixes; no consumer code changes required.
+
+- **Refunded users lose access immediately.** Was leaked until `EXPIRATION`. Refunds are detected on `CANCELLATION` when `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0`, and entitlements revoke on the same event. If you were depending on the old leak window (e.g. keeping access through an Apple Report-a-Problem refund until the natural period end), your refund funnel narrows.
+- **Billing-issue access is bounded by `grace_period_expiration_at_ms`.** Was unbounded if `EXPIRATION` dropped. `hasEntitlement` no longer short-circuits on `billingIssueDetectedAt`; `processBillingIssue` folds the grace end into `expiresAtMs` so access stops at grace end as a hard ceiling even if `EXPIRATION` never arrives.
 
 ### Fixed
 
