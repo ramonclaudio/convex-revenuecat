@@ -89,6 +89,37 @@ describe("webhook rate limiting", () => {
   });
 });
 
+describe("future-proofing", () => {
+  test("handler accepts payload with fields not declared in the validator", async () => {
+    // RevenueCat explicitly reserves the right to add fields within an API
+    // version. If our handler validator is strict, new fields cause retries
+    // then drops. This test guards against regression.
+    const t = initConvexTest();
+    const payload = {
+      ...createEventPayload({ id: "evt_unknown_fields", app_user_id: "user_future" }),
+      future_field_xyz: "value",
+      another_future_field: 42,
+      nested_future_object: { a: 1, b: [true, null] },
+    };
+    await t.mutation(api.webhooks.process, {
+      event: {
+        id: payload.id,
+        type: payload.type,
+        app_user_id: payload.app_user_id,
+        environment: payload.environment,
+        store: payload.store,
+      },
+      payload,
+    });
+    expect(
+      await t.query(api.entitlements.check, {
+        appUserId: "user_future",
+        entitlementId: "premium",
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("webhooks", () => {
   test("process logs event and returns processed=true", async () => {
     const t = initConvexTest();

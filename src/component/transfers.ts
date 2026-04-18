@@ -1,69 +1,32 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server.js";
+import schema from "./schema.js";
+
+const transferDoc = schema.tables.transfers.validator.extend({
+  _id: v.id("transfers"),
+  _creationTime: v.number(),
+});
 
 export const getByEventId = query({
   args: { eventId: v.string() },
-  returns: v.union(
-    v.object({
-      _id: v.string(),
-      _creationTime: v.number(),
-      eventId: v.string(),
-      transferredFrom: v.array(v.string()),
-      transferredTo: v.array(v.string()),
-      entitlementIds: v.optional(v.array(v.string())),
-      timestamp: v.number(),
-    }),
-    v.null(),
-  ),
+  returns: v.union(transferDoc, v.null()),
   handler: async (ctx, args) => {
-    const transfer = await ctx.db
+    return await ctx.db
       .query("transfers")
       .withIndex("by_event_id", (q) => q.eq("eventId", args.eventId))
       .first();
-
-    if (!transfer) return null;
-
-    return {
-      _id: transfer._id,
-      _creationTime: transfer._creationTime,
-      eventId: transfer.eventId,
-      transferredFrom: transfer.transferredFrom,
-      transferredTo: transfer.transferredTo,
-      entitlementIds: transfer.entitlementIds,
-      timestamp: transfer.timestamp,
-    };
   },
 });
 
 export const list = query({
   args: { limit: v.optional(v.number()) },
-  returns: v.array(
-    v.object({
-      _id: v.string(),
-      _creationTime: v.number(),
-      eventId: v.string(),
-      transferredFrom: v.array(v.string()),
-      transferredTo: v.array(v.string()),
-      entitlementIds: v.optional(v.array(v.string())),
-      timestamp: v.number(),
-    }),
-  ),
+  returns: v.array(transferDoc),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 100;
-    const transfers = await ctx.db
+    return await ctx.db
       .query("transfers")
       .withIndex("by_timestamp")
       .order("desc")
       .take(limit);
-
-    return transfers.map((t) => ({
-      _id: t._id,
-      _creationTime: t._creationTime,
-      eventId: t.eventId,
-      transferredFrom: t.transferredFrom,
-      transferredTo: t.transferredTo,
-      entitlementIds: t.entitlementIds,
-      timestamp: t.timestamp,
-    }));
   },
 });

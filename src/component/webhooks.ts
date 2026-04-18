@@ -2,10 +2,29 @@ import { v, ConvexError } from "convex/values";
 import { internalMutation, mutation } from "./_generated/server.js";
 import { internal } from "./_generated/api.js";
 import { environmentValidator, storeValidator } from "./schema.js";
+import {
+  affectedUserIds,
+  fireTransitionHooks,
+  resolveHooks,
+  snapshotEntitlements,
+} from "./transitions.js";
+
+const hooksValidator = v.optional(
+  v.object({
+    onEntitlementActivated: v.optional(v.string()),
+    onEntitlementDeactivated: v.optional(v.string()),
+  }),
+);
 
 const RATE_LIMIT_MAX_REQUESTS = 100;
 const RATE_LIMIT_WINDOW_MS = 60000;
 const RATE_LIMIT_KEY_PREFIX = "webhook";
+
+// RC's documented event IDs are UUID-shaped (~36 chars) with optional prefixing.
+// Cap at 128 bytes defensively — an attacker with a valid auth token could
+// otherwise fill `webhookEvents.eventId` (and its index) with megabyte strings,
+// inflating storage and degrading dedup-index lookups.
+const MAX_EVENT_ID_LENGTH = 128;
 
 const EVENT_HANDLERS = {
   INITIAL_PURCHASE: internal.handlers.processInitialPurchase,
@@ -75,6 +94,7 @@ export const process = mutation({
       store: v.optional(storeValidator),
     }),
     payload: v.any(),
+    hooks: hooksValidator,
   },
   returns: v.object({
     processed: v.boolean(),
@@ -83,13 +103,33 @@ export const process = mutation({
   }),
   handler: async (ctx, args) => {
     const { event, payload } = args;
+    const hooks = resolveHooks(args.hooks);
     const now = Date.now();
 
     if (!event.id?.trim()) {
       throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event ID is required" });
     }
+    if (event.id.length > MAX_EVENT_ID_LENGTH) {
+      throw new ConvexError({
+        code: "INVALID_ARGUMENT",
+        message: `Event ID exceeds max length of ${MAX_EVENT_ID_LENGTH} bytes`,
+      });
+    }
     if (!event.type?.trim()) {
       throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event type is required" });
+    }
+
+    // Dedup FIRST, rate-limit SECOND. Replays of a known event.id must be
+    // free — otherwise an attacker with a single valid event.id can exhaust
+    // the rate-limit bucket (100/min) by replaying it, dropping legitimate
+    // RC webhooks via 429 until permanent drop.
+    const existing = await ctx.db
+      .query("webhookEvents")
+      .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
+      .first();
+
+    if (existing) {
+      return { processed: false, eventId: event.id };
     }
 
     const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? "global"}`;
@@ -105,21 +145,22 @@ export const process = mutation({
       });
     }
 
-    const existing = await ctx.db
-      .query("webhookEvents")
-      .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
-      .first();
-
-    if (existing) {
-      return { processed: false, eventId: event.id };
-    }
-
     const eventType = event.type as EventType;
     const handler = EVENT_HANDLERS[eventType];
     let status: "processed" | "failed" | "ignored" = "ignored";
     let error: string | undefined;
 
     if (handler) {
+      // Snapshot entitlement state ONLY when hooks are registered — snapshots
+      // are full-table-per-user reads we'd otherwise pay twice per webhook
+      // for consumers who don't use hooks (the default). Scheduling lives
+      // inside this mutation's transaction; if the handler throws, scheduled
+      // hook writes roll back with the rest.
+      const affected = hooks ? affectedUserIds(payload) : [];
+      const beforeSnap = hooks
+        ? await snapshotEntitlements(ctx, affected)
+        : undefined;
+
       try {
         await ctx.runMutation(handler, { event: payload });
         status = "processed";
@@ -138,6 +179,17 @@ export const process = mutation({
           code: "INTERNAL_ERROR",
           message: `Handler failed: ${error}`,
         });
+      }
+
+      if (hooks && beforeSnap) {
+        const afterSnap = await snapshotEntitlements(ctx, affected);
+        await fireTransitionHooks(
+          ctx,
+          hooks,
+          beforeSnap,
+          afterSnap,
+          event.type,
+        );
       }
     }
 

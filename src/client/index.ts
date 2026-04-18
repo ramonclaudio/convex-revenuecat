@@ -1,49 +1,79 @@
-import { httpActionGeneric } from "convex/server";
+import { createFunctionHandle, httpActionGeneric } from "convex/server";
 import type { GenericActionCtx, GenericDataModel, FunctionReference } from "convex/server";
+import type {
+  Customer,
+  Entitlement,
+  Environment,
+  Experiment,
+  Invoice,
+  OwnershipType,
+  Store,
+  Subscription,
+  Transfer,
+  VirtualCurrencyBalance,
+  VirtualCurrencyTransaction,
+} from "../component/types.js";
 
 // Convex generates component types with "internal" visibility in consumer apps
 // regardless of how they're defined in the component. Define the expected API
 // shape directly to avoid visibility mismatches.
 type AnyVisibility = "public" | "internal";
 
+type GracePeriodReturn = {
+  inGracePeriod: boolean;
+  gracePeriodExpiresAt?: number;
+  billingIssueDetectedAt?: number;
+};
+
 type ClientComponentApi = {
   entitlements: {
     check: FunctionReference<"query", AnyVisibility, { appUserId: string; entitlementId: string }, boolean>;
-    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
-    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, Entitlement[]>;
+    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, Entitlement[]>;
   };
   subscriptions: {
-    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
-    getByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
-    isInGracePeriod: FunctionReference<"query", AnyVisibility, { originalTransactionId: string }, { inGracePeriod: boolean; gracePeriodExpiresAt?: number; billingIssueDetectedAt?: number }>;
-    getInGracePeriod: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
+    getByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
+    isInGracePeriod: FunctionReference<"query", AnyVisibility, { originalTransactionId: string }, GracePeriodReturn>;
+    getInGracePeriod: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
   };
   customers: {
-    get: FunctionReference<"query", AnyVisibility, { appUserId: string }, any>;
+    get: FunctionReference<"query", AnyVisibility, { appUserId: string }, Customer | null>;
+    purge: FunctionReference<"mutation", AnyVisibility, { appUserId: string; onCustomerDeleted?: string }, DeleteCustomerResult>;
   };
   experiments: {
-    get: FunctionReference<"query", AnyVisibility, { appUserId: string; experimentId: string }, any>;
-    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    get: FunctionReference<"query", AnyVisibility, { appUserId: string; experimentId: string }, Experiment | null>;
+    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, Experiment[]>;
   };
   transfers: {
-    getByEventId: FunctionReference<"query", AnyVisibility, { eventId: string }, any>;
-    list: FunctionReference<"query", AnyVisibility, { limit?: number }, any[]>;
+    getByEventId: FunctionReference<"query", AnyVisibility, { eventId: string }, Transfer | null>;
+    list: FunctionReference<"query", AnyVisibility, { limit?: number }, Transfer[]>;
   };
   invoices: {
-    get: FunctionReference<"query", AnyVisibility, { invoiceId: string }, any>;
-    listByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
+    get: FunctionReference<"query", AnyVisibility, { invoiceId: string }, Invoice | null>;
+    listByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, Invoice[]>;
   };
   virtualCurrency: {
-    getBalance: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode: string }, any>;
-    listBalances: FunctionReference<"query", AnyVisibility, { appUserId: string }, any[]>;
-    listTransactions: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode?: string }, any[]>;
+    getBalance: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode: string }, VirtualCurrencyBalance | null>;
+    listBalances: FunctionReference<"query", AnyVisibility, { appUserId: string }, VirtualCurrencyBalance[]>;
+    listTransactions: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode?: string }, VirtualCurrencyTransaction[]>;
   };
   webhooks: {
-    process: FunctionReference<"mutation", AnyVisibility, { event: any; payload: any }, { processed: boolean; eventId: string }>;
+    process: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown>; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, { processed: boolean; eventId: string; rateLimited?: boolean }>;
   };
   sync: {
-    ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: { entitlements?: any; subscriptions?: any; subscriber_attributes?: any; first_seen?: string; last_seen?: string; original_app_user_id?: string } }, { subscriptions: number; entitlements: number }>;
+    ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: RevenueCatSubscriberInput; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, SyncResult>;
   };
+};
+
+type RevenueCatSubscriberInput = {
+  entitlements?: Record<string, unknown>;
+  subscriptions?: Record<string, unknown>;
+  non_subscriptions?: Record<string, unknown>;
+  subscriber_attributes?: Record<string, unknown>;
+  first_seen?: string;
+  last_seen?: string;
+  original_app_user_id?: string;
 };
 
 export type {
@@ -111,29 +141,136 @@ export type RevenueCatSubscriber = {
 export type SyncResult = {
   subscriptions: number;
   entitlements: number;
+  nonSubscriptions: number;
 };
 
-import type {
-  Store,
-  Environment,
-  Entitlement,
-  Subscription,
-  Customer,
-  Experiment,
-  Transfer,
-  Invoice,
-  VirtualCurrencyBalance,
-  VirtualCurrencyTransaction,
-} from "../component/types.js";
-
-export type GracePeriodStatus = {
-  inGracePeriod: boolean;
-  gracePeriodExpiresAt?: number;
-  billingIssueDetectedAt?: number;
+export type DeleteCustomerResult = {
+  customer: number;
+  subscriptions: number;
+  entitlements: number;
+  experiments: number;
+  invoices: number;
+  virtualCurrencyBalances: number;
+  virtualCurrencyTransactions: number;
+  webhookEvents: number;
+  transfers: number;
 };
+
+/**
+ * Decode encoded subscriber attribute keys back to RC's documented names.
+ *
+ * The component stores `subscriber_attributes` with `__dollar__email` rather
+ * than `$email` because Convex rejects `$` at every nesting level. Consumers
+ * querying `customer.attributes` should pipe through this helper to get back
+ * the RC-native key names (`$email`, `$phoneNumber`, etc.) that downstream
+ * analytics/CRM pipelines expect.
+ */
+export function decodeSubscriberAttributes<T>(
+  attrs: Record<string, T> | undefined,
+): Record<string, T> | undefined {
+  if (!attrs) return undefined;
+  const result: Record<string, T> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    const decoded = key.startsWith("__dollar__") ? `$${key.slice(10)}` : key;
+    result[decoded] = value;
+  }
+  return result;
+}
+
+/**
+ * Keys considered PII in RC's subscriber_attributes. These are the RC-reserved
+ * `$`-prefixed attributes that carry personal data. Used by the default
+ * `redactPayload` to strip them from the stored webhook audit log.
+ */
+const DEFAULT_PII_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
+  "$email",
+  "$phoneNumber",
+  "$displayName",
+  "$apnsTokens",
+  "$fcmTokens",
+  "$gpsAdId",
+  "$androidIdfa",
+  "$idfa",
+  "$idfv",
+  "$ip",
+  "$firstName",
+  "$lastName",
+]);
+
+export type GracePeriodStatus = GracePeriodReturn;
 
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
 type MutCtx = Pick<GenericActionCtx<GenericDataModel>, "runMutation">;
+
+export type EntitlementActivatedHookArgs = {
+  appUserId: string;
+  entitlementId: string;
+  productId?: string;
+  purchasedAtMs?: number;
+  expiresAtMs?: number;
+  store?: Store;
+  ownershipType?: OwnershipType;
+  isSandbox: boolean;
+  // RC webhook `event.type` (e.g., "INITIAL_PURCHASE", "RENEWAL") or "SYNC"
+  // when the transition was detected by `syncSubscriber`.
+  sourceEventType: string;
+};
+
+export type EntitlementDeactivatedHookArgs = {
+  appUserId: string;
+  entitlementId: string;
+  productId?: string;
+  purchasedAtMs?: number;
+  expiresAtMs?: number;
+  store?: Store;
+  ownershipType?: OwnershipType;
+  isSandbox: boolean;
+  sourceEventType: string;
+};
+
+export type CustomerDeletedHookArgs = {
+  appUserId: string;
+};
+
+export type EntitlementActivatedHook = FunctionReference<
+  "mutation" | "action",
+  "public" | "internal",
+  EntitlementActivatedHookArgs,
+  unknown
+>;
+
+export type EntitlementDeactivatedHook = FunctionReference<
+  "mutation" | "action",
+  "public" | "internal",
+  EntitlementDeactivatedHookArgs,
+  unknown
+>;
+
+export type CustomerDeletedHook = FunctionReference<
+  "mutation" | "action",
+  "public" | "internal",
+  CustomerDeletedHookArgs,
+  unknown
+>;
+
+export type LifecycleHooks = {
+  /**
+   * Fires when an entitlement transitions from not-active to active for a
+   * user. Triggered by webhook (INITIAL_PURCHASE, RENEWAL, REFUND_REVERSED,
+   * TRANSFER onto a user, SUBSCRIBER_ALIAS) and by `syncSubscriber`.
+   */
+  onEntitlementActivated?: EntitlementActivatedHook;
+  /**
+   * Fires when an entitlement transitions from active to not-active.
+   * Triggered by EXPIRATION, refund CANCELLATION, TRANSFER off a user, and
+   * sync reconciliation that detects a previously-unseen revocation.
+   */
+  onEntitlementDeactivated?: EntitlementDeactivatedHook;
+  /**
+   * Fires after `deleteCustomer` purges component-local rows for a user.
+   */
+  onCustomerDeleted?: CustomerDeletedHook;
+};
 
 export interface RevenueCatOptions {
   /**
@@ -142,6 +279,43 @@ export interface RevenueCatOptions {
    * Can be a raw value or "Bearer <token>" format.
    */
   REVENUECAT_WEBHOOK_AUTH?: string;
+  /**
+   * Lifecycle hooks invoked when entitlement state transitions or a customer
+   * is deleted. Every hook is optional. Hooks are scheduled from inside the
+   * component mutation that made the change, so scheduling is atomic with
+   * the state write — a rolled-back mutation never fires its hooks.
+   */
+  hooks?: LifecycleHooks;
+  /**
+   * Optional payload-redactor run before webhook events are persisted to the
+   * component's `webhookEvents` audit table. Receives the sanitized payload
+   * (null keys stripped, `$` keys encoded) and returns what to store. Default:
+   * strips RC-reserved PII keys (`$email`, `$phoneNumber`, etc.) from
+   * `subscriber_attributes`. Pass a function to customize; pass `"off"` to
+   * disable redaction (not recommended for GDPR-sensitive apps).
+   */
+  redactPayload?: ((payload: Record<string, unknown>) => Record<string, unknown>) | "off";
+}
+
+/**
+ * Default PII redactor: removes RC's reserved personal-data attribute keys
+ * from `subscriber_attributes` before storing the payload for 30-day audit.
+ * Non-destructive (clones the payload), idempotent.
+ */
+function defaultRedactPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const attrs = payload.subscriber_attributes as Record<string, unknown> | undefined;
+  if (!attrs || typeof attrs !== "object") return payload;
+  const redacted: Record<string, unknown> = { ...payload };
+  const filteredAttrs: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    // Keys reach this layer already `__dollar__`-encoded by transformPayload;
+    // match on the decoded form against the reserved set.
+    const decoded = key.startsWith("__dollar__") ? `$${key.slice(10)}` : key;
+    if (DEFAULT_PII_ATTRIBUTE_KEYS.has(decoded)) continue;
+    filteredAttrs[key] = value;
+  }
+  redacted.subscriber_attributes = filteredAttrs;
+  return redacted;
 }
 
 /**
@@ -171,6 +345,76 @@ function extractAuthToken(header: string): string {
   return header;
 }
 
+const KNOWN_STORES: ReadonlySet<string> = new Set([
+  "APP_STORE",
+  "MAC_APP_STORE",
+  "PLAY_STORE",
+  "AMAZON",
+  "STRIPE",
+  "PROMOTIONAL",
+  "RC_BILLING",
+  "EXTERNAL",
+  "PADDLE",
+  "TEST_STORE",
+  "GALAXY",
+  "ROKU",
+  "UNKNOWN_STORE",
+]);
+
+/**
+ * Normalize a webhook `store` value to the form our schema expects.
+ *
+ * The Android SDK Store enum uses `unknown` as the wire value for the
+ * `UNKNOWN_STORE` case. We map `"UNKNOWN"` to `"UNKNOWN_STORE"` and uppercase
+ * anything lower-case. Values not in the known set fall back to
+ * `UNKNOWN_STORE` so a future RC store addition doesn't reject the event at
+ * the outer schema validator (the inner handler validators already accept
+ * `v.any()` for the payload).
+ */
+function normalizeStore(store: unknown): string | undefined {
+  if (typeof store !== "string") return undefined;
+  const upper = store.toUpperCase();
+  const candidate = upper === "UNKNOWN" ? "UNKNOWN_STORE" : upper;
+  return KNOWN_STORES.has(candidate) ? candidate : "UNKNOWN_STORE";
+}
+
+/**
+ * Convert configured entitlement hooks into FunctionHandle strings the
+ * component mutations can pass directly to `ctx.scheduler.runAfter`. We use
+ * handles (not `FunctionReference` objects) because Convex strips the
+ * symbol-keyed markers FunctionReferences rely on when they cross a mutation
+ * boundary as args.
+ */
+async function buildHooksArg(
+  hooks: LifecycleHooks | undefined,
+): Promise<
+  | {
+      onEntitlementActivated?: string;
+      onEntitlementDeactivated?: string;
+    }
+  | undefined
+> {
+  if (!hooks) return undefined;
+  const result: {
+    onEntitlementActivated?: string;
+    onEntitlementDeactivated?: string;
+  } = {};
+  if (hooks.onEntitlementActivated) {
+    result.onEntitlementActivated = await createFunctionHandle(
+      hooks.onEntitlementActivated,
+    );
+  }
+  if (hooks.onEntitlementDeactivated) {
+    result.onEntitlementDeactivated = await createFunctionHandle(
+      hooks.onEntitlementDeactivated,
+    );
+  }
+  if (!result.onEntitlementActivated && !result.onEntitlementDeactivated) {
+    return undefined;
+  }
+  return result;
+}
+
 /**
  * Transform payload for Convex compatibility:
  * - Remove null object keys (v.optional expects field absence, not null)
@@ -194,7 +438,19 @@ export class RevenueCat {
   constructor(
     public component: ClientComponentApi,
     public options: RevenueCatOptions = {},
-  ) {}
+  ) {
+    // Empty-string auth is a footgun: `if (expectedAuth)` treats `""` as
+    // "no auth configured" and accepts unauthenticated requests. Consumers
+    // commonly write `process.env.REVENUECAT_WEBHOOK_AUTH ?? ""`. Fail loud
+    // at construction rather than silently disabling auth.
+    if (options.REVENUECAT_WEBHOOK_AUTH === "") {
+      throw new Error(
+        "[convex-revenuecat] REVENUECAT_WEBHOOK_AUTH cannot be empty string. " +
+          "Omit the field entirely to disable auth (strongly discouraged), or " +
+          "provide a non-empty secret.",
+      );
+    }
+  }
 
   async hasEntitlement(
     ctx: QueryCtx,
@@ -224,6 +480,30 @@ export class RevenueCat {
 
   async getCustomer(ctx: QueryCtx, args: { appUserId: string }): Promise<Customer | null> {
     return ctx.runQuery(this.component.customers.get, args) as Promise<Customer | null>;
+  }
+
+  /**
+   * Purge all component-local data for a user.
+   *
+   * Deletes customer, subscriptions, entitlements, experiments, invoices,
+   * virtual currency balances/transactions, and webhookEvents keyed to the
+   * given appUserId. Returns per-table deletion counts.
+   *
+   * Does NOT call RevenueCat's REST API. To also purge RevenueCat-side,
+   * call `DELETE /v1/subscribers/{app_user_id}` from a Convex action
+   * with a secret API key.
+   */
+  async deleteCustomer(
+    ctx: MutCtx,
+    args: { appUserId: string },
+  ): Promise<DeleteCustomerResult> {
+    const onCustomerDeleted = this.options.hooks?.onCustomerDeleted
+      ? await createFunctionHandle(this.options.hooks.onCustomerDeleted)
+      : undefined;
+    return ctx.runMutation(this.component.customers.purge, {
+      appUserId: args.appUserId,
+      onCustomerDeleted,
+    }) as Promise<DeleteCustomerResult>;
   }
 
   async getExperiment(
@@ -306,15 +586,22 @@ export class RevenueCat {
     ctx: MutCtx,
     args: { appUserId: string; subscriber: RevenueCatSubscriber },
   ): Promise<SyncResult> {
+    const hooks = await buildHooksArg(this.options.hooks);
     return ctx.runMutation(this.component.sync.ingest, {
       appUserId: args.appUserId,
       subscriber: transformPayload(args.subscriber) as Record<string, unknown>,
+      hooks,
     }) as Promise<SyncResult>;
   }
 
   httpHandler() {
     const component = this.component;
     const expectedAuth = this.options.REVENUECAT_WEBHOOK_AUTH;
+    const configuredHooks = this.options.hooks;
+    const redactPayload =
+      this.options.redactPayload === "off"
+        ? undefined
+        : (this.options.redactPayload ?? defaultRedactPayload);
 
     return httpActionGeneric(async (ctx, request) => {
       if (expectedAuth) {
@@ -350,7 +637,27 @@ export class RevenueCat {
         });
       }
 
-      const sanitizedEvent = transformPayload(event) as Record<string, unknown>;
+      // Reject oversized event IDs at the HTTP boundary so we don't waste a
+      // mutation round-trip to bounce them. Matches the component-side cap.
+      if (event.id.length > 128) {
+        return new Response(JSON.stringify({ error: "Event ID too long" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      let sanitizedEvent = transformPayload(event) as Record<string, unknown>;
+      if (redactPayload) {
+        sanitizedEvent = redactPayload(sanitizedEvent);
+      }
+      const normalizedStore = normalizeStore(event.store) as Store | undefined;
+      if (normalizedStore && normalizedStore !== event.store) {
+        // Keep the payload consistent with the outer event object so inner
+        // handlers see the normalized form if they inspect `event.store`.
+        sanitizedEvent.store = normalizedStore;
+      }
+
+      const hooksArg = await buildHooksArg(configuredHooks);
 
       try {
         const result = await ctx.runMutation(component.webhooks.process, {
@@ -360,9 +667,10 @@ export class RevenueCat {
             app_id: event.app_id as string | undefined,
             app_user_id: event.app_user_id as string | undefined,
             environment: (event.environment as Environment) ?? "PRODUCTION",
-            store: event.store as Store | undefined,
+            store: normalizedStore,
           },
           payload: sanitizedEvent,
+          hooks: hooksArg,
         });
 
         return new Response(JSON.stringify(result), {

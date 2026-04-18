@@ -36,32 +36,35 @@ npm run test   # Runs all tests
 
 ## Public APIs
 
-The component exposes 17 query methods via the `RevenueCat` client class. See the main [README](../README.md#query-methods) for the full API reference.
+The `RevenueCat` client class exposes 19 query and mutation methods. See the main [README](../README.md#api) for the full reference.
+
+Lifecycle hooks (`onEntitlementActivated`, `onEntitlementDeactivated`, `onCustomerDeleted`) and the `deleteCustomer` GDPR purge landed in 0.2.0. See the main README's [Lifecycle hooks](../README.md#lifecycle-hooks) section.
 
 ## Supported Webhook Events
 
-All 18 RevenueCat webhook event types are handled:
+17 canonical RevenueCat event types plus 2 legacy (`REFUND`, `SUBSCRIBER_ALIAS`) are handled:
 
 | Event Type | Description |
 |:-----------|:------------|
 | `INITIAL_PURCHASE` | New subscription purchased |
 | `RENEWAL` | Subscription renewed |
-| `CANCELLATION` | Subscription cancelled or refunded |
+| `CANCELLATION` | Kept until `EXPIRATION`, except refunds (`cancel_reason: "CUSTOMER_SUPPORT"` OR `price < 0`) which revoke immediately |
 | `UNCANCELLATION` | Cancelled subscription re-enabled |
 | `EXPIRATION` | Subscription expired |
-| `BILLING_ISSUE` | Payment method failed |
-| `SUBSCRIPTION_PAUSED` | Subscription paused (Android) |
+| `BILLING_ISSUE` | Payment failed; grace folded into `expiresAtMs` |
+| `SUBSCRIPTION_PAUSED` | Paused (Android); does not revoke |
 | `SUBSCRIPTION_EXTENDED` | Subscription extended |
 | `PRODUCT_CHANGE` | Subscriber changed product |
 | `NON_RENEWING_PURCHASE` | One-time purchase |
-| `TRANSFER` | Entitlements transferred between users |
-| `TEMPORARY_ENTITLEMENT_GRANT` | Temporary access during store outage |
-| `REFUND_REVERSED` | Refund was reversed |
+| `TRANSFER` | Entitlements moved between users |
+| `TEMPORARY_ENTITLEMENT_GRANT` | Temp access during store outage |
+| `REFUND_REVERSED` | Refund was reversed; entitlements restored |
 | `INVOICE_ISSUANCE` | Invoice issued (Web Billing) |
 | `VIRTUAL_CURRENCY_TRANSACTION` | Virtual currency adjustment |
 | `EXPERIMENT_ENROLLMENT` | User enrolled in A/B experiment |
 | `TEST` | Test event from dashboard |
-| `SUBSCRIBER_ALIAS` | Deprecated alias event |
+| `REFUND` *(legacy)* | As of 2026 refunds arrive as `CANCELLATION`; handler retained for older projects |
+| `SUBSCRIBER_ALIAS` *(legacy)* | Deprecated; new projects receive `TRANSFER` |
 
 ## Key Files
 

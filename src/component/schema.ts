@@ -5,6 +5,8 @@ export const storeValidator = v.union(
   v.literal("AMAZON"),
   v.literal("APP_STORE"),
   v.literal("MAC_APP_STORE"),
+  // Samsung Galaxy Store; added to iOS 5.x and Android SDK 10.1.0.
+  v.literal("GALAXY"),
   v.literal("PADDLE"),
   v.literal("PLAY_STORE"),
   v.literal("PROMOTIONAL"),
@@ -12,6 +14,12 @@ export const storeValidator = v.union(
   v.literal("ROKU"),
   v.literal("STRIPE"),
   v.literal("TEST_STORE"),
+  // RC External Purchases API (third-party stores).
+  v.literal("EXTERNAL"),
+  // Defensive: SDK Store enums include an unknown sentinel. Matches webhook
+  // "UNKNOWN" and REST "unknown" so a future RC store addition doesn't break
+  // ingestion before a schema bump ships.
+  v.literal("UNKNOWN_STORE"),
 );
 
 export const environmentValidator = v.union(v.literal("SANDBOX"), v.literal("PRODUCTION"));
@@ -24,10 +32,14 @@ export const periodTypeValidator = v.union(
   v.literal("PREPAID"),
 );
 
-// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
+// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing,
+// UNKNOWN = ownership type not reported by the store (real Android SDK wire
+// value; see EntitlementInfo.kt ownership enum). Required at runtime so
+// REST sync and webhooks don't crash on RC payloads that carry "UNKNOWN".
 export const ownershipTypeValidator = v.union(
   v.literal("PURCHASED"),
   v.literal("FAMILY_SHARED"),
+  v.literal("UNKNOWN"),
 );
 
 export const subscriberAttributeValidator = v.object({
@@ -88,6 +100,18 @@ export default defineSchema({
     presentedOfferingId: v.optional(v.string()),
     renewalNumber: v.optional(v.number()),
     newProductId: v.optional(v.string()),
+    // Populated by CANCELLATION+refund and by syncSubscriber (`refunded_at`).
+    // Independent from expiresAtMs/isActive — a refund may pull expiry back or
+    // leave it alone depending on whether the sub auto-renewed afterward.
+    refundedAtMs: v.optional(v.number()),
+    // Distinct from purchasedAtMs: the first purchase of this subscription
+    // chain. Stable across renewals. Useful for loyalty and tenure queries.
+    originalPurchasedAtMs: v.optional(v.number()),
+    // Set when a user-initiated unsubscribe was detected but the subscription
+    // is still within its paid period. Populated from REST `unsubscribe_detected_at`
+    // and from CANCELLATION events with cancel_reason "UNSUBSCRIBE". Lets
+    // consumers distinguish "will not renew" from "already expired".
+    unsubscribeDetectedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
     .index("by_app_user", ["appUserId"])
@@ -105,11 +129,14 @@ export default defineSchema({
     isSandbox: v.boolean(),
     unsubscribeDetectedAt: v.optional(v.number()),
     billingIssueDetectedAt: v.optional(v.number()),
+    // PURCHASED vs FAMILY_SHARED. Populated from the associated subscription's
+    // ownership_type at grant/extend time, or from REST sync. Enables
+    // consumers to exclude family-shared access for single-seat products.
+    ownershipType: v.optional(ownershipTypeValidator),
     updatedAt: v.number(),
   })
     .index("by_app_user", ["appUserId"])
-    .index("by_app_user_entitlement", ["appUserId", "entitlementId"])
-    .index("by_active", ["isActive"]),
+    .index("by_app_user_entitlement", ["appUserId", "entitlementId"]),
 
   webhookEvents: defineTable({
     eventId: v.string(),

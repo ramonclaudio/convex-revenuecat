@@ -21,6 +21,8 @@ function createEventPayload(
       experiment_variant: string;
       enrolled_at_ms?: number;
     }>;
+    original_transaction_id: string;
+    transaction_id: string;
   }> = {},
 ) {
   return {
@@ -36,8 +38,8 @@ function createEventPayload(
     period_type: "NORMAL" as const,
     purchased_at_ms: Date.now(),
     expiration_at_ms: overrides.expiration_at_ms ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
-    transaction_id: `txn_${Date.now()}`,
-    original_transaction_id: `txn_original_${Date.now()}`,
+    transaction_id: overrides.transaction_id ?? `txn_${Date.now()}`,
+    original_transaction_id: overrides.original_transaction_id ?? `txn_original_${Date.now()}`,
     store: "APP_STORE" as const,
     environment: "SANDBOX" as const,
     is_family_share: false,
@@ -112,6 +114,66 @@ describe("handlers", () => {
 
       expect(customer).not.toBeNull();
       expect(customer?.appUserId).toBe("user_initial_2");
+    });
+
+    test("derives isFamilyShare from ownership_type when is_family_share is absent", async () => {
+      const t = initConvexTest();
+      const payload = {
+        ...createEventPayload({
+          id: "evt_derive_family_share",
+          type: "INITIAL_PURCHASE",
+          app_user_id: "user_derive_family",
+          entitlement_ids: ["premium"],
+        }),
+        is_family_share: undefined,
+        ownership_type: "FAMILY_SHARED",
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload.id,
+          type: payload.type,
+          app_user_id: payload.app_user_id,
+          environment: payload.environment,
+          store: payload.store,
+        },
+        payload,
+      });
+
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "user_derive_family",
+      });
+      expect(subs).toHaveLength(1);
+      expect(subs[0].isFamilyShare).toBe(true);
+      expect(subs[0].ownershipType).toBe("FAMILY_SHARED");
+    });
+
+    test("propagates ownership_type to the entitlement (FAMILY_SHARED)", async () => {
+      const t = initConvexTest();
+      const payload = {
+        ...createEventPayload({
+          id: "evt_own_type",
+          type: "INITIAL_PURCHASE",
+          app_user_id: "user_family",
+          entitlement_ids: ["premium"],
+        }),
+        ownership_type: "FAMILY_SHARED",
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload.id,
+          type: payload.type,
+          app_user_id: payload.app_user_id,
+          environment: payload.environment,
+          store: payload.store,
+        },
+        payload,
+      });
+
+      const ents = await t.query(api.entitlements.list, {
+        appUserId: "user_family",
+      });
+      expect(ents).toHaveLength(1);
+      expect(ents[0].ownershipType).toBe("FAMILY_SHARED");
     });
 
     test("creates subscription record", async () => {
@@ -194,6 +256,313 @@ describe("handlers", () => {
       });
 
       expect(hasPremium).toBe(true);
+    });
+
+    test("REVOKES entitlements when cancel_reason is CUSTOMER_SUPPORT (refund)", async () => {
+      const t = initConvexTest();
+      const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+      const initialPayload = createEventPayload({
+        id: "evt_cancel_refund_initial",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_cancel_refund",
+        expiration_at_ms: futureExpiration,
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: initialPayload.id,
+          type: initialPayload.type,
+          app_id: initialPayload.app_id,
+          app_user_id: initialPayload.app_user_id,
+          environment: initialPayload.environment,
+          store: initialPayload.store,
+        },
+        payload: initialPayload,
+      });
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_cancel_refund",
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
+
+      // RC emits refunds as CANCELLATION with cancel_reason CUSTOMER_SUPPORT
+      // (no distinct REFUND event for new projects as of 2026).
+      const refundPayload = createEventPayload({
+        id: "evt_cancel_refund_cancel",
+        type: "CANCELLATION",
+        app_user_id: "user_cancel_refund",
+        expiration_at_ms: futureExpiration,
+        cancel_reason: "CUSTOMER_SUPPORT",
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: refundPayload.id,
+          type: refundPayload.type,
+          app_id: refundPayload.app_id,
+          app_user_id: refundPayload.app_user_id,
+          environment: refundPayload.environment,
+          store: refundPayload.store,
+        },
+        payload: refundPayload,
+      });
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_cancel_refund",
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+    });
+
+    test("upserts experiments present on the event (not just on purchase events)", async () => {
+      const t = initConvexTest();
+      const experimentsArr = [
+        {
+          experiment_id: "exp_cancel_path",
+          experiment_variant: "variant_c",
+          offering_id: "offering_x",
+          enrolled_at_ms: Date.now(),
+        },
+      ];
+
+      const initialPayload = createEventPayload({
+        id: "evt_cancel_exp_initial",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_cancel_exp",
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: initialPayload.id,
+          type: initialPayload.type,
+          app_user_id: initialPayload.app_user_id,
+          environment: initialPayload.environment,
+          store: initialPayload.store,
+        },
+        payload: initialPayload,
+      });
+
+      const cancelPayload = {
+        ...createEventPayload({
+          id: "evt_cancel_exp_cancel",
+          type: "CANCELLATION",
+          app_user_id: "user_cancel_exp",
+          cancel_reason: "UNSUBSCRIBE",
+        }),
+        experiments: experimentsArr,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: cancelPayload.id,
+          type: cancelPayload.type,
+          app_user_id: cancelPayload.app_user_id,
+          environment: cancelPayload.environment,
+          store: cancelPayload.store,
+        },
+        payload: cancelPayload,
+      });
+
+      const exp = await t.query(api.experiments.get, {
+        appUserId: "user_cancel_exp",
+        experimentId: "exp_cancel_path",
+      });
+      expect(exp).not.toBeNull();
+      expect(exp?.variant).toBe("variant_c");
+      expect(exp?.offeringId).toBe("offering_x");
+    });
+
+    test("sets refundedAtMs on the subscription when CUSTOMER_SUPPORT refund lands", async () => {
+      const t = initConvexTest();
+      const refundTime = Date.now();
+
+      const initialPayload = createEventPayload({
+        id: "evt_refund_ts_initial",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_refund_ts",
+        original_transaction_id: "txn_refund_ts",
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: initialPayload.id,
+          type: initialPayload.type,
+          app_user_id: initialPayload.app_user_id,
+          environment: initialPayload.environment,
+          store: initialPayload.store,
+        },
+        payload: initialPayload,
+      });
+
+      const cancelPayload = {
+        ...createEventPayload({
+          id: "evt_refund_ts_cancel",
+          type: "CANCELLATION",
+          app_user_id: "user_refund_ts",
+          original_transaction_id: "txn_refund_ts",
+          cancel_reason: "CUSTOMER_SUPPORT",
+        }),
+        event_timestamp_ms: refundTime,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: cancelPayload.id,
+          type: cancelPayload.type,
+          app_user_id: cancelPayload.app_user_id,
+          environment: cancelPayload.environment,
+          store: cancelPayload.store,
+        },
+        payload: cancelPayload,
+      });
+
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "user_refund_ts",
+      });
+      expect(subs[0].refundedAtMs).toBe(refundTime);
+    });
+
+    test("does NOT set refundedAtMs on a non-refund cancellation", async () => {
+      const t = initConvexTest();
+
+      const initialPayload = createEventPayload({
+        id: "evt_nrefund_initial",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_nrefund",
+        original_transaction_id: "txn_nrefund",
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: initialPayload.id,
+          type: initialPayload.type,
+          app_user_id: initialPayload.app_user_id,
+          environment: initialPayload.environment,
+          store: initialPayload.store,
+        },
+        payload: initialPayload,
+      });
+
+      const cancelPayload = createEventPayload({
+        id: "evt_nrefund_cancel",
+        type: "CANCELLATION",
+        app_user_id: "user_nrefund",
+        original_transaction_id: "txn_nrefund",
+        cancel_reason: "UNSUBSCRIBE",
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: cancelPayload.id,
+          type: cancelPayload.type,
+          app_user_id: cancelPayload.app_user_id,
+          environment: cancelPayload.environment,
+          store: cancelPayload.store,
+        },
+        payload: cancelPayload,
+      });
+
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "user_nrefund",
+      });
+      expect(subs[0].refundedAtMs).toBeUndefined();
+    });
+
+    test("REVOKES entitlements on CANCELLATION with negative price (e.g. Google self-serve refund)", async () => {
+      const t = initConvexTest();
+      const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+      const initialPayload = createEventPayload({
+        id: "evt_cancel_negprice_initial",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_cancel_negprice",
+        expiration_at_ms: futureExpiration,
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: initialPayload.id,
+          type: initialPayload.type,
+          app_user_id: initialPayload.app_user_id,
+          environment: initialPayload.environment,
+          store: initialPayload.store,
+        },
+        payload: initialPayload,
+      });
+
+      // Google Play self-serve refund: cancel_reason may not flip to
+      // CUSTOMER_SUPPORT, but price goes negative. Must revoke.
+      const refundPayload = {
+        ...createEventPayload({
+          id: "evt_cancel_negprice_cancel",
+          type: "CANCELLATION",
+          app_user_id: "user_cancel_negprice",
+          expiration_at_ms: futureExpiration,
+          cancel_reason: "DEVELOPER_INITIATED",
+        }),
+        price: -9.99,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: refundPayload.id,
+          type: refundPayload.type,
+          app_user_id: refundPayload.app_user_id,
+          environment: refundPayload.environment,
+          store: refundPayload.store,
+        },
+        payload: refundPayload,
+      });
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_cancel_negprice",
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+    });
+
+    test("does NOT revoke unrelated entitlements on CUSTOMER_SUPPORT cancellation with no entitlement_ids", async () => {
+      const t = initConvexTest();
+
+      const purchasePayload = createEventPayload({
+        id: "evt_cancel_refund_multi_initial",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_cancel_refund_multi",
+        entitlement_ids: ["premium"],
+        expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: purchasePayload.id,
+          type: purchasePayload.type,
+          app_user_id: purchasePayload.app_user_id,
+          environment: purchasePayload.environment,
+          store: purchasePayload.store,
+        },
+        payload: purchasePayload,
+      });
+
+      const refundPayload = {
+        ...createEventPayload({
+          id: "evt_cancel_refund_multi_cancel",
+          type: "CANCELLATION",
+          app_user_id: "user_cancel_refund_multi",
+          cancel_reason: "CUSTOMER_SUPPORT",
+        }),
+        entitlement_ids: undefined,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: refundPayload.id,
+          type: refundPayload.type,
+          app_user_id: refundPayload.app_user_id,
+          environment: refundPayload.environment,
+          store: refundPayload.store,
+        },
+        payload: refundPayload,
+      });
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_cancel_refund_multi",
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
     });
   });
 
@@ -573,6 +942,99 @@ describe("handlers", () => {
 
       expect(entitlements.length).toBe(1);
       expect(entitlements[0].billingIssueDetectedAt).toBeDefined();
+    });
+
+    test("does NOT touch a lifetime entitlement's undefined expiresAtMs", async () => {
+      const t = initConvexTest();
+
+      // Seed a lifetime entitlement directly.
+      const entId = await t.mutation(internal.entitlements.grant, {
+        appUserId: "user_lifetime_billing",
+        entitlementId: "premium",
+        isSandbox: false,
+      });
+      const before = await t.run(async (ctx) => ctx.db.get(entId));
+      expect(before?.expiresAtMs).toBeUndefined();
+
+      const billingPayload = {
+        ...createEventPayload({
+          id: "evt_lifetime_billing",
+          type: "BILLING_ISSUE",
+          app_user_id: "user_lifetime_billing",
+        }),
+        grace_period_expiration_at_ms: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: billingPayload.id,
+          type: billingPayload.type,
+          app_user_id: billingPayload.app_user_id,
+          environment: billingPayload.environment,
+          store: billingPayload.store,
+        },
+        payload: billingPayload,
+      });
+
+      const after = await t.run(async (ctx) => ctx.db.get(entId));
+      // Lifetime entitlement must stay lifetime — never coerce to finite expiry.
+      expect(after?.expiresAtMs).toBeUndefined();
+    });
+
+    test("extends entitlement expiresAtMs to grace period end (hard ceiling)", async () => {
+      const t = initConvexTest();
+      const pastExpiration = Date.now() - 1000; // already expired
+      const gracePeriodEnd = Date.now() + 7 * 24 * 60 * 60 * 1000;
+
+      const initialPayload = createEventPayload({
+        id: "evt_billing_ceiling_initial",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "user_billing_ceiling",
+        expiration_at_ms: Date.now() + 1000, // soon-to-expire
+      });
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: initialPayload.id,
+          type: initialPayload.type,
+          app_user_id: initialPayload.app_user_id,
+          environment: initialPayload.environment,
+          store: initialPayload.store,
+        },
+        payload: initialPayload,
+      });
+
+      const billingPayload = {
+        ...createEventPayload({
+          id: "evt_billing_ceiling_issue",
+          type: "BILLING_ISSUE",
+          app_user_id: "user_billing_ceiling",
+          expiration_at_ms: pastExpiration,
+        }),
+        grace_period_expiration_at_ms: gracePeriodEnd,
+      };
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: billingPayload.id,
+          type: billingPayload.type,
+          app_user_id: billingPayload.app_user_id,
+          environment: billingPayload.environment,
+          store: billingPayload.store,
+        },
+        payload: billingPayload,
+      });
+
+      const ents = await t.query(api.entitlements.list, {
+        appUserId: "user_billing_ceiling",
+      });
+      expect(ents).toHaveLength(1);
+      // expiresAtMs must be at least the grace end so user keeps access.
+      expect(ents[0].expiresAtMs).toBeGreaterThanOrEqual(gracePeriodEnd);
+      // User still has access during grace.
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_billing_ceiling",
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
     });
   });
 

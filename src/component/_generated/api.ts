@@ -14,6 +14,7 @@ import type * as entitlements from "../entitlements.js";
 import type * as experiments from "../experiments.js";
 import type * as handlers from "../handlers.js";
 import type * as invoices from "../invoices.js";
+import type * as lib from "../lib.js";
 import type * as subscriptions from "../subscriptions.js";
 import type * as sync from "../sync.js";
 import type * as transfers from "../transfers.js";
@@ -31,6 +32,7 @@ const fullApi: ApiFromModules<{
   experiments: typeof experiments;
   handlers: typeof handlers;
   invoices: typeof invoices;
+  lib: typeof lib;
   subscriptions: typeof subscriptions;
   sync: typeof sync;
   transfers: typeof transfers;
