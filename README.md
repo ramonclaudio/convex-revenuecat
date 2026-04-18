@@ -342,6 +342,9 @@ If you call `syncSubscriber` or the RC REST API from your actions, RC applies th
 | v2 Customer Information | Customer Information | 480 req/min |
 | v2 Project Configuration | Project Configuration | 60 req/min |
 | v2 Charts & Metrics | Charts & Metrics | 5 req/min |
+| v2 Virtual Currencies - Create Transaction | Virtual Currencies - Create Transaction | 480 req/min |
+
+Limits apply per API key (app-level keys) or per developer (developer-level keys). Responses carry `RevenueCat-Rate-Limit-Current-Usage` and `RevenueCat-Rate-Limit-Current-Limit` headers; 429 on exceed.
 
 ## PII and subscriber attributes
 
