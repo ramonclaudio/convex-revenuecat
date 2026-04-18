@@ -404,6 +404,14 @@ The `app_user_id` you pass to `Purchases.logIn()` must match what you query with
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Security
+
+Do not report vulnerabilities through public issues. See [SECURITY.md](SECURITY.md) for the policy, private reporting channels, and coordinated disclosure timeline.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 ## License
 
 Apache-2.0
