@@ -164,7 +164,7 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 |:------|:-------------|
 | `INITIAL_PURCHASE` | Creates subscription, grants entitlements |
 | `RENEWAL` | Extends expiration, clears stale billing/cancel state |
-| `CANCELLATION` | Keeps access until expiration — except refunds, which revoke immediately. A cancellation is treated as a refund when `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` (covers Google self-serve refunds and dashboard refunds where `cancel_reason` stays `DEVELOPER_INITIATED`) |
+| `CANCELLATION` | Keeps access until expiration. Refunds are the exception: revokes immediately when `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` (covers Google self-serve refunds and dashboard refunds where `cancel_reason` stays `DEVELOPER_INITIATED`) |
 | `EXPIRATION` | Revokes entitlements |
 | `BILLING_ISSUE` | Extends entitlement `expiresAtMs` to the grace period end so access continues during retry. If the issue resolves, `RENEWAL` extends further; if not, `EXPIRATION` fires at grace end and revokes. Even if `EXPIRATION` is dropped, access stops at grace end as a hard ceiling |
 | `SUBSCRIPTION_PAUSED` | Does not revoke |
@@ -179,12 +179,12 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 | `INVOICE_ISSUANCE` | Invoice created (Web Billing) |
 | `VIRTUAL_CURRENCY_TRANSACTION` | Currency adjustment |
 | `EXPERIMENT_ENROLLMENT` | A/B test enrollment tracked |
-| `REFUND` *(legacy)* | Revokes entitlements. As of 2026 RC emits refunds as `CANCELLATION` with `cancel_reason: "CUSTOMER_SUPPORT"` — handler retained for legacy projects |
-| `SUBSCRIBER_ALIAS` *(legacy)* | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291) — new projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
+| `REFUND` *(legacy)* | Revokes entitlements. As of 2026 RC emits refunds as `CANCELLATION` with `cancel_reason: "CUSTOMER_SUPPORT"`. Handler retained for legacy projects |
+| `SUBSCRIBER_ALIAS` *(legacy)* | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291); new projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
 
-`CANCELLATION` does NOT revoke entitlements for normal unsubscribes — users keep access until `EXPIRATION`. Refunds are the exception: a `CANCELLATION` where `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` revokes entitlements immediately. `price < 0` catches Google Play self-serve refunds and dashboard-issued refunds that leave `cancel_reason` as `DEVELOPER_INITIATED`; gating on `cancel_reason` alone leaks access in those cases.
+`CANCELLATION` does NOT revoke entitlements for normal unsubscribes. Users keep access until `EXPIRATION`. Refunds are the exception: a `CANCELLATION` where `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` revokes entitlements immediately. `price < 0` catches Google Play self-serve refunds and dashboard-issued refunds that leave `cancel_reason` as `DEVELOPER_INITIATED`; gating on `cancel_reason` alone leaks access in those cases.
 
-Per RC docs, CANCELLATION only fires for a refund of the subscription's **latest** period — earlier-period refunds don't trigger the event. A refund also doesn't necessarily deactivate auto-renewal: if the subscription auto-renews to a new period, a subsequent `RENEWAL` restores access. For extra safety on cancellation events, callers can optionally call `syncSubscriber` to cross-check against `GET /v1/subscribers/{app_user_id}`.
+Per RC docs, CANCELLATION only fires for a refund of the subscription's **latest** period. Earlier-period refunds don't trigger the event. A refund also doesn't necessarily deactivate auto-renewal: if the subscription auto-renews to a new period, a subsequent `RENEWAL` restores access. For extra safety on cancellation events, callers can optionally call `syncSubscriber` to cross-check against `GET /v1/subscribers/{app_user_id}`.
 
 ### Access-check semantics
 
@@ -201,7 +201,7 @@ const paidAccess = active.filter((e) => e.ownershipType !== "FAMILY_SHARED");
 
 ## Lifecycle hooks
 
-Register mutations or actions that fire when an entitlement transitions or a customer is deleted. Every hook is optional. Scheduling happens inside the component mutation that made the change, so hooks are atomic with state writes — a rolled-back mutation never fires its hooks, and retries of the same webhook (same `event.id`) don't double-fire.
+Register mutations or actions that fire when an entitlement transitions or a customer is deleted. Every hook is optional. Scheduling happens inside the component mutation that made the change, so hooks are atomic with state writes: a rolled-back mutation never fires its hooks, and retries of the same webhook (same `event.id`) don't double-fire.
 
 ```typescript
 // convex/revenuecat.ts
@@ -271,9 +271,9 @@ export const onDeleted = internalMutation({
 
 Firing rules:
 
-- `onEntitlementActivated` — fires when an entitlement moves from not-active to active for an `appUserId`. Triggers include `INITIAL_PURCHASE`, `RENEWAL` restoring after revoke, `REFUND_REVERSED`, `TRANSFER` onto a user, `SUBSCRIBER_ALIAS`, and `syncSubscriber` catching a change the webhook missed.
-- `onEntitlementDeactivated` — fires when an active entitlement transitions to not-active. Covers `EXPIRATION`, refund `CANCELLATION` (`cancel_reason: "CUSTOMER_SUPPORT"` or `price < 0`), `TRANSFER` off a user, and sync reconciliation.
-- `onCustomerDeleted` — fires after `deleteCustomer` purges the component-local rows for an `appUserId`.
+- `onEntitlementActivated` fires when an entitlement moves from not-active to active for an `appUserId`. Triggers include `INITIAL_PURCHASE`, `RENEWAL` restoring after revoke, `REFUND_REVERSED`, `TRANSFER` onto a user, `SUBSCRIBER_ALIAS`, and `syncSubscriber` catching a change the webhook missed.
+- `onEntitlementDeactivated` fires when an active entitlement transitions to not-active. Covers `EXPIRATION`, refund `CANCELLATION` (`cancel_reason: "CUSTOMER_SUPPORT"` or `price < 0`), `TRANSFER` off a user, and sync reconciliation.
+- `onCustomerDeleted` fires after `deleteCustomer` purges the component-local rows for an `appUserId`.
 
 Hook arguments include `sourceEventType` (the RC webhook `event.type` that caused the transition, or `"SYNC"` when detected by `syncSubscriber`) plus the entitlement's `productId`, `purchasedAtMs`, `expiresAtMs`, `store`, `ownershipType`, and `isSandbox`. `onEntitlementDeactivated` reports the entitlement's state **before** deactivation so consumers can log, attribute, or notify with the lost product.
 
@@ -282,7 +282,7 @@ Per-event semantics:
 - Multi-entitlement events fire one hook invocation per transitioning entitlement.
 - Idempotent events fire at most once per transition. A retry with the same `event.id` dedups before the handler runs.
 - `TRANSFER` fires `onEntitlementDeactivated` for the source user and `onEntitlementActivated` for the destination.
-- Hooks run via Convex's scheduler **after** the enclosing mutation commits. A rolled-back mutation never schedules its hooks (scheduler writes are part of the transaction). A hook throwing does NOT retry the webhook — scheduled mutations retry exactly-once per Convex scheduler policy, scheduled actions at-most-once. Make hooks idempotent.
+- Hooks run via Convex's scheduler **after** the enclosing mutation commits. A rolled-back mutation never schedules its hooks (scheduler writes are part of the transaction). A hook throwing does NOT retry the webhook. Scheduled mutations retry exactly-once per Convex scheduler policy; scheduled actions retry at-most-once. Make hooks idempotent.
 - Snapshots that power transition detection only run when at least one hook is configured, so consumers without hooks pay zero overhead.
 
 ### Cross-platform coverage
@@ -312,9 +312,11 @@ If you call `syncSubscriber` or the RC REST API from your actions, RC applies th
 
 ## PII and subscriber attributes
 
-Webhooks carry subscriber attributes with RC-reserved `$`-prefixed keys (`$email`, `$phoneNumber`, `$apnsTokens`, `$fcmTokens`, `$displayName`, `$ip`, etc.). Two things to know:
+Webhooks carry subscriber attributes with RC-reserved `$`-prefixed keys (`$email`, `$phoneNumber`, `$apnsTokens`, `$fcmTokens`, `$displayName`, `$ip`, etc.).
 
-**Raw payloads are redacted by default.** The `webhookEvents` audit table keeps 30 days of payloads for debugging. Out of the box, the default `redactPayload` strips the reserved PII keys from `subscriber_attributes` before writing to that table. Override or disable:
+### Audit-log redaction
+
+The `webhookEvents` audit table keeps 30 days of payloads for debugging. The default `redactPayload` strips the reserved PII keys from `subscriber_attributes` before writing to that table. Override or disable:
 
 ```typescript
 new RevenueCat(components.revenuecat, {
@@ -328,7 +330,9 @@ new RevenueCat(components.revenuecat, {
 });
 ```
 
-**Customer attributes are stored with `__dollar__` encoded keys.** Convex rejects `$` at every nesting level, so we encode on write. Decode on read:
+### Decoding attribute keys
+
+Customer attributes are stored with `__dollar__`-encoded keys. Convex rejects `$` at every nesting level, so the component encodes on write. Decode on read:
 
 ```typescript
 import { decodeSubscriberAttributes } from "convex-revenuecat";
@@ -372,16 +376,21 @@ export const forgetUser = action({
 
 ## Testing
 
+The `convex-revenuecat/test` export wires the component into a `convex-test` instance so you can exercise webhooks and entitlement queries in unit tests without a live deployment:
+
 ```typescript
 import { convexTest } from "convex-test";
 import revenuecatTest from "convex-revenuecat/test";
+import schema from "./schema";
 
-function initConvexTest() {
-  const t = convexTest();
+export function initConvexTest() {
+  const t = convexTest(schema, import.meta.glob("./**/*.*s"));
   revenuecatTest.register(t);
   return t;
 }
 ```
+
+Run your suite with whatever test runner `convex-test` supports (Vitest, by default):
 
 ```bash
 npm test
