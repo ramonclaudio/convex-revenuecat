@@ -1,8 +1,8 @@
 # Contributing
 
-Thanks for taking the time to contribute. This document is long on purpose. The component ships in production at thousands of apps and misreading an RC webhook field has cost real money in the past, so the bar for merging is high. Read this end to end before opening a PR.
+Thanks for contributing. This guide covers the patterns we follow, what tests a PR needs, and how to shape commits and PR descriptions so they land on the first pass.
 
-Ping me on GitHub (@ramonclaudio) if something here is unclear, out of date, or if you want to sanity-check a direction before you write code.
+Ping me on GitHub (@ramonclaudio) if something here is unclear or out of date, or if you want to sanity-check a direction before writing code.
 
 ## Table of contents
 
@@ -146,7 +146,7 @@ This gives you a live Convex deployment with the component mounted. You can then
 
 ## Testing requirements
 
-Every PR lands with tests. The test suite currently stands at 220 passing tests. Your PR is expected to increase that number, not keep it flat.
+Every behaviour change and every new feature lands with tests. Pure refactors don't have to add tests, but they can't remove coverage.
 
 Run the full suite locally:
 
