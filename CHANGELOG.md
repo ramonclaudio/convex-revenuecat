@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Peer dependency**: `convex` bumped from `^1.31.6` to `^1.32.0`. `convex-test` requires this minimum and our test helper (`convex-revenuecat/test`) depends on `convex-test`. Consumers on `convex@1.31.x` should upgrade; nothing in the component's runtime surface required the bump, the test helper did.
+- **Dev toolchain** refreshed for April 2026. `convex` → `1.35.1`, `convex-test` → `0.0.49`, `eslint` → `10.2.1` (+ `@eslint/js@10.0.1`, `@convex-dev/eslint-plugin@2.0.0`, new `jiti` peer), `typescript` → `6.0.3`, `vitest` → `4.1.4`, plus patch bumps on `@types/node`, `globals`, `prettier`, `typescript-eslint`.
+- **Dropped unused `rollup` override** (not present in the dep tree) and the `ajv` override (no longer needed now that `eslint@10` removed its `ajv@6` transitive path).
+- **`example/convex/tsconfig.json`**: added `"types": ["node"]` so `process.env` resolves under TypeScript 6.
+- **`webhooks.ts`**: removed an unreachable `status = "failed"` assignment and moved error-message extraction inline inside the catch block. Flagged by ESLint 10's `no-useless-assignment` rule; no runtime behavior change.
+
 ## [0.2.0] - 2026-04-18
 
 ### Upgrade notes
