@@ -13,6 +13,8 @@ import type { FunctionReference } from "convex/server";
 type Store =
   | "AMAZON"
   | "APP_STORE"
+  | "EXTERNAL"
+  | "GALAXY"
   | "MAC_APP_STORE"
   | "PADDLE"
   | "PLAY_STORE"
@@ -20,12 +22,14 @@ type Store =
   | "RC_BILLING"
   | "ROKU"
   | "STRIPE"
-  | "TEST_STORE";
+  | "TEST_STORE"
+  | "UNKNOWN_STORE";
 
 type Environment = "SANDBOX" | "PRODUCTION";
 type PeriodType = "TRIAL" | "INTRO" | "NORMAL" | "PROMOTIONAL" | "PREPAID";
-// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing
-type OwnershipType = "PURCHASED" | "FAMILY_SHARED";
+// PURCHASED = direct purchase, FAMILY_SHARED = received via Family Sharing,
+// UNKNOWN = ownership not reported by the store (real Android SDK wire value)
+type OwnershipType = "PURCHASED" | "FAMILY_SHARED" | "UNKNOWN";
 
 interface EntitlementDoc {
   _id: string;
@@ -40,6 +44,7 @@ interface EntitlementDoc {
   isSandbox: boolean;
   unsubscribeDetectedAt?: number;
   billingIssueDetectedAt?: number;
+  ownershipType?: OwnershipType;
   updatedAt: number;
 }
 
@@ -75,6 +80,9 @@ interface SubscriptionDoc {
   presentedOfferingId?: string;
   renewalNumber?: number;
   newProductId?: string;
+  refundedAtMs?: number;
+  originalPurchasedAtMs?: number;
+  unsubscribeDetectedAt?: number;
   updatedAt: number;
 }
 
@@ -281,18 +289,21 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       CustomerDoc | null,
       Name
     >;
-    upsert: FunctionReference<
+    purge: FunctionReference<
       "mutation",
-      "internal",
+      "public",
+      { appUserId: string; onCustomerDeleted?: string },
       {
-        appUserId: string;
-        originalAppUserId: string;
-        aliases: string[];
-        firstSeenAt?: number;
-        lastSeenAt?: number;
-        attributes?: any;
+        customer: number;
+        subscriptions: number;
+        entitlements: number;
+        experiments: number;
+        invoices: number;
+        virtualCurrencyBalances: number;
+        virtualCurrencyTransactions: number;
+        webhookEvents: number;
+        transfers: number;
       },
-      string,
       Name
     >;
   };
@@ -432,13 +443,18 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         subscriber: {
           entitlements?: any;
           subscriptions?: any;
+          non_subscriptions?: any;
           subscriber_attributes?: any;
           first_seen?: string;
           last_seen?: string;
           original_app_user_id?: string;
         };
+        hooks?: {
+          onEntitlementActivated?: string;
+          onEntitlementDeactivated?: string;
+        };
       },
-      { subscriptions: number; entitlements: number },
+      { subscriptions: number; entitlements: number; nonSubscriptions: number },
       Name
     >;
   };
@@ -456,6 +472,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           store?: Store;
         };
         payload: any;
+        hooks?: {
+          onEntitlementActivated?: string;
+          onEntitlementDeactivated?: string;
+        };
         _skipRateLimit?: boolean;
       },
       { processed: boolean; eventId: string; rateLimited?: boolean },

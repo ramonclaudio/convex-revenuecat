@@ -138,6 +138,117 @@ describe("customers", () => {
     expect(customer?.firstSeenAt).toBe(firstSeenAt);
   });
 
+  describe("purge", () => {
+    test("deletes customer and all related rows for an appUserId", async () => {
+      const t = initConvexTest();
+      const userId = "user_to_purge";
+
+      // Seed every table the purge mutation targets.
+      await t.mutation(internal.handlers.processInitialPurchase, {
+        event: makeEventPayload({
+          app_user_id: userId,
+          original_app_user_id: userId,
+          entitlement_ids: ["premium", "pro"],
+          experiments: [
+            {
+              experiment_id: "exp_a",
+              experiment_variant: "b",
+              enrolled_at_ms: Date.now(),
+            },
+          ],
+        }),
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.insert("invoices", {
+          invoiceId: "inv_1",
+          appUserId: userId,
+          environment: "PRODUCTION",
+          issuedAt: Date.now(),
+        });
+        await ctx.db.insert("virtualCurrencyBalances", {
+          appUserId: userId,
+          currencyCode: "GLD",
+          currencyName: "Gold",
+          balance: 100,
+          updatedAt: Date.now(),
+        });
+        await ctx.db.insert("virtualCurrencyTransactions", {
+          transactionId: "vc_tx_1",
+          appUserId: userId,
+          currencyCode: "GLD",
+          amount: 100,
+          environment: "PRODUCTION",
+          timestamp: Date.now(),
+        });
+      });
+
+      const result = await t.mutation(api.customers.purge, { appUserId: userId });
+
+      expect(result.customer).toBe(1);
+      expect(result.subscriptions).toBe(1);
+      expect(result.entitlements).toBe(2);
+      expect(result.experiments).toBe(1);
+      expect(result.invoices).toBe(1);
+      expect(result.virtualCurrencyBalances).toBe(1);
+      expect(result.virtualCurrencyTransactions).toBe(1);
+      expect(result.webhookEvents).toBe(0); // appUserId not set on the webhook event row for this handler path
+
+      expect(await t.query(api.customers.get, { appUserId: userId })).toBeNull();
+      expect(
+        await t.query(api.subscriptions.getByUser, { appUserId: userId }),
+      ).toHaveLength(0);
+      expect(
+        await t.query(api.entitlements.list, { appUserId: userId }),
+      ).toHaveLength(0);
+    });
+
+    test("leaves other users' data intact", async () => {
+      const t = initConvexTest();
+
+      await t.mutation(internal.handlers.processInitialPurchase, {
+        event: makeEventPayload({ app_user_id: "user_keep", entitlement_ids: ["keep_me"] }),
+      });
+      await t.mutation(internal.handlers.processInitialPurchase, {
+        event: makeEventPayload({
+          app_user_id: "user_go",
+          original_transaction_id: "txn_go",
+          transaction_id: "txn_go",
+          entitlement_ids: ["delete_me"],
+        }),
+      });
+
+      await t.mutation(api.customers.purge, { appUserId: "user_go" });
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_keep",
+          entitlementId: "keep_me",
+        }),
+      ).toBe(true);
+      expect(
+        await t.query(api.customers.get, { appUserId: "user_keep" }),
+      ).not.toBeNull();
+    });
+
+    test("returns zeroes for unknown user", async () => {
+      const t = initConvexTest();
+      const result = await t.mutation(api.customers.purge, {
+        appUserId: "ghost",
+      });
+      expect(result).toEqual({
+        customer: 0,
+        subscriptions: 0,
+        entitlements: 0,
+        experiments: 0,
+        invoices: 0,
+        virtualCurrencyBalances: 0,
+        virtualCurrencyTransactions: 0,
+        webhookEvents: 0,
+        transfers: 0,
+      });
+    });
+  });
+
   test("subscriber_attributes merged with updated_at_ms priority", async () => {
     const t = initConvexTest();
 
