@@ -99,6 +99,8 @@ Tests sit next to the module under test (`handlers.test.ts` next to `handlers.ts
    npm install
    ```
 
+   The repo commits `package-lock.json` and CI runs `npm ci`. Use npm locally so your install matches CI exactly.
+
 5. Confirm baseline passes:
 
    ```bash
