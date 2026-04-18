@@ -902,4 +902,186 @@ describe("parity fixes 2026-04-18", () => {
       expect(premium.expiresAtMs).toBeUndefined();
     });
   });
+
+  describe("#12 sync.ts derives autoRenewStatus from five signals", () => {
+    const isoIn = (daysFromNow: number) =>
+      new Date(Date.now() + daysFromNow * 86_400_000).toISOString();
+
+    async function ingestSub(
+      t: ReturnType<typeof initConvexTest>,
+      appUserId: string,
+      sub: Record<string, unknown>,
+    ) {
+      await t.mutation(api.sync.ingest, {
+        appUserId,
+        subscriber: {
+          first_seen: "2026-01-01T00:00:00Z",
+          subscriptions: { premium_monthly: sub },
+          entitlements: {
+            premium: {
+              expires_date: (sub.expires_date as string | null | undefined) ?? null,
+              product_identifier: "premium_monthly",
+              purchase_date: "2026-01-01T00:00:00Z",
+            },
+          },
+        },
+      });
+    }
+
+    test("PREPAID period stores autoRenewStatus false", async () => {
+      const t = initConvexTest();
+      await ingestSub(t, "sync_prepaid", {
+        store: "APP_STORE",
+        is_sandbox: false,
+        period_type: "prepaid",
+        expires_date: isoIn(30),
+        purchase_date: "2026-01-01T00:00:00Z",
+        original_purchase_date: "2026-01-01T00:00:00Z",
+        store_transaction_id: "sync_prepaid_txn",
+      });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "sync_prepaid",
+      });
+      expect(subs[0].autoRenewStatus).toBe(false);
+    });
+
+    test("PROMOTIONAL store stores autoRenewStatus false", async () => {
+      const t = initConvexTest();
+      await ingestSub(t, "sync_promo", {
+        store: "PROMOTIONAL",
+        is_sandbox: false,
+        period_type: "normal",
+        expires_date: isoIn(30),
+        purchase_date: "2026-01-01T00:00:00Z",
+        original_purchase_date: "2026-01-01T00:00:00Z",
+        store_transaction_id: "sync_promo_txn",
+      });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "sync_promo",
+      });
+      expect(subs[0].autoRenewStatus).toBe(false);
+    });
+
+    test("billing_issues_detected_at stores autoRenewStatus false", async () => {
+      const t = initConvexTest();
+      await ingestSub(t, "sync_billing", {
+        store: "APP_STORE",
+        is_sandbox: false,
+        period_type: "normal",
+        expires_date: isoIn(30),
+        purchase_date: "2026-01-01T00:00:00Z",
+        original_purchase_date: "2026-01-01T00:00:00Z",
+        store_transaction_id: "sync_billing_txn",
+        billing_issues_detected_at: isoIn(-1),
+        auto_renew_status: true,
+      });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "sync_billing",
+      });
+      expect(subs[0].autoRenewStatus).toBe(false);
+    });
+
+    test("unsubscribe_detected_at stores autoRenewStatus false", async () => {
+      const t = initConvexTest();
+      await ingestSub(t, "sync_unsub", {
+        store: "APP_STORE",
+        is_sandbox: false,
+        period_type: "normal",
+        expires_date: isoIn(30),
+        purchase_date: "2026-01-01T00:00:00Z",
+        original_purchase_date: "2026-01-01T00:00:00Z",
+        store_transaction_id: "sync_unsub_txn",
+        unsubscribe_detected_at: isoIn(-1),
+        auto_renew_status: true,
+      });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "sync_unsub",
+      });
+      expect(subs[0].autoRenewStatus).toBe(false);
+    });
+
+    test("explicit auto_renew_status false wins over derived true", async () => {
+      const t = initConvexTest();
+      await ingestSub(t, "sync_raw_false", {
+        store: "APP_STORE",
+        is_sandbox: false,
+        period_type: "normal",
+        expires_date: isoIn(30),
+        purchase_date: "2026-01-01T00:00:00Z",
+        original_purchase_date: "2026-01-01T00:00:00Z",
+        store_transaction_id: "sync_raw_false_txn",
+        auto_renew_status: false,
+      });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "sync_raw_false",
+      });
+      expect(subs[0].autoRenewStatus).toBe(false);
+    });
+
+    test("healthy normal sub stores autoRenewStatus true", async () => {
+      const t = initConvexTest();
+      await ingestSub(t, "sync_healthy", {
+        store: "APP_STORE",
+        is_sandbox: false,
+        period_type: "normal",
+        expires_date: isoIn(30),
+        purchase_date: "2026-01-01T00:00:00Z",
+        original_purchase_date: "2026-01-01T00:00:00Z",
+        store_transaction_id: "sync_healthy_txn",
+      });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: "sync_healthy",
+      });
+      expect(subs[0].autoRenewStatus).toBe(true);
+    });
+  });
+
+  describe("#13 purgeAnonymousCustomerIfEmpty bails when source has active data", () => {
+    test("partial TRANSFER leaves anonymous customer row in place", async () => {
+      const t = initConvexTest();
+      const anonId = "$RCAnonymousID:partial_src";
+      const futureExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
+
+      // Source owns TWO entitlements on ONE subscription
+      const initPayload = basePayload({
+        id: "evt_partial_init",
+        type: "INITIAL_PURCHASE",
+        app_user_id: anonId,
+        expiration_at_ms: futureExpiry,
+        original_transaction_id: "otxn_partial",
+        transaction_id: "otxn_partial",
+        entitlement_ids: ["premium", "bonus"],
+      });
+      await dispatch(t, initPayload);
+
+      // Transfer ONLY the premium entitlement; bonus stays on source
+      await t.mutation(internal.handlers.processTransfer, {
+        event: {
+          type: "TRANSFER",
+          id: "evt_partial_transfer",
+          app_id: "app_parity",
+          app_user_id: "user_partial_dst",
+          aliases: [],
+          event_timestamp_ms: Date.now(),
+          environment: "SANDBOX",
+          transferred_from: [anonId],
+          transferred_to: ["user_partial_dst"],
+          entitlement_ids: ["premium"],
+        },
+      });
+
+      // Source customer row MUST still exist: bonus entitlement is still active on it
+      const sourceCustomer = await t.query(api.customers.get, {
+        appUserId: anonId,
+      });
+      expect(sourceCustomer).not.toBeNull();
+
+      // And the un-transferred entitlement is still there and active
+      const sourceEnts = await t.query(api.entitlements.list, {
+        appUserId: anonId,
+      });
+      const bonus = sourceEnts.find((e) => e.entitlementId === "bonus");
+      expect(bonus?.isActive).toBe(true);
+    });
+  });
 });
