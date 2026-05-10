@@ -23,8 +23,9 @@ describe("cleanup", () => {
         await ctx.db.insert("rateLimits", { key: "recent2", timestamp: now });
       });
 
-      const deleted = await t.mutation(internal.cleanup.rateLimits, {});
-      expect(deleted).toBe(2);
+      const result = await t.mutation(internal.cleanup.rateLimits, {});
+      expect(result.deleted).toBe(2);
+      expect(result.scheduledContinuation).toBe(false);
 
       const remaining = await t.run(async (ctx) => {
         return await ctx.db.query("rateLimits").collect();
@@ -43,8 +44,8 @@ describe("cleanup", () => {
         await ctx.db.insert("rateLimits", { key: "recent", timestamp: now });
       });
 
-      const deleted = await t.mutation(internal.cleanup.rateLimits, {});
-      expect(deleted).toBe(0);
+      const result = await t.mutation(internal.cleanup.rateLimits, {});
+      expect(result.deleted).toBe(0);
 
       const remaining = await t.run(async (ctx) => {
         return await ctx.db.query("rateLimits").collect();
@@ -56,8 +57,8 @@ describe("cleanup", () => {
     test("should handle empty table", async () => {
       const t = initConvexTest();
 
-      const deleted = await t.mutation(internal.cleanup.rateLimits, {});
-      expect(deleted).toBe(0);
+      const result = await t.mutation(internal.cleanup.rateLimits, {});
+      expect(result.deleted).toBe(0);
     });
   });
 
@@ -147,7 +148,7 @@ describe("cleanup", () => {
       const thirtyOneDaysAgo = now - 31 * 24 * 60 * 60 * 1000;
       const twentyNineDaysAgo = now - 29 * 24 * 60 * 60 * 1000;
 
-      // Two old, one recent interleaved; ascending scan stops at the recent one.
+      // Two old, one recent interleaved. Ascending scan stops at the recent one.
       await t.run(async (ctx) => {
         await ctx.db.insert("webhookEvents", {
           eventId: "old_1",
