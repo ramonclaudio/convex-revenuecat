@@ -268,7 +268,7 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 | `RENEWAL` | Extends expiration, clears stale billing/cancel state |
 | `CANCELLATION` | Keeps access until expiration. Refunds are the exception: revokes immediately when `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` (covers Google self-serve refunds and dashboard refunds where `cancel_reason` stays `DEVELOPER_INITIATED`) |
 | `EXPIRATION` | Revokes entitlements |
-| `BILLING_ISSUE` | Extends entitlement `expiresAtMs` to the grace period end so access continues during retry, and sets `autoRenewStatus: false` until `RENEWAL` resolves. If the issue resolves, `RENEWAL` extends further; if not, `EXPIRATION` fires at grace end and revokes. Even if `EXPIRATION` is dropped, access stops at grace end as a hard ceiling |
+| `BILLING_ISSUE` | Extends entitlement `expiresAtMs` to the grace period end so access continues during retry, and sets `autoRenewStatus: false` until `RENEWAL` resolves. If the issue resolves, `RENEWAL` extends further. If not, `EXPIRATION` fires at grace end and revokes. Even if `EXPIRATION` is dropped, access stops at grace end as a hard ceiling |
 | `SUBSCRIPTION_PAUSED` | Does not revoke |
 | `SUBSCRIPTION_EXTENDED` | Extends expiration |
 | `TRANSFER` | Moves entitlements and subscriptions between users. When the source is a `$RCAnonymousID:` ID with no active data remaining, the source customer row and its audit trail are dropped, matching the "anonymous ID is dead after merge" semantic that iOS `DeviceCache.clearCaches` and Android `deviceCache.clearCachesForAppUserID` apply client-side |
@@ -282,7 +282,7 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 | `VIRTUAL_CURRENCY_TRANSACTION` | Currency adjustment |
 | `EXPERIMENT_ENROLLMENT` | A/B test enrollment tracked |
 | `REFUND` *(legacy)* | Revokes entitlements. As of 2026 RC emits refunds as `CANCELLATION` with `cancel_reason: "CUSTOMER_SUPPORT"`. Handler retained for legacy projects |
-| `SUBSCRIBER_ALIAS` *(legacy)* | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. Drops the anonymous source customer row after merge. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291); new projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
+| `SUBSCRIBER_ALIAS` *(legacy)* | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. Drops the anonymous source customer row after merge. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291). New projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
 
 `CANCELLATION` does NOT revoke entitlements for normal unsubscribes. Users keep access until `EXPIRATION`. Refunds are the exception: a `CANCELLATION` where `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` revokes entitlements immediately. `price < 0` catches Google Play self-serve refunds and dashboard-issued refunds that leave `cancel_reason` as `DEVELOPER_INITIATED`. Gating on `cancel_reason` alone leaks access in those cases.
 
@@ -424,7 +424,7 @@ If you call `syncSubscriber` or the RC REST API from your actions, RC applies th
 
 | API | Domain | Limit |
 |:----|:-------|:------|
-| v1 `/v1/subscribers/...` | (undocumented) | Treat as unpublished; throttle aggressively |
+| v1 `/v1/subscribers/...` | (undocumented) | Treat as unpublished. Throttle aggressively |
 | v2 Customer Information | Customer Information | 480 req/min |
 | v2 Project Configuration | Project Configuration | 60 req/min |
 | v2 Charts & Metrics | Charts & Metrics | 5 req/min |
