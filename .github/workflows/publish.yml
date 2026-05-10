@@ -19,7 +19,7 @@ jobs:
       - name: Node setup
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6
         with:
-          cache-dependency-path: package.json
+          cache-dependency-path: package-lock.json
           node-version: "24.x"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
