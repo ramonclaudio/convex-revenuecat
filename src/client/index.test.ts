@@ -391,4 +391,141 @@ describe("RevenueCat client", () => {
       expect(willRenew(sub({ billingIssueDetectedAt: Date.now() }))).toBe(false);
     });
   });
+
+  describe("convenience helpers", () => {
+    async function setupActiveUser(t: ReturnType<typeof initConvexTest>, appUserId: string) {
+      await t.mutation(components.revenuecat.webhooks.process, {
+        event: {
+          id: `evt_setup_${appUserId}`,
+          type: "INITIAL_PURCHASE",
+          app_user_id: appUserId,
+          environment: "SANDBOX" as const,
+          store: "APP_STORE" as const,
+        },
+        payload: createEventPayload({
+          id: `evt_setup_${appUserId}`,
+          app_user_id: appUserId,
+          entitlement_ids: ["premium"],
+        }),
+      });
+    }
+
+    test("getEntitlement returns the matching active entitlement", async () => {
+      const t = initConvexTest();
+      const revenuecat = new RevenueCat(components.revenuecat);
+      await setupActiveUser(t, "user_helper_1");
+      const result = await t.run((ctx) =>
+        revenuecat.getEntitlement(ctx, {
+          appUserId: "user_helper_1",
+          entitlementId: "premium",
+        }),
+      );
+      expect(result?.entitlementId).toBe("premium");
+      expect(result?.isActive).toBe(true);
+    });
+
+    test("getEntitlement returns null for unknown entitlement", async () => {
+      const t = initConvexTest();
+      const revenuecat = new RevenueCat(components.revenuecat);
+      await setupActiveUser(t, "user_helper_2");
+      const result = await t.run((ctx) =>
+        revenuecat.getEntitlement(ctx, {
+          appUserId: "user_helper_2",
+          entitlementId: "ultra_pro",
+        }),
+      );
+      expect(result).toBeNull();
+    });
+
+    test("hasAnyEntitlement true when active, false when none", async () => {
+      const t = initConvexTest();
+      const revenuecat = new RevenueCat(components.revenuecat);
+      await setupActiveUser(t, "user_helper_3");
+      const yes = await t.run((ctx) =>
+        revenuecat.hasAnyEntitlement(ctx, { appUserId: "user_helper_3" }),
+      );
+      const no = await t.run((ctx) =>
+        revenuecat.hasAnyEntitlement(ctx, { appUserId: "user_helper_none" }),
+      );
+      expect(yes).toBe(true);
+      expect(no).toBe(false);
+    });
+
+    test("isSubscriber tracks active subscriptions", async () => {
+      const t = initConvexTest();
+      const revenuecat = new RevenueCat(components.revenuecat);
+      await setupActiveUser(t, "user_helper_4");
+      const yes = await t.run((ctx) =>
+        revenuecat.isSubscriber(ctx, { appUserId: "user_helper_4" }),
+      );
+      expect(yes).toBe(true);
+    });
+
+    test("isInTrial true when an active sub is in TRIAL period", async () => {
+      const t = initConvexTest();
+      const revenuecat = new RevenueCat(components.revenuecat);
+      await t.mutation(components.revenuecat.webhooks.process, {
+        event: {
+          id: "evt_trial",
+          type: "INITIAL_PURCHASE",
+          app_user_id: "user_trial",
+          environment: "SANDBOX" as const,
+          store: "APP_STORE" as const,
+        },
+        payload: { ...createEventPayload({ app_user_id: "user_trial" }), period_type: "TRIAL" },
+      });
+      const result = await t.run((ctx) =>
+        revenuecat.isInTrial(ctx, { appUserId: "user_trial" }),
+      );
+      expect(result).toBe(true);
+    });
+
+    test("getLatestSubscription picks the most recent purchase", async () => {
+      const t = initConvexTest();
+      const revenuecat = new RevenueCat(components.revenuecat);
+      const earlier = Date.now() - 1_000_000;
+      const later = Date.now();
+
+      for (const [i, ts] of [earlier, later].entries()) {
+        await t.mutation(components.revenuecat.webhooks.process, {
+          event: {
+            id: `evt_latest_${i}`,
+            type: "INITIAL_PURCHASE",
+            app_user_id: "user_latest",
+            environment: "SANDBOX" as const,
+            store: "APP_STORE" as const,
+          },
+          payload: {
+            ...createEventPayload({
+              id: `evt_latest_${i}`,
+              app_user_id: "user_latest",
+              product_id: `product_${i}`,
+            }),
+            purchased_at_ms: ts,
+            original_transaction_id: `otxn_latest_${i}`,
+            transaction_id: `txn_latest_${i}`,
+          },
+        });
+      }
+
+      const result = await t.run((ctx) =>
+        revenuecat.getLatestSubscription(ctx, { appUserId: "user_latest" }),
+      );
+      expect(result?.purchasedAtMs).toBe(later);
+      expect(result?.productId).toBe("product_1");
+    });
+
+    test("getRenewsAtMs returns expiry only when willRenew is true", async () => {
+      const t = initConvexTest();
+      const revenuecat = new RevenueCat(components.revenuecat);
+      await setupActiveUser(t, "user_renews");
+      const result = await t.run((ctx) =>
+        revenuecat.getRenewsAtMs(ctx, {
+          appUserId: "user_renews",
+          entitlementId: "premium",
+        }),
+      );
+      expect(typeof result).toBe("number");
+    });
+  });
 });

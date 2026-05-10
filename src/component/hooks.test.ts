@@ -6,7 +6,7 @@ import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
 // Resolve a FunctionReference to a FunctionHandle string inside a Convex
-// context. The client SDK does this for consumers; tests call the mutations
+// context. The client SDK does this for consumers. Tests call the mutations
 // directly, so we need the equivalent here.
 async function handleFor(
   t: ReturnType<typeof initConvexTest>,
@@ -15,9 +15,8 @@ async function handleFor(
   return await t.run(async () => createFunctionHandle(ref));
 }
 
-// Hooks are FunctionReferences — consumers pass any valid internal or public
-// mutation/action. These tests stand up the hook target as an `internalAction`
-// declared in `hookTargets.test.ts` (loaded via the import.meta.glob) and
+// Hooks are FunctionReferences. Consumers pass any valid internal or public
+// mutation/action. These tests use `internal.lib.noop` as the hook target and
 // assert that the scheduler queued a call by peeking at `_scheduled_functions`.
 
 type ScheduledJob = {
@@ -178,8 +177,8 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementActivated: handle },
       });
 
-      // RC retries — same event.id. The outer mutation short-circuits via
-      // the webhookEvents dedup check; no snapshot or hook fires on retry.
+      // RC retries, same event.id. The outer mutation short-circuits via
+      // the webhookEvents dedup check. No snapshot or hook fires on retry.
       await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
@@ -612,22 +611,13 @@ describe("lifecycle hooks", () => {
   });
 
   describe("rollback safety", () => {
-    test("scheduled hooks roll back when the outer mutation fails", async () => {
+    test("UNKNOWN event types don't snapshot and don't fire hooks", async () => {
       const t = initConvexTest();
       const handle = await handleFor(t, internal.lib.noop);
 
-      // Dispatch an event type that matches a handler but with a payload that
-      // will cause the handler's `upsertSubscription` to bail — but we want
-      // the outer mutation to throw. Easiest route: force a ConvexError by
-      // making the handler's inner mutation throw. We do this by passing a
-      // payload that trips the handler's own invariants (e.g. unknown event
-      // type short-circuits to status="ignored", which doesn't throw).
-      //
-      // Instead, we assert the inverse: a successful mutation DOES schedule,
-      // and then we verify the scheduled write is in the same logical
-      // transaction by checking _scheduled_functions is empty prior to commit.
-      // That's covered by the dedup test. Here we test that an UNKNOWN event
-      // type (no handler) never snapshots and never fires hooks.
+      // No handler matches a UNKNOWN event type, so the dispatch table
+      // short-circuits to status="ignored" and never reads entitlements or
+      // fires hooks.
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_unknown_rollback",
@@ -699,7 +689,7 @@ describe("lifecycle hooks", () => {
       });
 
       // SUBSCRIBER_ALIAS fires with anon as original and real as current.
-      // aliases array carries both IDs; affectedUserIds must pick up both so
+      // aliases array carries both IDs. AffectedUserIds must pick up both so
       // the migration's deactivation from anon and activation on real are
       // detected.
       await t.mutation(api.webhooks.process, {
