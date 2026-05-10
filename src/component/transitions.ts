@@ -46,11 +46,8 @@ export type EntitlementDeactivatedArgs = {
   sourceEventType: string;
 };
 
-// Hooks cross the component boundary as `FunctionHandle` strings (produced via
-// `createFunctionHandle` in the client SDK) because `FunctionReference`
-// internal markers are symbol-keyed and get stripped by JSON serialization
-// through mutation args. The component side treats them as opaque handles and
-// hands them directly to `ctx.scheduler.runAfter`.
+// Hooks cross the boundary as opaque `FunctionHandle` strings, symbol-keyed
+// markers on `FunctionReference` are stripped through mutation args.
 export type EntitlementActivatedHook = FunctionHandle<
   "mutation" | "action",
   EntitlementActivatedArgs,
@@ -74,13 +71,8 @@ function isEffectivelyActive(ent: EntitlementDoc, now: number): boolean {
   return ent.expiresAtMs > now;
 }
 
-/**
- * Collect every appUserId the payload could have modified. Most events carry
- * `app_user_id`; SUBSCRIBER_ALIAS carries `original_app_user_id`; TRANSFER
- * carries `transferred_from` and `transferred_to` arrays; every event type
- * carries `aliases` (every app_user_id ever used by the subscriber, per RC
- * webhook docs), which SUBSCRIBER_ALIAS migrations can reach into.
- */
+/** Every appUserId the payload could affect: `app_user_id`,
+ * `original_app_user_id`, `transferred_from/to`, plus `aliases`. */
 export function affectedUserIds(payload: Record<string, unknown>): string[] {
   const ids = new Set<string>();
   const add = (v: unknown) => {
@@ -95,40 +87,36 @@ export function affectedUserIds(payload: Record<string, unknown>): string[] {
   return [...ids];
 }
 
-/**
- * Snapshot each user's currently-active entitlements keyed by entitlementId.
- * Called before and after the event handler runs; the diff drives hook
- * scheduling.
- */
+/** Active entitlements per user, keyed by entitlementId. Diff before/after
+ * drives hook scheduling. */
 export async function snapshotEntitlements(
   ctx: MutationCtx,
   appUserIds: string[],
 ): Promise<Map<string, Map<string, EntitlementDoc>>> {
   const now = Date.now();
+  const perUser = await Promise.all(
+    appUserIds.map((userId) =>
+      ctx.db
+        .query("entitlements")
+        .withIndex("by_app_user", (q) => q.eq("appUserId", userId))
+        .collect(),
+    ),
+  );
   const result = new Map<string, Map<string, EntitlementDoc>>();
-  for (const userId of appUserIds) {
-    const ents = await ctx.db
-      .query("entitlements")
-      .withIndex("by_app_user", (q) => q.eq("appUserId", userId))
-      .collect();
+  for (let i = 0; i < appUserIds.length; i++) {
     const active = new Map<string, EntitlementDoc>();
-    for (const ent of ents) {
+    for (const ent of perUser[i]) {
       if (isEffectivelyActive(ent, now)) {
         active.set(ent.entitlementId, ent);
       }
     }
-    result.set(userId, active);
+    result.set(appUserIds[i], active);
   }
   return result;
 }
 
-/**
- * Diff two snapshots and schedule the registered hooks for each transition.
- * Scheduling is atomic with the enclosing mutation — if the mutation rolls
- * back, the scheduled jobs never materialize. If a consumer registered both
- * hooks and both are no-op, this is effectively free (returns early on an
- * empty hooks object).
- */
+/** Schedule hooks for each before→after transition. Atomic with the
+ * enclosing mutation. */
 export async function fireTransitionHooks(
   ctx: MutationCtx,
   hooks: LifecycleHooks | undefined,
@@ -183,20 +171,12 @@ export async function fireTransitionHooks(
   }
 }
 
-/**
- * Validator shape for the optional hooks arg on `webhooks.process` and
- * `sync.ingest`. FunctionReferences serialize opaquely across the wire so we
- * accept `v.any()` for each entry; the scheduler resolves them at runtime.
- */
+/** Hook arg shape on `webhooks.process` / `sync.ingest`. */
 export type HooksArg = {
   onEntitlementActivated?: string;
   onEntitlementDeactivated?: string;
 };
 
-/**
- * Cast opaque FunctionHandle strings to their typed `LifecycleHooks` form for
- * the scheduler.
- */
 export function resolveHooks(hooks: HooksArg | undefined): LifecycleHooks | undefined {
   if (!hooks) return undefined;
   const resolved: LifecycleHooks = {};
