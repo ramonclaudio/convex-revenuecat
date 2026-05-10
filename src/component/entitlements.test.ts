@@ -1,6 +1,72 @@
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api.js";
+import type { Id } from "./_generated/dataModel.js";
 import { initConvexTest } from "./setup.test.js";
+
+// Fixture: insert-or-patch an entitlement directly. Lives here because the
+// public `entitlements.grant` / `entitlements.revoke` mutations were removed
+// in 0.3.0 (dead production code, reachable by consumers, bypassed the
+// webhook-driven flow). Tests should never rely on a callable shortcut that
+// production never uses.
+async function grantEnt(
+  t: ReturnType<typeof initConvexTest>,
+  args: {
+    appUserId: string;
+    entitlementId: string;
+    productId?: string;
+    expiresAtMs?: number;
+    purchasedAtMs?: number;
+    isSandbox: boolean;
+  },
+): Promise<Id<"entitlements">> {
+  return await t.run(async (ctx) => {
+    const existing = await ctx.db
+      .query("entitlements")
+      .withIndex("by_app_user_entitlement", (q) =>
+        q.eq("appUserId", args.appUserId).eq("entitlementId", args.entitlementId),
+      )
+      .first();
+    const now = Date.now();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        isActive: true,
+        productId: args.productId,
+        expiresAtMs: args.expiresAtMs,
+        purchasedAtMs: args.purchasedAtMs ?? now,
+        isSandbox: args.isSandbox,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("entitlements", {
+      appUserId: args.appUserId,
+      entitlementId: args.entitlementId,
+      productId: args.productId,
+      isActive: true,
+      expiresAtMs: args.expiresAtMs,
+      purchasedAtMs: args.purchasedAtMs ?? now,
+      isSandbox: args.isSandbox,
+      updatedAt: now,
+    });
+  });
+}
+
+async function revokeEnt(
+  t: ReturnType<typeof initConvexTest>,
+  args: { appUserId: string; entitlementId: string },
+): Promise<void> {
+  await t.run(async (ctx) => {
+    const ent = await ctx.db
+      .query("entitlements")
+      .withIndex("by_app_user_entitlement", (q) =>
+        q.eq("appUserId", args.appUserId).eq("entitlementId", args.entitlementId),
+      )
+      .first();
+    if (ent) {
+      await ctx.db.patch(ent._id, { isActive: false, updatedAt: Date.now() });
+    }
+  });
+}
 
 describe("entitlements", () => {
   test("check returns false when no entitlement exists", async () => {
@@ -17,7 +83,7 @@ describe("entitlements", () => {
   test("check returns true when active entitlement exists", async () => {
     const t = initConvexTest();
 
-    await t.mutation(internal.entitlements.grant, {
+    await grantEnt(t, {
       appUserId: "user_123",
       entitlementId: "premium",
       isSandbox: false,
@@ -34,13 +100,13 @@ describe("entitlements", () => {
   test("check returns false when entitlement is revoked", async () => {
     const t = initConvexTest();
 
-    await t.mutation(internal.entitlements.grant, {
+    await grantEnt(t, {
       appUserId: "user_revoke",
       entitlementId: "premium",
       isSandbox: false,
     });
 
-    await t.mutation(internal.entitlements.revoke, {
+    await revokeEnt(t, {
       appUserId: "user_revoke",
       entitlementId: "premium",
     });
@@ -56,7 +122,7 @@ describe("entitlements", () => {
   test("check returns false when entitlement is expired", async () => {
     const t = initConvexTest();
 
-    await t.mutation(internal.entitlements.grant, {
+    await grantEnt(t, {
       appUserId: "user_expired",
       entitlementId: "premium",
       expiresAtMs: Date.now() - 1000,
@@ -74,13 +140,13 @@ describe("entitlements", () => {
   test("list returns all entitlements for user", async () => {
     const t = initConvexTest();
 
-    await t.mutation(internal.entitlements.grant, {
+    await grantEnt(t, {
       appUserId: "user_list",
       entitlementId: "premium",
       isSandbox: false,
     });
 
-    await t.mutation(internal.entitlements.grant, {
+    await grantEnt(t, {
       appUserId: "user_list",
       entitlementId: "pro",
       isSandbox: false,
@@ -96,25 +162,25 @@ describe("entitlements", () => {
   test("getActive returns only active non-expired entitlements", async () => {
     const t = initConvexTest();
 
-    await t.mutation(internal.entitlements.grant, {
+    await grantEnt(t, {
       appUserId: "user_active",
       entitlementId: "premium",
       isSandbox: false,
     });
 
-    await t.mutation(internal.entitlements.grant, {
+    await grantEnt(t, {
       appUserId: "user_active",
       entitlementId: "trial",
       expiresAtMs: Date.now() - 1000,
       isSandbox: false,
     });
 
-    await t.mutation(internal.entitlements.grant, {
+    await grantEnt(t, {
       appUserId: "user_active",
       entitlementId: "promo",
       isSandbox: false,
     });
-    await t.mutation(internal.entitlements.revoke, {
+    await revokeEnt(t, {
       appUserId: "user_active",
       entitlementId: "promo",
     });
@@ -133,7 +199,7 @@ describe("entitlements", () => {
 
     // BILLING_ISSUE handler extends expiresAtMs to the grace period end, so
     // downstream queries treat it like any other active entitlement.
-    const entId = await t.mutation(internal.entitlements.grant, {
+    const entId = await grantEnt(t, {
       appUserId: "user_billing_active",
       entitlementId: "premium",
       expiresAtMs: graceEnd,
@@ -155,44 +221,6 @@ describe("entitlements", () => {
     expect(active[0].billingIssueDetectedAt).toBeDefined();
   });
 
-  test("grant updates existing entitlement", async () => {
-    const t = initConvexTest();
-
-    const id1 = await t.mutation(internal.entitlements.grant, {
-      appUserId: "user_update",
-      entitlementId: "premium",
-      isSandbox: true,
-    });
-
-    const id2 = await t.mutation(internal.entitlements.grant, {
-      appUserId: "user_update",
-      entitlementId: "premium",
-      productId: "new_product",
-      isSandbox: false,
-    });
-
-    expect(id1).toBe(id2);
-
-    const entitlements = await t.query(api.entitlements.list, {
-      appUserId: "user_update",
-    });
-
-    expect(entitlements).toHaveLength(1);
-    expect(entitlements[0].productId).toBe("new_product");
-    expect(entitlements[0].isSandbox).toBe(false);
-  });
-
-  test("revoke returns false when entitlement not found", async () => {
-    const t = initConvexTest();
-
-    const result = await t.mutation(internal.entitlements.revoke, {
-      appUserId: "nonexistent",
-      entitlementId: "premium",
-    });
-
-    expect(result).toBe(false);
-  });
-
   test("billingIssueDetectedAt alone does NOT keep access past expiresAtMs", async () => {
     const t = initConvexTest();
 
@@ -201,7 +229,7 @@ describe("entitlements", () => {
     // the flag alone (e.g. EXPIRATION dropped, grace already elapsed).
     // Correct behavior: no access. BILLING_ISSUE handler is responsible for
     // extending expiresAtMs to the grace period end during processing.
-    const entId = await t.mutation(internal.entitlements.grant, {
+    const entId = await grantEnt(t, {
       appUserId: "user_billing",
       entitlementId: "premium",
       expiresAtMs: Date.now() - 1000,
@@ -226,7 +254,7 @@ describe("entitlements", () => {
     const t = initConvexTest();
     const graceEnd = Date.now() + 3 * 24 * 60 * 60 * 1000;
 
-    const entId = await t.mutation(internal.entitlements.grant, {
+    const entId = await grantEnt(t, {
       appUserId: "user_grace",
       entitlementId: "premium",
       expiresAtMs: graceEnd,
