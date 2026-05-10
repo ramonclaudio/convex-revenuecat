@@ -20,10 +20,7 @@ const RATE_LIMIT_MAX_REQUESTS = 100;
 const RATE_LIMIT_WINDOW_MS = 60000;
 const RATE_LIMIT_KEY_PREFIX = "webhook";
 
-// RC's documented event IDs are UUID-shaped (~36 chars) with optional prefixing.
-// Cap at 128 bytes defensively — an attacker with a valid auth token could
-// otherwise fill `webhookEvents.eventId` (and its index) with megabyte strings,
-// inflating storage and degrading dedup-index lookups.
+// RC event IDs are UUID-shaped (~36 chars). Cap to defeat index bloat.
 const MAX_EVENT_ID_LENGTH = 128;
 
 const EVENT_HANDLERS = {
@@ -99,7 +96,6 @@ export const process = mutation({
   returns: v.object({
     processed: v.boolean(),
     eventId: v.string(),
-    rateLimited: v.optional(v.boolean()),
   }),
   handler: async (ctx, args) => {
     const { event, payload } = args;
@@ -119,10 +115,7 @@ export const process = mutation({
       throw new ConvexError({ code: "INVALID_ARGUMENT", message: "Event type is required" });
     }
 
-    // Dedup FIRST, rate-limit SECOND. Replays of a known event.id must be
-    // free — otherwise an attacker with a single valid event.id can exhaust
-    // the rate-limit bucket (100/min) by replaying it, dropping legitimate
-    // RC webhooks via 429 until permanent drop.
+    // Dedup before rate-limit so replays don't burn the bucket.
     const existing = await ctx.db
       .query("webhookEvents")
       .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
@@ -132,7 +125,11 @@ export const process = mutation({
       return { processed: false, eventId: event.id };
     }
 
-    const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? "global"}`;
+    // Prefer `app_id` (RC v2 webhooks always carry it). Fall back to
+    // `app_user_id` so a misconfigured project that omits app_id doesn't
+    // share one global bucket across every tenant. Last-resort `"global"`
+    // catches the test-event case where neither is present.
+    const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? event.app_user_id ?? "global"}`;
     const rateCheck = await ctx.runMutation(internal.webhooks.checkRateLimit, {
       key: rateLimitKey,
     });
@@ -150,11 +147,7 @@ export const process = mutation({
     let status: "processed" | "failed" | "ignored" = "ignored";
 
     if (handler) {
-      // Snapshot entitlement state ONLY when hooks are registered. Snapshots
-      // are full-table-per-user reads we'd otherwise pay twice per webhook
-      // for consumers who don't use hooks (the default). Scheduling lives
-      // inside this mutation's transaction; if the handler throws, scheduled
-      // hook writes roll back with the rest.
+      // Snapshot only when hooks are registered (twice-per-webhook reads).
       const affected = hooks ? affectedUserIds(payload) : [];
       const beforeSnap = hooks
         ? await snapshotEntitlements(ctx, affected)
@@ -164,10 +157,8 @@ export const process = mutation({
         await ctx.runMutation(handler, { event: payload });
         status = "processed";
       } catch (e) {
-        // NOTE: do NOT insert into webhookEvents here. Throwing rolls back the
-        // entire mutation transaction, so any db write in this catch block is
-        // silently discarded. The event intentionally stays out of webhookEvents
-        // so the dedup check doesn't block RC's retry on the next attempt.
+        // Don't insert into webhookEvents here, throwing rolls back any
+        // write in the catch, and we want RC's retry to hit a clean dedup.
         if (e instanceof ConvexError) {
           throw e;
         }
@@ -203,5 +194,46 @@ export const process = mutation({
     });
 
     return { processed: status === "processed", eventId: event.id };
+  },
+});
+
+/** Records a permanent (`INVALID_ARGUMENT`) webhook failure in a separate
+ * transaction so the row survives the inner mutation's rollback. Called
+ * from the HTTP boundary. Transient failures still roll back without an
+ * audit row so RC retries cleanly. */
+export const recordFailure = internalMutation({
+  args: {
+    event: v.object({
+      id: v.string(),
+      type: v.string(),
+      app_id: v.optional(v.string()),
+      app_user_id: v.optional(v.string()),
+      environment: environmentValidator,
+      store: v.optional(storeValidator),
+    }),
+    payload: v.any(),
+    error: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    if (args.event.id.length > MAX_EVENT_ID_LENGTH) return null;
+    const existing = await ctx.db
+      .query("webhookEvents")
+      .withIndex("by_event_id", (q) => q.eq("eventId", args.event.id))
+      .first();
+    if (existing) return null;
+    await ctx.db.insert("webhookEvents", {
+      eventId: args.event.id,
+      eventType: args.event.type,
+      appId: args.event.app_id,
+      appUserId: args.event.app_user_id,
+      environment: args.event.environment,
+      store: args.event.store,
+      payload: args.payload,
+      processedAt: Date.now(),
+      status: "failed",
+      error: args.error.slice(0, 1024),
+    });
+    return null;
   },
 });
