@@ -4,56 +4,43 @@
 
 ## [0.3.0] - 2026-05-09
 
-Security and correctness release. Reported by [@Nils-Fischer](https://github.com/Nils-Fischer) in [#17](https://github.com/ramonclaudio/convex-revenuecat/issues/17): a missing `REVENUECAT_WEBHOOK_AUTH` silently disabled webhook auth. The audit that followed turned up three more fail-opens, a stale PII reserved-attribute list, a global-scan bug in GDPR purge, patch-clobber bugs that erased revenue and ownership data on partial events, an IDOR-shaped pattern in our own examples, and a missing discriminator that conflated one-shot consumables with recurring subscriptions. Bundled because they share an audit pass.
-
-MINOR bump (pre-1.0): three new schema fields (`subscriptions.kind`, `customers.countryCode`, `customers.managementUrl`), one new join table (`transferParticipants`), one renamed export (`getActiveConsumables` → `getConsumables`), and a behavior change to `httpHandler()` (throws at module load when the secret is absent rather than silently allowing every POST).
+`httpHandler()` was getting silently mounted unauthenticated when `REVENUECAT_WEBHOOK_AUTH` was missing. Plus an audit pass on the handlers, GDPR purge, PII list, and the example that fell out of fixing it.
 
 ### Upgrade notes
 
-- **Set `REVENUECAT_WEBHOOK_AUTH` before deploying.** `httpHandler()` throws at module load if the secret is missing or below 32 chars after stripping `"Bearer "` and whitespace. `openssl rand -base64 32` produces ~44 chars. If you were already using that, no change.
-- **Audit your own queries that accept `appUserId` from the client.** The package surface is unchanged but the README and `example/convex/subscriptions.ts` previously demonstrated an IDOR pattern. The fixed examples spread `revenuecat.api()` so each handler derives `appUserId` from `ctx.auth.getUserIdentity().subject` server-side.
-- **Run `transfers.backfillTransferParticipants` once if you have pre-0.3.0 TRANSFER data.** A new `transferParticipants` join table makes GDPR purge O(per-user) instead of a global scan capped at 500 rows. `customers.purge` falls back to the legacy scan for unbackfilled rows, so the upgrade is non-blocking.
-- **Run `subscriptions.backfillKind` once if you have pre-0.3.0 NON_RENEWING_PURCHASE data.** Walks the `webhookEvents` audit log and patches matching rows to `kind: "consumable"` so `getActiveSubscriptions` filters them out. Bounded by the 30-day audit retention. Older consumable rows stay `kind: undefined` and keep showing up in `getActiveSubscriptions` until you patch them yourself. Idempotent and paginated.
-- **`getConsumables` lands in this release.** Earlier draft drops named it `getActiveConsumables`. Consumables don't expire by time, so the "Active" prefix was misleading. If you tested an unreleased commit, update the name. No deprecation alias: latest published is 0.2.1, so no consumer can have called the old name on a published build.
-
-### Security
-
-- **`httpHandler()` requires a configured webhook secret.** Throws at module load when undefined. The prior `if (expectedAuth)` check was falsy on `undefined`, processing any POST against the webhook route. The constructor's empty-string guard alone was insufficient because consumers commonly write `REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH` and an unset env var is `undefined`, not `""`.
-- **`REVENUECAT_WEBHOOK_AUTH` must clear a 32-char floor post-extract.** A `"Bearer "` paste error (header label without value) used to reduce to `""` at compare time, indistinguishable from a missing `Authorization` header. Now rejected at construction and re-validated in `httpHandler()`. Matches Stripe's `whsec_` minimum and NIST SP 800-63B's 128-bit secure-token bar.
-- **`DEFAULT_PII_ATTRIBUTE_KEYS` corrected against iOS+Android SDK enums.** The prior list invented `$androidIdfa`, `$firstName`, `$lastName` (RC never emits these) and missed `$amazonAdId`, `$attConsentStatus`, `$deviceVersion`, `$apnsTokens`, plus every documented attribution-ID key (`$adjustId`, `$appsflyerId`, `$onesignalId`, `$mixpanelDistinctId`, `$firebaseAppInstanceId`, etc.). Verified against `ReservedSubscriberAttributes.swift` and `SpecialSubscriberAttributes.kt`. Campaign-attribution keys (`$mediaSource`, `$campaign`, `$adGroup`, `$ad`, `$keyword`, `$creative`) intentionally stay un-stripped: acquisition metadata, not identity.
-- **README and `example/convex/subscriptions.ts` drop the IDOR pattern.** Every example query/action derives `appUserId` from `ctx.auth.getUserIdentity().subject` instead of accepting `v.string()` args. Per the Convex AI guidelines: "NEVER accept a `userId` or any user identifier as a function argument for authorization purposes."
-- **Webhook handler rejects oversized bodies (1MB), unknown `environment` values, and malformed event IDs at the HTTP boundary.** Closes a `recordFailure` flood path (whitespace event.ids would have written one audit row per request) and stops the type-only `environment` cast from tagging sandbox events as `PRODUCTION`.
-- **Rate-limit key falls back to `app_user_id` when `app_id` is absent.** The prior `event.app_id ?? "global"` would put every app-id-less event into one shared bucket across tenants. Now per-user when `app_id` is missing, `"global"` only as a final fallback.
-- **`recordFailure` swallow logs at `console.error`.** Audit-row drops are operationally significant. Observability tools page on errors, not warnings.
+- Set `REVENUECAT_WEBHOOK_AUTH` before deploying. `httpHandler()` throws at module load if it's missing or under 32 chars after stripping `Bearer ` and whitespace. `openssl rand -base64 32` produces ~44 chars.
+- Audit any queries that take `appUserId` from the client. The package surface is unchanged, but the README and `example/convex/subscriptions.ts` previously showed an IDOR pattern. Spread `revenuecat.api()` so each handler derives `appUserId` from `ctx.auth.getUserIdentity().subject` server-side.
+- Run `transfers.backfillTransferParticipants` once if you have pre-0.3.0 TRANSFER data. The new `transferParticipants` join table makes GDPR purge O(per-user). `customers.purge` falls back to the legacy scan for unbackfilled rows, so the upgrade is non-blocking.
+- Run `subscriptions.backfillKind` once if you have pre-0.3.0 NON_RENEWING_PURCHASE data. Walks the `webhookEvents` audit log and patches matching rows to `kind: "consumable"`. Bounded by the 30-day audit retention.
 
 ### Fixed
 
-- **`upsertSubscription` no longer erases revenue, ownership, or offer fields on partial events.** Convex `patch({ field: undefined })` removes the field. The prior code wrote `priceUsd`, `currency`, `priceInPurchasedCurrency`, `countryCode`, `taxPercentage`, `commissionPercentage`, `offerCode`, `presentedOfferingId`, `renewalNumber`, `purchasedAtMs`, `transactionId`, `ownershipType`, `isFamilyShare`, `isTrialConversion`, and `newProductId` directly. UNCANCELLATION, BILLING_ISSUE, EXPIRATION events that don't echo every field would erase them on every webhook. Each field now falls back to the existing record. `processRenewal`'s period-marker clear semantics are preserved by adding `newProductId` to the explicit overrides interface.
-- **`grantEntitlements` no longer erases `purchasedAtMs`, `store`, `productId`, or `ownershipType` on re-grant.** Same root cause as above. `expiresAtMs` already had the guard, the others didn't.
-- **`customers.lastSeenAt` stays monotonic.** `Math.max(existing.lastSeenAt ?? 0, event.event_timestamp_ms)` instead of direct patch. Out-of-order events no longer regress.
-- **`customers.originalAppUserId` survives partial events.** Falls back through `event.original_app_user_id ?? existing.originalAppUserId ?? appUserId` so later events that omit it don't clobber the canonical link.
-- **`event.event_timestamp_ms` is clamped to `now + 5min` on insert.** Prevents a poisoned-future timestamp from locking `firstSeenAt` / `lastSeenAt` permanently. The `countryCode` mirror compares against `min(existing.lastSeenAt, now)` with 30-second lag tolerance so legacy poisoned data can't block legitimate updates.
-- **TRANSFER events dedupe on direct re-invocation.** Webhook-level dedup catches RC retries. A direct `processTransfer` call would insert a second row. The handler now checks `by_event_id` first.
-- **Anonymous-source TRANSFER cleanup drops `transferParticipants`.** The orphan join rows would otherwise accumulate as the source customer is purged.
-- **`webhookEvents` audit log captures permanent failures.** A new `recordFailure` internal mutation runs from the HTTP boundary when `process` throws `INVALID_ARGUMENT`. The audit row survives the inner rollback. Transient failures still roll back without a row so RC's retry mechanism stays clean. The redactor is wrapped in try/catch so a buggy custom redactor can't 500 the request and trigger RC's permanent-drop retry policy.
+- `httpHandler()` throws at module load when `REVENUECAT_WEBHOOK_AUTH` is missing or under 32 chars after stripping `Bearer ` and whitespace. Matches Stripe's `whsec_` minimum and NIST SP 800-63B's 128-bit secure-token bar.
+- `upsertSubscription` and `grantEntitlements` preserve prices, ownership, and offer codes across partial events. Each field falls back to `existing.field` so a webhook missing a key can't erase it.
+- README and `example/convex/subscriptions.ts` drop the IDOR pattern. Every example query derives `appUserId` from `ctx.auth.getUserIdentity().subject` instead of accepting `v.string()` args.
+- `DEFAULT_PII_ATTRIBUTE_KEYS` rebuilt line-by-line against `ReservedSubscriberAttributes.swift` and `SpecialSubscriberAttributes.kt`. Strips `$amazonAdId`, `$attConsentStatus`, `$deviceVersion`, `$apnsTokens`, and every attribution-ID key (`$adjustId`, `$appsflyerId`, `$onesignalId`, `$mixpanelDistinctId`, `$firebaseAppInstanceId`).
+- HTTP boundary rejects 1MB+ bodies, unknown `environment` values, whitespace event ids, and 128+ char event ids before any database touch.
+- Rate-limit key falls back to `app_user_id` when `app_id` is absent. App-id-less events get per-user buckets instead of a shared global one.
+- `customers.lastSeenAt` stays monotonic. `event.event_timestamp_ms` is clamped to `now + 5min`. `customers.originalAppUserId` falls back through event, existing, then `appUserId`.
+- TRANSFER dedupes on direct re-invocation. Anonymous-source cleanup also drops `transferParticipants`.
+- `recordFailure` writes the audit row in a separate transaction so permanent failures survive the inner rollback. The redactor is wrapped in try/catch.
 
 ### Added
 
-- **`revenuecat.api()` factory now covers every user-scoped query.** Spread `export const { isSubscriber, getActiveEntitlements, getAllSubscriptions, getExperiment, getInvoices, getVirtualCurrencyBalance, ... } = revenuecat.api();` and your Convex file is done. Each handler resolves `appUserId` server-side via the new `getAppUserId` option (defaults to `ctx.auth.getUserIdentity().subject`), closing the IDOR class at the SDK layer. Cross-user lookups (`isInGracePeriod` by transaction id, `getTransfer` by event id) are intentionally omitted. They belong in a role-gated `internalQuery`.
-- **`revenuecat.registerRoutes(http, opts?)`.** One-call alternative to `http.route({ path, method: "POST", handler: revenuecat.httpHandler() })`. Defaults to `/webhooks/revenuecat`.
-- **Nine convenience helpers**: `getEntitlement`, `hasAnyEntitlement`, `isSubscriber`, `isInTrial`, `wasInTrialEver`, `getLatestSubscription`, `getRenewsAtMs`, `getExpiresAtMs`, `getConsumables`.
-- **`getAppUserId` option** on `RevenueCatOptions`. Override the default identity resolver when your auth `subject` and RC `appUserId` are different strings.
-- **`subscriptions.kind` discriminator (`"subscription"` | `"consumable"`).** `processNonRenewingPurchase` writes `"consumable"`. `getActiveSubscriptions` filters them out, `getConsumables` returns them. Pre-0.3.0 NON_RENEWING_PURCHASE rows have `kind: undefined` and would otherwise leak into `getActiveSubscriptions`. Run `subscriptions.backfillKind` to patch them by walking the `webhookEvents` audit log.
-- **`subscriptions.backfillKind` migration.** Idempotent, paginated. Loop until `nextCursor` is null. Bounded by the 30-day audit retention. Older consumable rows can't be classified this way and stay `kind: undefined` until you patch them yourself.
-- **`customers.countryCode` and `customers.managementUrl`.** Country mirrored from the latest event that carried it. Management URL populated by `syncSubscriber` from RC's REST `subscriber.management_url`.
+- `revenuecat.api()` factory resolves `appUserId` from `ctx.auth.getUserIdentity().subject` server-side. Spread it into your `convex/` file to close the IDOR class at the SDK layer. `getAppUserId` option overrides the default resolver.
+- `revenuecat.registerRoutes(http, opts?)` shortcut. Defaults to `/webhooks/revenuecat`.
+- Nine helpers: `getEntitlement`, `hasAnyEntitlement`, `isSubscriber`, `isInTrial`, `wasInTrialEver`, `getLatestSubscription`, `getRenewsAtMs`, `getExpiresAtMs`, `getConsumables`.
+- `subscriptions.kind` (`"subscription"` or `"consumable"`). `getActiveSubscriptions` filters NON_RENEWING_PURCHASE rows out, `getConsumables` returns them. `subscriptions.backfillKind` migration patches pre-0.3.0 rows from the audit log.
+- `transferParticipants` join table for O(per-user) GDPR purge. `transfers.backfillTransferParticipants` migration populates the table for pre-0.3.0 rows.
+- `customers.countryCode` mirrored monotonically by `event_timestamp_ms`. `customers.managementUrl` populated by `syncSubscriber` from RC REST.
 
 ### Changed
 
-- **`cleanup.rateLimits` cron drains in batches with continuation.** The prior unbounded `.collect()` would exceed Convex's per-transaction read limit on heavy-traffic deployments where >8K rate-limit entries accumulate between hourly runs.
-- **Compound `by_app_user_product` index on `subscriptions`.** Replaces `withIndex(by_app_user).filter(productId)` on a hot path. Dropped the unused `by_product` index.
-- **`transfers` joined by `transferParticipants`.** Each TRANSFER writes one row plus N+M participant rows keyed by `appUserId`, replacing the array-scan in `customers.purge`. The legacy fallback only throws when it hits the cap **and** finds unbackfilled hits, so post-upgrade systems with >500 fully-backfilled transfers don't trip it.
-- **`snapshotEntitlements` and virtual currency lookups parallelized.** `Promise.all` across users/adjustments instead of sequential awaits.
-- **`transfers.list` caps `limit` at 1000.**
+- `cleanup.rateLimits` paginates with `runAfter(0)` continuation past the per-tx write cap.
+- `by_app_user_product` compound index on `subscriptions`. Dropped unused `by_product`.
+- `transfers.list` caps `limit` at 1000.
+
+Reported by [@Nils-Fischer](https://github.com/Nils-Fischer) in [#17](https://github.com/ramonclaudio/convex-revenuecat/issues/17).
 
 ## [0.2.1] - 2026-04-18
 
