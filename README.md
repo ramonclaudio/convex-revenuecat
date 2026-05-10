@@ -50,14 +50,12 @@ const revenuecat = new RevenueCat(components.revenuecat, {
   REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
 });
 
-http.route({
-  path: "/webhooks/revenuecat",
-  method: "POST",
-  handler: revenuecat.httpHandler(),
-});
+revenuecat.registerRoutes(http);
 
 export default http;
 ```
+
+`registerRoutes(http)` defaults to `POST /webhooks/revenuecat`. Pass `{ path: "/custom/path" }` to mount elsewhere. The longer `http.route({ path, method: "POST", handler: revenuecat.httpHandler() })` form still works.
 
 ### 3. Set the env variable
 
@@ -65,6 +63,8 @@ export default http;
 openssl rand -base64 32
 npx convex env set REVENUECAT_WEBHOOK_AUTH "your-generated-secret"
 ```
+
+The component throws at module load if the secret is missing or, after stripping any `Bearer ` prefix and whitespace, shorter than 32 characters. RevenueCat doesn't sign payloads, so the shared secret is the entire security boundary. Short or empty values fail the deploy rather than silently mounting an unauthenticated endpoint.
 
 ### 4. Configure RevenueCat
 
@@ -87,19 +87,88 @@ export const revenuecat = new RevenueCat(components.revenuecat, {
 });
 ```
 
+### Authorize every query
+
+Never accept `appUserId` as a function argument. Derive it from `ctx.auth.getUserIdentity()` server-side. Accepting it from the client is an IDOR: any caller can read any other user's subscription state by passing their ID. Convex's own AI guidelines spell this out: "NEVER accept a `userId` or any user identifier as a function argument for authorization purposes."
+
+The snippets below assume `identity.subject` is the same string the mobile app passes to `Purchases.configure(...)` or `Purchases.logIn(...)`. If your auth provider's `subject` and your RC `appUserId` differ, look up the mapping from a `users` table keyed by `identity.tokenIdentifier` instead.
+
+#### Use `revenuecat.api()` to skip the boilerplate
+
+The `api()` factory returns identity-aware query handlers you can spread into your `convex/` file. Each handler resolves the caller's `appUserId` server-side, so the IDOR class is closed by construction:
+
+```typescript
+// convex/revenuecat.ts
+import { RevenueCat } from "convex-revenuecat";
+import { components } from "./_generated/api";
+
+export const revenuecat = new RevenueCat(components.revenuecat, {
+  REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
+});
+
+export const {
+  // entitlements
+  getActiveEntitlements,
+  getAllEntitlements,
+  getEntitlement,
+  hasEntitlement,
+  hasAnyEntitlement,
+  getRenewsAtMs,
+  getExpiresAtMs,
+  // subscriptions
+  getActiveSubscriptions,
+  getAllSubscriptions,
+  getConsumables,
+  getSubscriptionsInGracePeriod,
+  getLatestSubscription,
+  isSubscriber,
+  isInTrial,
+  wasInTrialEver,
+  // customer + ancillary
+  getCustomer,
+  getExperiment,
+  getExperiments,
+  getInvoices,
+  getVirtualCurrencyBalance,
+  getVirtualCurrencyBalances,
+  getVirtualCurrencyTransactions,
+} = revenuecat.api();
+```
+
+Then from React: `useQuery(api.revenuecat.isSubscriber, {})`. The factory covers every user-scoped query the client exposes. Cross-user lookups (`isInGracePeriod` by transaction id, `getTransfer`/`getInvoice` by id) stay off `api()` because they belong in role-gated `internalQuery`s, not auth-anywhere endpoints. Override the resolver with the `getAppUserId` option when your auth identity and RevenueCat app-user-id are different strings:
+
+```typescript
+new RevenueCat(components.revenuecat, {
+  REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
+  getAppUserId: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const user = await ctx.db
+      .query("users")
+      .withIndex("byTokenIdentifier", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier))
+      .unique();
+    if (!user) throw new Error("User not found");
+    return user.appUserId;
+  },
+});
+```
+
+If you want tier-specific queries (e.g., `checkPremium`), write them on top of the helpers below. `revenuecat.api()` is the safe default, not the only path.
+
 ### Check entitlements
 
 ```typescript
 import { query } from "./_generated/server";
 import { revenuecat } from "./revenuecat";
-import { v } from "convex/values";
 
 export const checkPremium = query({
-  args: { appUserId: v.string() },
+  args: {},
   returns: v.boolean(),
-  handler: async (ctx, args) => {
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
     return await revenuecat.hasEntitlement(ctx, {
-      appUserId: args.appUserId,
+      appUserId: identity.subject,
       entitlementId: "premium",
     });
   },
@@ -113,19 +182,21 @@ Webhooks can be delayed or dropped. `syncSubscriber` pulls a subscriber's curren
 ```typescript
 import { action } from "./_generated/server";
 import { revenuecat } from "./revenuecat";
-import { v } from "convex/values";
 
-export const syncUser = action({
-  args: { appUserId: v.string() },
-  handler: async (ctx, args) => {
+export const syncCurrentUser = action({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const appUserId = identity.subject;
     const res = await fetch(
-      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(args.appUserId)}`,
+      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(appUserId)}`,
       { headers: { Authorization: `Bearer ${process.env.REVENUECAT_API_KEY}` } },
     );
     if (!res.ok) throw new Error(`RevenueCat API: ${res.status}`);
     const data = await res.json();
     return await revenuecat.syncSubscriber(ctx, {
-      appUserId: args.appUserId,
+      appUserId,
       subscriber: data.subscriber,
     });
   },
@@ -144,10 +215,19 @@ All query methods return empty arrays or `null` for missing users (never throw).
 | Method | Returns |
 |:-------|:--------|
 | `hasEntitlement(ctx, { appUserId, entitlementId })` | `boolean` |
+| `getEntitlement(ctx, { appUserId, entitlementId })` | `Entitlement \| null` |
 | `getActiveEntitlements(ctx, { appUserId })` | `Entitlement[]` |
 | `getAllEntitlements(ctx, { appUserId })` | `Entitlement[]` |
+| `hasAnyEntitlement(ctx, { appUserId })` | `boolean` |
 | `getActiveSubscriptions(ctx, { appUserId })` | `Subscription[]` |
+| `getConsumables(ctx, { appUserId })` | `Subscription[]` |
 | `getAllSubscriptions(ctx, { appUserId })` | `Subscription[]` |
+| `getLatestSubscription(ctx, { appUserId })` | `Subscription \| null` |
+| `isSubscriber(ctx, { appUserId })` | `boolean` |
+| `isInTrial(ctx, { appUserId })` | `boolean` |
+| `wasInTrialEver(ctx, { appUserId })` | `boolean` |
+| `getRenewsAtMs(ctx, { appUserId, entitlementId })` | `number \| null` |
+| `getExpiresAtMs(ctx, { appUserId, entitlementId })` | `number \| null` |
 | `isInGracePeriod(ctx, { originalTransactionId })` | `GracePeriodStatus` |
 | `getSubscriptionsInGracePeriod(ctx, { appUserId })` | `Subscription[]` |
 | `getCustomer(ctx, { appUserId })` | `Customer \| null` |
@@ -162,6 +242,8 @@ All query methods return empty arrays or `null` for missing users (never throw).
 | `getVirtualCurrencyBalances(ctx, { appUserId })` | `VirtualCurrencyBalance[]` |
 | `getVirtualCurrencyTransactions(ctx, { appUserId, currencyCode? })` | `VirtualCurrencyTransaction[]` |
 | `syncSubscriber(ctx, { appUserId, subscriber })` | `SyncResult` |
+| `api()` | typed map of identity-aware queries |
+| `registerRoutes(http, { path? })` | mounts the webhook handler |
 
 ### Helpers
 
@@ -172,7 +254,7 @@ Standalone functions exported from `convex-revenuecat` for use on the client or 
 | `willRenew(sub)` | `boolean` |
 | `decodeSubscriberAttributes(attrs)` | `Record<string, T> \| undefined` |
 
-`willRenew(sub)` re-derives the iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew` signal from a `Subscription` doc (lifetime, `PREPAID`, `PROMOTIONAL`, `unsubscribeDetectedAt`, `billingIssueDetectedAt`). Matches the value already stored in `autoRenewStatus`; useful when mixing stored state with live adjustments.
+`willRenew(sub)` re-derives the iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew` signal from a `Subscription` doc (lifetime, `PREPAID`, `PROMOTIONAL`, `unsubscribeDetectedAt`, `billingIssueDetectedAt`). Matches the value already stored in `autoRenewStatus`. Useful when mixing stored state with live adjustments.
 
 `decodeSubscriberAttributes(attrs)` rewrites `__dollar__`-encoded keys back to RC-native `$`-prefixed names (`$email`, `$phoneNumber`, etc.). See [Decoding attribute keys](#decoding-attribute-keys).
 
@@ -192,7 +274,7 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 | `TRANSFER` | Moves entitlements and subscriptions between users. When the source is a `$RCAnonymousID:` ID with no active data remaining, the source customer row and its audit trail are dropped, matching the "anonymous ID is dead after merge" semantic that iOS `DeviceCache.clearCaches` and Android `deviceCache.clearCachesForAppUserID` apply client-side |
 | `UNCANCELLATION` | Clears cancellation status |
 | `PRODUCT_CHANGE` | Updates product on subscription |
-| `NON_RENEWING_PURCHASE` | Grants entitlements for one-time purchase |
+| `NON_RENEWING_PURCHASE` | Grants entitlements for one-time purchase. Stored with `kind: "consumable"` so `getActiveSubscriptions` filters them out and `getConsumables` returns them |
 | `TEMPORARY_ENTITLEMENT_GRANT` | Temp access during store outage (24h max) |
 | `REFUND_REVERSED` | Restores entitlements |
 | `TEST` | Logged only |
@@ -202,7 +284,7 @@ RevenueCat emits 17 canonical event types. The component handles all of them plu
 | `REFUND` *(legacy)* | Revokes entitlements. As of 2026 RC emits refunds as `CANCELLATION` with `cancel_reason: "CUSTOMER_SUPPORT"`. Handler retained for legacy projects |
 | `SUBSCRIBER_ALIAS` *(legacy)* | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. Drops the anonymous source customer row after merge. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291); new projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
 
-`CANCELLATION` does NOT revoke entitlements for normal unsubscribes. Users keep access until `EXPIRATION`. Refunds are the exception: a `CANCELLATION` where `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` revokes entitlements immediately. `price < 0` catches Google Play self-serve refunds and dashboard-issued refunds that leave `cancel_reason` as `DEVELOPER_INITIATED`; gating on `cancel_reason` alone leaks access in those cases.
+`CANCELLATION` does NOT revoke entitlements for normal unsubscribes. Users keep access until `EXPIRATION`. Refunds are the exception: a `CANCELLATION` where `cancel_reason === "CUSTOMER_SUPPORT"` OR `price < 0` revokes entitlements immediately. `price < 0` catches Google Play self-serve refunds and dashboard-issued refunds that leave `cancel_reason` as `DEVELOPER_INITIATED`. Gating on `cancel_reason` alone leaks access in those cases.
 
 A refund doesn't necessarily deactivate auto-renewal: if the subscription auto-renews to a new period, a subsequent `RENEWAL` restores access. For extra safety on cancellation events, callers can optionally call `syncSubscriber` to cross-check against `GET /v1/subscribers/{app_user_id}`.
 
@@ -221,6 +303,10 @@ import { willRenew } from "convex-revenuecat";
 
 const active = subs.filter(willRenew);
 ```
+
+### Customer record
+
+`getCustomer` returns `countryCode` (ISO 3166-1 alpha-2, mirrored from the latest event that carried one) and `managementUrl` (RC REST `subscriber.management_url`, the deep link to the native subscription manager: App Store on iOS, Play Store on Android, Stripe portal on web). `managementUrl` is populated only by `syncSubscriber`. Webhooks don't carry it. Both are `undefined` until the first event/sync that supplies them.
 
 ### Family sharing
 
@@ -314,7 +400,7 @@ Per-event semantics:
 - Multi-entitlement events fire one hook invocation per transitioning entitlement.
 - Idempotent events fire at most once per transition. A retry with the same `event.id` dedups before the handler runs.
 - `TRANSFER` fires `onEntitlementDeactivated` for the source user and `onEntitlementActivated` for the destination.
-- Hooks run via Convex's scheduler **after** the enclosing mutation commits. A rolled-back mutation never schedules its hooks (scheduler writes are part of the transaction). A hook throwing does NOT retry the webhook. Scheduled mutations retry exactly-once per Convex scheduler policy; scheduled actions retry at-most-once. Make hooks idempotent.
+- Hooks run via Convex's scheduler **after** the enclosing mutation commits. A rolled-back mutation never schedules its hooks (scheduler writes are part of the transaction). A hook throwing does NOT retry the webhook. Scheduled mutations retry exactly-once per Convex scheduler policy. Scheduled actions retry at-most-once. Make hooks idempotent.
 - Snapshots that power transition detection only run when at least one hook is configured, so consumers without hooks pay zero overhead.
 
 ### Cross-platform coverage
@@ -325,7 +411,7 @@ Handlers accept webhook payloads from all RevenueCat stores: Apple App Store, Ma
 
 RevenueCat delivers webhooks at-least-once with rare duplicates. The component dedupes by `event.id` via the `webhookEvents` table.
 
-RC's retry policy: 5 retries at 5, 10, 20, 40, and 80 minutes after first failure. Request timeout is 60s. Only HTTP 200 counts as success; any other code (including 429 from the built-in rate limiter) triggers retry. After 5 failed attempts the event is dropped.
+RC's retry policy: 5 retries at 5, 10, 20, 40, and 80 minutes after first failure. Request timeout is 60s. Only HTTP 200 counts as success. Any other code (including 429 from the built-in rate limiter) triggers retry. After 5 failed attempts the event is dropped.
 
 ## Authentication
 
@@ -344,7 +430,7 @@ If you call `syncSubscriber` or the RC REST API from your actions, RC applies th
 | v2 Charts & Metrics | Charts & Metrics | 5 req/min |
 | v2 Virtual Currencies - Create Transaction | Virtual Currencies - Create Transaction | 480 req/min |
 
-Limits apply per API key (app-level keys) or per developer (developer-level keys). Responses carry `RevenueCat-Rate-Limit-Current-Usage` and `RevenueCat-Rate-Limit-Current-Limit` headers; 429 on exceed.
+Limits apply per API key (app-level keys) or per developer (developer-level keys). Responses carry `RevenueCat-Rate-Limit-Current-Usage` and `RevenueCat-Rate-Limit-Current-Limit` headers. 429 on exceed.
 
 ## PII and subscriber attributes
 
@@ -381,10 +467,42 @@ console.log(attrs?.$email?.value); // "user@example.com"
 ## Limitations
 
 - No automatic backfill. Existing subscribers before webhook setup won't appear until they trigger a new event or you call `syncSubscriber` for each user.
-- Raw payloads stored for 30 days; PII keys redacted by default (see above).
+- Raw payloads stored for 30 days. PII keys redacted by default (see above).
 - Rate limited at 100 req/min per app. Dedup runs BEFORE the rate-limit check so webhook replays (same `event.id`) don't consume the rate budget.
 - Transfer/alias/purge operations cap at 500 records per user to stay under Convex's per-transaction write budget. Pathological accounts (more than 500 entitlements or subscriptions for a single user) will throw instead of silently corrupting state.
-- `event.id` is capped at 128 bytes to defend against storage DoS.
+- `event.id` is capped at 128 bytes. Webhook bodies are capped at 1MB. Both reject at the HTTP boundary before any database touch.
+- `event.event_timestamp_ms` is clamped to `now + 5min` on insert so a clock-skewed or malicious timestamp can't lock `customers.firstSeenAt` / `lastSeenAt` at a far-future value.
+
+## Upgrading from 0.2.1
+
+If your deployment shipped 0.2.1 or earlier, run two one-shot migrations after upgrading. Both are idempotent and paginated. Loop until `nextCursor` is null.
+
+`transfers.backfillTransferParticipants` populates the new `transferParticipants` join table for legacy `transfers` rows so GDPR purge stays index-driven instead of falling back to the bounded scan.
+
+`subscriptions.backfillKind` walks the `webhookEvents` audit log for `NON_RENEWING_PURCHASE` events and patches matching subscriptions to `kind: "consumable"`. Without this, pre-0.3.0 consumable rows leak into `getActiveSubscriptions` (their `kind` is `undefined`, so the filter treats them as recurring). Bounded by the 30-day audit retention. Older rows can't be classified this way and stay `kind: undefined`.
+
+```typescript
+import { internalAction } from "./_generated/server";
+import { components } from "./_generated/api";
+
+export const backfillRevenueCat = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    for (const mutation of [
+      components.revenuecat.transfers.backfillTransferParticipants,
+      components.revenuecat.subscriptions.backfillKind,
+    ] as const) {
+      let cursor: string | null = null;
+      do {
+        const result = await ctx.runMutation(mutation, {
+          cursor: cursor ?? undefined,
+        });
+        cursor = result.nextCursor;
+      } while (cursor);
+    }
+  },
+});
+```
 
 ## GDPR / data deletion
 
@@ -395,20 +513,24 @@ To also purge RevenueCat-side, call `DELETE /v1/subscribers/{app_user_id}` from 
 ```typescript
 import { action } from "./_generated/server";
 import { revenuecat } from "./revenuecat";
-import { v } from "convex/values";
 
-export const forgetUser = action({
-  args: { appUserId: v.string() },
-  handler: async (ctx, args) => {
-    const local = await revenuecat.deleteCustomer(ctx, { appUserId: args.appUserId });
+export const forgetMe = action({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+    const appUserId = identity.subject;
+    const local = await revenuecat.deleteCustomer(ctx, { appUserId });
     await fetch(
-      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(args.appUserId)}`,
+      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(appUserId)}`,
       { method: "DELETE", headers: { Authorization: `Bearer ${process.env.REVENUECAT_API_KEY}` } },
     );
     return local;
   },
 });
 ```
+
+GDPR data deletion requests typically arrive through a support workflow rather than a self-serve client mutation. If you wire a public action like the one above, keep it scoped to the authenticated caller's own data. For admin-initiated purges (a support agent acting on a different `appUserId`), use a separate `internalAction` gated by an explicit role check, never a public action that accepts `appUserId` from the client.
 
 ## Testing
 
