@@ -8,10 +8,6 @@ const revenuecat = new RevenueCat(components.revenuecat, {
   REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
 });
 
-http.route({
-  path: "/webhooks/revenuecat",
-  method: "POST",
-  handler: revenuecat.httpHandler(),
-});
+revenuecat.registerRoutes(http);
 
 export default http;

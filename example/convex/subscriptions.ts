@@ -1,198 +1,72 @@
+// Authorization pattern
+//
+// `revenuecat.api()` returns identity-aware query handlers. Each resolves the
+// caller's `appUserId` via `ctx.auth.getUserIdentity().subject` server-side,
+// so accepting `appUserId` as a function argument (an IDOR) becomes
+// impossible by construction. This file spreads `api()` for the standard
+// queries, then defines a tier-specific `checkPremium` to show the manual
+// auth pattern when you need a query the factory doesn't cover.
+//
+// Convex's own AI guidelines: "NEVER accept a `userId` or any user
+// identifier as a function argument for authorization purposes."
+//
+// This example assumes `identity.subject` is the same string the mobile app
+// passes to `Purchases.configure(...)` or `Purchases.logIn(...)`. If your
+// auth provider's `subject` and your RC `appUserId` differ, configure
+// `getAppUserId` on `RevenueCat` to do the lookup. Admin tooling that
+// legitimately needs to read other users' data should use a separate
+// `internalQuery` gated by an explicit role check.
+
 import { v } from "convex/values";
 import { query } from "./_generated/server.js";
 import { components } from "./_generated/api.js";
 import { RevenueCat } from "convex-revenuecat";
 
-const revenuecat = new RevenueCat(components.revenuecat);
-
-const storeValidator = v.union(
-  v.literal("AMAZON"),
-  v.literal("APP_STORE"),
-  v.literal("EXTERNAL"),
-  v.literal("GALAXY"),
-  v.literal("MAC_APP_STORE"),
-  v.literal("PADDLE"),
-  v.literal("PLAY_STORE"),
-  v.literal("PROMOTIONAL"),
-  v.literal("RC_BILLING"),
-  v.literal("ROKU"),
-  v.literal("STRIPE"),
-  v.literal("TEST_STORE"),
-  v.literal("UNKNOWN_STORE"),
-);
-
-const ownershipTypeValidator = v.union(
-  v.literal("PURCHASED"),
-  v.literal("FAMILY_SHARED"),
-  v.literal("UNKNOWN"),
-);
-
-const entitlementValidator = v.object({
-  _id: v.string(),
-  _creationTime: v.number(),
-  appUserId: v.string(),
-  entitlementId: v.string(),
-  productId: v.optional(v.string()),
-  isActive: v.boolean(),
-  expiresAtMs: v.optional(v.number()),
-  purchasedAtMs: v.optional(v.number()),
-  store: v.optional(storeValidator),
-  isSandbox: v.boolean(),
-  unsubscribeDetectedAt: v.optional(v.number()),
-  billingIssueDetectedAt: v.optional(v.number()),
-  ownershipType: v.optional(ownershipTypeValidator),
-  updatedAt: v.number(),
+const revenuecat = new RevenueCat(components.revenuecat, {
+  REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
 });
 
-const subscriptionValidator = v.object({
-  _id: v.string(),
-  _creationTime: v.number(),
-  appUserId: v.string(),
-  productId: v.string(),
-  entitlementIds: v.optional(v.array(v.string())),
-  store: storeValidator,
-  environment: v.union(v.literal("SANDBOX"), v.literal("PRODUCTION")),
-  periodType: v.union(
-    v.literal("TRIAL"),
-    v.literal("INTRO"),
-    v.literal("NORMAL"),
-    v.literal("PROMOTIONAL"),
-    v.literal("PREPAID"),
-  ),
-  purchasedAtMs: v.number(),
-  expirationAtMs: v.optional(v.number()),
-  originalTransactionId: v.string(),
-  transactionId: v.string(),
-  isFamilyShare: v.boolean(),
-  ownershipType: v.optional(ownershipTypeValidator),
-  isTrialConversion: v.optional(v.boolean()),
-  autoRenewStatus: v.optional(v.boolean()),
-  cancelReason: v.optional(v.string()),
-  expirationReason: v.optional(v.string()),
-  gracePeriodExpirationAtMs: v.optional(v.number()),
-  billingIssueDetectedAt: v.optional(v.number()),
-  autoResumeAtMs: v.optional(v.number()),
-  priceUsd: v.optional(v.number()),
-  currency: v.optional(v.string()),
-  priceInPurchasedCurrency: v.optional(v.number()),
-  countryCode: v.optional(v.string()),
-  taxPercentage: v.optional(v.number()),
-  commissionPercentage: v.optional(v.number()),
-  offerCode: v.optional(v.string()),
-  presentedOfferingId: v.optional(v.string()),
-  renewalNumber: v.optional(v.number()),
-  newProductId: v.optional(v.string()),
-  refundedAtMs: v.optional(v.number()),
-  originalPurchasedAtMs: v.optional(v.number()),
-  unsubscribeDetectedAt: v.optional(v.number()),
-  updatedAt: v.number(),
-});
+// One-line spread covers every user-scoped query the component exposes.
+// Each handler reads the caller's identity server-side. The client never
+// passes an `appUserId`.
+export const {
+  getActiveEntitlements,
+  getAllEntitlements,
+  getActiveSubscriptions,
+  getAllSubscriptions,
+  getConsumables,
+  getSubscriptionsInGracePeriod,
+  getCustomer,
+  getEntitlement,
+  hasEntitlement,
+  hasAnyEntitlement,
+  isSubscriber,
+  isInTrial,
+  wasInTrialEver,
+  getLatestSubscription,
+  getRenewsAtMs,
+  getExpiresAtMs,
+  getExperiment,
+  getExperiments,
+  getInvoices,
+  getVirtualCurrencyBalance,
+  getVirtualCurrencyBalances,
+  getVirtualCurrencyTransactions,
+} = revenuecat.api();
 
-const customerValidator = v.object({
-  _id: v.string(),
-  _creationTime: v.number(),
-  appUserId: v.string(),
-  originalAppUserId: v.string(),
-  aliases: v.array(v.string()),
-  firstSeenAt: v.number(),
-  lastSeenAt: v.optional(v.number()),
-  attributes: v.optional(v.any()),
-  updatedAt: v.number(),
-});
-
-const experimentValidator = v.object({
-  _id: v.string(),
-  _creationTime: v.number(),
-  appUserId: v.string(),
-  experimentId: v.string(),
-  variant: v.string(),
-  offeringId: v.optional(v.string()),
-  enrolledAtMs: v.number(),
-  updatedAt: v.number(),
-});
-
+// Tier-specific helper: when you want a named query for a single
+// entitlement, write it on top of `revenuecat.hasEntitlement`. The pattern
+// below derives `appUserId` from `ctx.auth.getUserIdentity().subject`,
+// identical to what `api()` does internally.
 export const checkPremium = query({
-  args: { appUserId: v.string() },
+  args: {},
   returns: v.boolean(),
-  handler: async (ctx, args) => {
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
     return await revenuecat.hasEntitlement(ctx, {
-      appUserId: args.appUserId,
+      appUserId: identity.subject,
       entitlementId: "premium",
-    });
-  },
-});
-
-export const getActiveEntitlements = query({
-  args: { appUserId: v.string() },
-  returns: v.array(entitlementValidator),
-  handler: async (ctx, args) => {
-    return await revenuecat.getActiveEntitlements(ctx, {
-      appUserId: args.appUserId,
-    });
-  },
-});
-
-export const getActiveSubscriptions = query({
-  args: { appUserId: v.string() },
-  returns: v.array(subscriptionValidator),
-  handler: async (ctx, args) => {
-    return await revenuecat.getActiveSubscriptions(ctx, {
-      appUserId: args.appUserId,
-    });
-  },
-});
-
-export const getCustomer = query({
-  args: { appUserId: v.string() },
-  returns: v.union(customerValidator, v.null()),
-  handler: async (ctx, args) => {
-    return await revenuecat.getCustomer(ctx, {
-      appUserId: args.appUserId,
-    });
-  },
-});
-
-// Historical data queries (includes expired items)
-
-export const getAllEntitlements = query({
-  args: { appUserId: v.string() },
-  returns: v.array(entitlementValidator),
-  handler: async (ctx, args) => {
-    return await revenuecat.getAllEntitlements(ctx, {
-      appUserId: args.appUserId,
-    });
-  },
-});
-
-export const getAllSubscriptions = query({
-  args: { appUserId: v.string() },
-  returns: v.array(subscriptionValidator),
-  handler: async (ctx, args) => {
-    return await revenuecat.getAllSubscriptions(ctx, {
-      appUserId: args.appUserId,
-    });
-  },
-});
-
-// Experiment queries (A/B testing)
-
-export const getExperiment = query({
-  args: { appUserId: v.string(), experimentId: v.string() },
-  returns: v.union(experimentValidator, v.null()),
-  handler: async (ctx, args) => {
-    return await revenuecat.getExperiment(ctx, {
-      appUserId: args.appUserId,
-      experimentId: args.experimentId,
-    });
-  },
-});
-
-export const getExperiments = query({
-  args: { appUserId: v.string() },
-  returns: v.array(experimentValidator),
-  handler: async (ctx, args) => {
-    return await revenuecat.getExperiments(ctx, {
-      appUserId: args.appUserId,
     });
   },
 });
