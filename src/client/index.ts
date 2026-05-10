@@ -1,5 +1,11 @@
-import { createFunctionHandle, httpActionGeneric } from "convex/server";
-import type { GenericActionCtx, GenericDataModel, FunctionReference } from "convex/server";
+import { createFunctionHandle, httpActionGeneric, queryGeneric } from "convex/server";
+import type {
+  GenericActionCtx,
+  GenericDataModel,
+  FunctionReference,
+  HttpRouter,
+} from "convex/server";
+import { v } from "convex/values";
 import type {
   Customer,
   Entitlement,
@@ -33,9 +39,11 @@ type ClientComponentApi = {
   };
   subscriptions: {
     getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
+    getConsumables: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
     getByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
     isInGracePeriod: FunctionReference<"query", AnyVisibility, { originalTransactionId: string }, GracePeriodReturn>;
     getInGracePeriod: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
+    backfillKind: FunctionReference<"mutation", AnyVisibility, { cursor?: string; pageSize?: number }, { scanned: number; written: number; nextCursor: string | null }>;
   };
   customers: {
     get: FunctionReference<"query", AnyVisibility, { appUserId: string }, Customer | null>;
@@ -59,7 +67,8 @@ type ClientComponentApi = {
     listTransactions: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode?: string }, VirtualCurrencyTransaction[]>;
   };
   webhooks: {
-    process: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown>; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, { processed: boolean; eventId: string; rateLimited?: boolean }>;
+    process: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown>; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, { processed: boolean; eventId: string }>;
+    recordFailure: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown>; error: string }, null>;
   };
   sync: {
     ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: RevenueCatSubscriberInput; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, SyncResult>;
@@ -74,6 +83,9 @@ type RevenueCatSubscriberInput = {
   first_seen?: string;
   last_seen?: string;
   original_app_user_id?: string;
+  /** Native subscription-manager deep link from RC's REST. iOS routes to App
+   * Store settings, Android to Play Store, web to the Stripe portal. */
+  management_url?: string;
 };
 
 export type {
@@ -156,17 +168,10 @@ export type DeleteCustomerResult = {
   transfers: number;
 };
 
-/**
- * Mirror of iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`.
- *
- * The component already stores a derived `autoRenewStatus` on every subscription
- * upsert (webhook and sync paths). This helper lets consumers re-derive on
- * read from a `Subscription` doc, useful when mixing stored state with
- * live adjustments or when reading a doc that pre-dates the derivation logic.
- *
- * Returns false for lifetime, prepaid, promotional, unsubscribed, or
- * billing-issue subs. Matches the five-signal check in both native SDKs.
- */
+/** Re-derive iOS `EntitlementInfo.willRenew` / Android equivalent from a
+ * `Subscription` doc. Returns false for lifetime, prepaid, promotional,
+ * unsubscribed, or billing-issue subs. Mirrors `deriveWillRenew` in
+ * `src/component/handlers.ts`. Keep both in sync. */
 export function willRenew(
   sub: Pick<
     Subscription,
@@ -185,15 +190,9 @@ export function willRenew(
   return true;
 }
 
-/**
- * Decode encoded subscriber attribute keys back to RC's documented names.
- *
- * The component stores `subscriber_attributes` with `__dollar__email` rather
- * than `$email` because Convex rejects `$` at every nesting level. Consumers
- * querying `customer.attributes` should pipe through this helper to get back
- * the RC-native key names (`$email`, `$phoneNumber`, etc.) that downstream
- * analytics/CRM pipelines expect.
- */
+/** Decode `__dollar__email`-encoded subscriber attribute keys back to RC's
+ * native `$email` form. Convex rejects `$` keys at every nesting level, so
+ * the component stores the encoded form and decodes on read. */
 export function decodeSubscriberAttributes<T>(
   attrs: Record<string, T> | undefined,
 ): Record<string, T> | undefined {
@@ -206,30 +205,53 @@ export function decodeSubscriberAttributes<T>(
   return result;
 }
 
-/**
- * Keys considered PII in RC's subscriber_attributes. These are the RC-reserved
- * `$`-prefixed attributes that carry personal data. Used by the default
- * `redactPayload` to strip them from the stored webhook audit log.
- */
+// Cross-checked against iOS `ReservedSubscriberAttributes.swift` and Android
+// `SpecialSubscriberAttributes.kt`. Campaign-attribution keys (`$mediaSource`,
+// `$campaign`, etc.) are intentionally excluded as acquisition metadata, not
+// identity. Override with a custom `redactPayload` if your jurisdiction
+// classifies them as PII.
 const DEFAULT_PII_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
   "$email",
   "$phoneNumber",
   "$displayName",
+  "$ip",
   "$apnsTokens",
   "$fcmTokens",
-  "$gpsAdId",
-  "$androidIdfa",
   "$idfa",
   "$idfv",
-  "$ip",
-  "$firstName",
-  "$lastName",
+  "$gpsAdId",
+  "$amazonAdId",
+  "$deviceVersion",
+  "$attConsentStatus",
+  "$adjustId",
+  "$appsflyerId",
+  "$appstackId",
+  "$fbAnonId",
+  "$mparticleId",
+  "$onesignalId",
+  "$onesignalUserId",
+  "$airshipChannelId",
+  "$clevertapId",
+  "$airbridgeDeviceId",
+  "$kochavaDeviceId",
+  "$mixpanelDistinctId",
+  "$firebaseAppInstanceId",
+  "$tenjinId",
+  "$posthogUserId",
+  "$amplitudeUserId",
+  "$amplitudeDeviceId",
+  "$solarEngineDistinctId",
+  "$solarEngineAccountId",
+  "$solarEngineVisitorId",
 ]);
 
 export type GracePeriodStatus = GracePeriodReturn;
 
 type QueryCtx = Pick<GenericActionCtx<GenericDataModel>, "runQuery">;
 type MutCtx = Pick<GenericActionCtx<GenericDataModel>, "runMutation">;
+type AuthCtx = {
+  auth: { getUserIdentity: () => Promise<{ subject: string } | null> };
+};
 
 export type EntitlementActivatedHookArgs = {
   appUserId: string;
@@ -302,43 +324,31 @@ export type LifecycleHooks = {
 };
 
 export interface RevenueCatOptions {
-  /**
-   * Authorization header value for webhook authentication.
-   * RevenueCat sends this in the Authorization header.
-   * Can be a raw value or "Bearer <token>" format.
-   */
+  /** Shared secret. Required by `httpHandler()`. Optional for query-only use. */
   REVENUECAT_WEBHOOK_AUTH?: string;
   /**
    * Lifecycle hooks invoked when entitlement state transitions or a customer
    * is deleted. Every hook is optional. Hooks are scheduled from inside the
    * component mutation that made the change, so scheduling is atomic with
-   * the state write — a rolled-back mutation never fires its hooks.
+   * the state write. A rolled-back mutation never fires its hooks.
    */
   hooks?: LifecycleHooks;
-  /**
-   * Optional payload-redactor run before webhook events are persisted to the
-   * component's `webhookEvents` audit table. Receives the sanitized payload
-   * (null keys stripped, `$` keys encoded) and returns what to store. Default:
-   * strips RC-reserved PII keys (`$email`, `$phoneNumber`, etc.) from
-   * `subscriber_attributes`. Pass a function to customize; pass `"off"` to
-   * disable redaction (not recommended for GDPR-sensitive apps).
-   */
+  /** Custom redactor run before persisting events to `webhookEvents`. Default
+   * strips RC-reserved PII keys. Pass `"off"` to disable (not recommended). */
   redactPayload?: ((payload: Record<string, unknown>) => Record<string, unknown>) | "off";
+  /** Resolver for `appUserId` used by `revenuecat.api()` queries. Defaults
+   * to `ctx.auth.getUserIdentity().subject`. Override when your auth
+   * identity and RC app-user-id are different strings. */
+  getAppUserId?: (ctx: AuthCtx) => Promise<string> | string;
 }
 
-/**
- * Default PII redactor: removes RC's reserved personal-data attribute keys
- * from `subscriber_attributes` before storing the payload for 30-day audit.
- * Non-destructive (clones the payload), idempotent.
- */
 function defaultRedactPayload(payload: Record<string, unknown>): Record<string, unknown> {
   const attrs = payload.subscriber_attributes as Record<string, unknown> | undefined;
   if (!attrs || typeof attrs !== "object") return payload;
   const redacted: Record<string, unknown> = { ...payload };
   const filteredAttrs: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(attrs)) {
-    // Keys reach this layer already `__dollar__`-encoded by transformPayload;
-    // match on the decoded form against the reserved set.
+    // Keys are `__dollar__`-encoded at this layer. Decode for the lookup.
     const decoded = key.startsWith("__dollar__") ? `$${key.slice(10)}` : key;
     if (DEFAULT_PII_ATTRIBUTE_KEYS.has(decoded)) continue;
     filteredAttrs[key] = value;
@@ -347,10 +357,10 @@ function defaultRedactPayload(payload: Record<string, unknown>): Record<string, 
   return redacted;
 }
 
-/**
- * Constant-time string comparison to prevent timing attacks.
- * Falls back to regular comparison if lengths differ (already leaks length info).
- */
+// Length-mismatch returns early. The leak is a single boolean (lengths match
+// or not), bounded above by header parsing limits. The 32-char floor is
+// independent: it ensures the secret has enough entropy, not that attackers
+// can't probe length. Body runs in constant time once lengths match.
 function secureCompare(a: string, b: string): boolean {
   if (a.length !== b.length) {
     return false;
@@ -362,16 +372,36 @@ function secureCompare(a: string, b: string): boolean {
   return result === 0;
 }
 
-/**
- * Extract token from Authorization header.
- * Supports both "Bearer <token>" format and raw token.
- */
 function extractAuthToken(header: string): string {
   const bearerPrefix = "Bearer ";
   if (header.startsWith(bearerPrefix)) {
     return header.slice(bearerPrefix.length);
   }
   return header;
+}
+
+// NIST SP 800-63B 128-bit secure-token floor. Matches Stripe's `whsec_` minimum.
+const MIN_AUTH_SECRET_LENGTH = 32;
+// 1MB leaves headroom for future RC fields without inviting storage DoS.
+const MAX_WEBHOOK_BODY_BYTES = 1_048_576;
+
+function validateAuthSecret(value: string): void {
+  const stripped = extractAuthToken(value).trim();
+  if (stripped.length === 0) {
+    throw new Error(
+      "[convex-revenuecat] REVENUECAT_WEBHOOK_AUTH is empty after stripping " +
+        'any "Bearer " prefix and whitespace. Generate a secret with ' +
+        "`openssl rand -base64 32` (~44 chars).",
+    );
+  }
+  if (stripped.length < MIN_AUTH_SECRET_LENGTH) {
+    throw new Error(
+      `[convex-revenuecat] REVENUECAT_WEBHOOK_AUTH is ${stripped.length} chars ` +
+        `after stripping (minimum ${MIN_AUTH_SECRET_LENGTH}). RC doesn't sign ` +
+        "payloads, so the secret is the entire security boundary. Generate one " +
+        "with `openssl rand -base64 32` (~44 chars).",
+    );
+  }
 }
 
 const KNOWN_STORES: ReadonlySet<string> = new Set([
@@ -390,16 +420,8 @@ const KNOWN_STORES: ReadonlySet<string> = new Set([
   "UNKNOWN_STORE",
 ]);
 
-/**
- * Normalize a webhook `store` value to the form our schema expects.
- *
- * The Android SDK Store enum uses `unknown` as the wire value for the
- * `UNKNOWN_STORE` case. We map `"UNKNOWN"` to `"UNKNOWN_STORE"` and uppercase
- * anything lower-case. Values not in the known set fall back to
- * `UNKNOWN_STORE` so a future RC store addition doesn't reject the event at
- * the outer schema validator (the inner handler validators already accept
- * `v.any()` for the payload).
- */
+// `unknown` (Android wire value) → UNKNOWN_STORE. Case-normalize. Future
+// values fall back rather than failing the outer validator.
 function normalizeStore(store: unknown): string | undefined {
   if (typeof store !== "string") return undefined;
   const upper = store.toUpperCase();
@@ -407,13 +429,9 @@ function normalizeStore(store: unknown): string | undefined {
   return KNOWN_STORES.has(candidate) ? candidate : "UNKNOWN_STORE";
 }
 
-/**
- * Convert configured entitlement hooks into FunctionHandle strings the
- * component mutations can pass directly to `ctx.scheduler.runAfter`. We use
- * handles (not `FunctionReference` objects) because Convex strips the
- * symbol-keyed markers FunctionReferences rely on when they cross a mutation
- * boundary as args.
- */
+// Resolve hooks to opaque `FunctionHandle` strings before sending them as
+// mutation args. `FunctionReference` objects lose their symbol-keyed markers
+// crossing the boundary, so the strings are the only stable form.
 async function buildHooksArg(
   hooks: LifecycleHooks | undefined,
 ): Promise<
@@ -444,11 +462,8 @@ async function buildHooksArg(
   return result;
 }
 
-/**
- * Transform payload for Convex compatibility:
- * - Remove null object keys (v.optional expects field absence, not null)
- * - Encode $ keys (Convex rejects keys starting with $)
- */
+// Strip null keys (Convex's v.optional expects absence) and `__dollar__`-encode
+// `$` keys (Convex rejects them at every nesting level).
 function transformPayload(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== "object") return obj;
@@ -468,16 +483,10 @@ export class RevenueCat {
     public component: ClientComponentApi,
     public options: RevenueCatOptions = {},
   ) {
-    // Empty-string auth is a footgun: `if (expectedAuth)` treats `""` as
-    // "no auth configured" and accepts unauthenticated requests. Consumers
-    // commonly write `process.env.REVENUECAT_WEBHOOK_AUTH ?? ""`. Fail loud
-    // at construction rather than silently disabling auth.
-    if (options.REVENUECAT_WEBHOOK_AUTH === "") {
-      throw new Error(
-        "[convex-revenuecat] REVENUECAT_WEBHOOK_AUTH cannot be empty string. " +
-          "Omit the field entirely to disable auth (strongly discouraged), or " +
-          "provide a non-empty secret.",
-      );
+    // `undefined` is allowed here for query-only consumers. `httpHandler()`
+    // enforces presence at mount time.
+    if (options.REVENUECAT_WEBHOOK_AUTH !== undefined) {
+      validateAuthSecret(options.REVENUECAT_WEBHOOK_AUTH);
     }
   }
 
@@ -503,6 +512,20 @@ export class RevenueCat {
     return ctx.runQuery(this.component.subscriptions.getActive, args) as Promise<Subscription[]>;
   }
 
+  /** Every `NON_RENEWING_PURCHASE` row for the user, regardless of when it
+   * happened. Consumables don't expire by time. Your app tracks consumption.
+   * `getActiveSubscriptions` filters these out so callers don't conflate
+   * one-shots with recurring subs. */
+  async getConsumables(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Subscription[]> {
+    return ctx.runQuery(
+      this.component.subscriptions.getConsumables,
+      args,
+    ) as Promise<Subscription[]>;
+  }
+
   async getAllSubscriptions(ctx: QueryCtx, args: { appUserId: string }): Promise<Subscription[]> {
     return ctx.runQuery(this.component.subscriptions.getByUser, args) as Promise<Subscription[]>;
   }
@@ -511,17 +534,9 @@ export class RevenueCat {
     return ctx.runQuery(this.component.customers.get, args) as Promise<Customer | null>;
   }
 
-  /**
-   * Purge all component-local data for a user.
-   *
-   * Deletes customer, subscriptions, entitlements, experiments, invoices,
-   * virtual currency balances/transactions, and webhookEvents keyed to the
-   * given appUserId. Returns per-table deletion counts.
-   *
-   * Does NOT call RevenueCat's REST API. To also purge RevenueCat-side,
-   * call `DELETE /v1/subscribers/{app_user_id}` from a Convex action
-   * with a secret API key.
-   */
+  /** Purge all component-local data for a user. Returns per-table counts.
+   * Does NOT call RC's REST API. Wrap a Convex action around
+   * `DELETE /v1/subscribers/{id}` if you need that too. */
   async deleteCustomer(
     ctx: MutCtx,
     args: { appUserId: string },
@@ -583,10 +598,6 @@ export class RevenueCat {
     return ctx.runQuery(this.component.virtualCurrency.listTransactions, args) as Promise<VirtualCurrencyTransaction[]>;
   }
 
-  /**
-   * Check if a specific subscription is currently in a billing grace period.
-   * During grace period, the user should retain access while the store retries charging.
-   */
   async isInGracePeriod(
     ctx: QueryCtx,
     args: { originalTransactionId: string },
@@ -594,9 +605,6 @@ export class RevenueCat {
     return ctx.runQuery(this.component.subscriptions.isInGracePeriod, args) as Promise<GracePeriodStatus>;
   }
 
-  /**
-   * Get all subscriptions currently in a grace period for a user.
-   */
   async getSubscriptionsInGracePeriod(
     ctx: QueryCtx,
     args: { appUserId: string },
@@ -604,13 +612,7 @@ export class RevenueCat {
     return ctx.runQuery(this.component.subscriptions.getInGracePeriod, args) as Promise<Subscription[]>;
   }
 
-  /**
-   * Sync a subscriber's state from RevenueCat's REST API into the component.
-   *
-   * Pass the `subscriber` object from `GET /v1/subscribers/{app_user_id}`.
-   * Upserts customer, subscriptions, and entitlements to match RevenueCat's
-   * source of truth. Call from a Convex action after fetching the API.
-   */
+  /** Idempotent reconcile from `GET /v1/subscribers/{app_user_id}`. */
   async syncSubscriber(
     ctx: MutCtx,
     args: { appUserId: string; subscriber: RevenueCatSubscriber },
@@ -623,6 +625,308 @@ export class RevenueCat {
     }) as Promise<SyncResult>;
   }
 
+  /** The user's active entitlement matching `entitlementId`, or null. */
+  async getEntitlement(
+    ctx: QueryCtx,
+    args: { appUserId: string; entitlementId: string },
+  ): Promise<Entitlement | null> {
+    const entitlements = (await ctx.runQuery(
+      this.component.entitlements.getActive,
+      { appUserId: args.appUserId },
+    )) as Entitlement[];
+    return entitlements.find((e) => e.entitlementId === args.entitlementId) ?? null;
+  }
+
+  /** True when the user has any active entitlement. */
+  async hasAnyEntitlement(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<boolean> {
+    const entitlements = (await ctx.runQuery(
+      this.component.entitlements.getActive,
+      { appUserId: args.appUserId },
+    )) as Entitlement[];
+    return entitlements.length > 0;
+  }
+
+  /** True when the user has any active subscription. */
+  async isSubscriber(ctx: QueryCtx, args: { appUserId: string }): Promise<boolean> {
+    const subs = (await ctx.runQuery(this.component.subscriptions.getActive, {
+      appUserId: args.appUserId,
+    })) as Subscription[];
+    return subs.length > 0;
+  }
+
+  /** True when any active subscription is in TRIAL or INTRO period. */
+  async isInTrial(ctx: QueryCtx, args: { appUserId: string }): Promise<boolean> {
+    const subs = (await ctx.runQuery(this.component.subscriptions.getActive, {
+      appUserId: args.appUserId,
+    })) as Subscription[];
+    return subs.some((s) => s.periodType === "TRIAL" || s.periodType === "INTRO");
+  }
+
+  /** True when the user has ever been in a TRIAL or INTRO period. */
+  async wasInTrialEver(ctx: QueryCtx, args: { appUserId: string }): Promise<boolean> {
+    const subs = (await ctx.runQuery(this.component.subscriptions.getByUser, {
+      appUserId: args.appUserId,
+    })) as Subscription[];
+    return subs.some(
+      (s) =>
+        s.periodType === "TRIAL" || s.periodType === "INTRO" || s.isTrialConversion === true,
+    );
+  }
+
+  /** Returns expiry only when the matching sub will auto-renew. */
+  async getRenewsAtMs(
+    ctx: QueryCtx,
+    args: { appUserId: string; entitlementId: string },
+  ): Promise<number | null> {
+    const [entitlement, subs] = await Promise.all([
+      this.getEntitlement(ctx, args),
+      ctx.runQuery(this.component.subscriptions.getActive, {
+        appUserId: args.appUserId,
+      }) as Promise<Subscription[]>,
+    ]);
+    if (!entitlement?.expiresAtMs) return null;
+    const matchingSub = subs.find(
+      (s) => s.entitlementIds?.includes(args.entitlementId) ?? false,
+    );
+    if (!matchingSub || matchingSub.autoRenewStatus !== true) return null;
+    return entitlement.expiresAtMs;
+  }
+
+  /** `expirationAtMs` for the active entitlement, ignoring renewal state. */
+  async getExpiresAtMs(
+    ctx: QueryCtx,
+    args: { appUserId: string; entitlementId: string },
+  ): Promise<number | null> {
+    const entitlement = await this.getEntitlement(ctx, args);
+    return entitlement?.expiresAtMs ?? null;
+  }
+
+  /** Most-recently-purchased subscription (active or not). */
+  async getLatestSubscription(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Subscription | null> {
+    const subs = (await ctx.runQuery(this.component.subscriptions.getByUser, {
+      appUserId: args.appUserId,
+    })) as Subscription[];
+    if (subs.length === 0) return null;
+    return subs.reduce((latest, sub) =>
+      sub.purchasedAtMs > latest.purchasedAtMs ? sub : latest,
+    );
+  }
+
+  private async resolveAppUserId(ctx: AuthCtx): Promise<string> {
+    if (this.options.getAppUserId) {
+      return await this.options.getAppUserId(ctx);
+    }
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.subject) {
+      throw new Error(
+        "[convex-revenuecat] Not authenticated. Configure `getAppUserId` " +
+          "or call from an authenticated context.",
+      );
+    }
+    return identity.subject;
+  }
+
+  /** Identity-aware query handlers covering every user-scoped query the
+   * client exposes. Spread directly into your Convex file:
+   * `export const { isSubscriber, getActiveSubscriptions, ... } = revenuecat.api();`.
+   * Each handler resolves `appUserId` via `getAppUserId` (default:
+   * `ctx.auth.getUserIdentity().subject`), closing the IDOR class at the
+   * SDK layer. Cross-user lookups (`isInGracePeriod` by transaction id,
+   * `getTransfer` by event id) are intentionally omitted, they belong in
+   * a role-gated `internalQuery`. See README. */
+  api() {
+    return {
+      getActiveEntitlements: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getActiveEntitlements(ctx, { appUserId });
+        },
+      }),
+      getActiveSubscriptions: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getActiveSubscriptions(ctx, { appUserId });
+        },
+      }),
+      getConsumables: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getConsumables(ctx, { appUserId });
+        },
+      }),
+      getAllEntitlements: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getAllEntitlements(ctx, { appUserId });
+        },
+      }),
+      getAllSubscriptions: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getAllSubscriptions(ctx, { appUserId });
+        },
+      }),
+      getSubscriptionsInGracePeriod: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getSubscriptionsInGracePeriod(ctx, { appUserId });
+        },
+      }),
+      getExperiment: queryGeneric({
+        args: { experimentId: v.string() },
+        handler: async (ctx, args) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getExperiment(ctx, {
+            appUserId,
+            experimentId: args.experimentId,
+          });
+        },
+      }),
+      getExperiments: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getExperiments(ctx, { appUserId });
+        },
+      }),
+      getInvoices: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getInvoices(ctx, { appUserId });
+        },
+      }),
+      getVirtualCurrencyBalance: queryGeneric({
+        args: { currencyCode: v.string() },
+        handler: async (ctx, args) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getVirtualCurrencyBalance(ctx, {
+            appUserId,
+            currencyCode: args.currencyCode,
+          });
+        },
+      }),
+      getVirtualCurrencyBalances: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getVirtualCurrencyBalances(ctx, { appUserId });
+        },
+      }),
+      getVirtualCurrencyTransactions: queryGeneric({
+        args: { currencyCode: v.optional(v.string()) },
+        handler: async (ctx, args) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getVirtualCurrencyTransactions(ctx, {
+            appUserId,
+            currencyCode: args.currencyCode,
+          });
+        },
+      }),
+      getEntitlement: queryGeneric({
+        args: { entitlementId: v.string() },
+        handler: async (ctx, args) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getEntitlement(ctx, {
+            appUserId,
+            entitlementId: args.entitlementId,
+          });
+        },
+      }),
+      getRenewsAtMs: queryGeneric({
+        args: { entitlementId: v.string() },
+        returns: v.union(v.number(), v.null()),
+        handler: async (ctx, args) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getRenewsAtMs(ctx, {
+            appUserId,
+            entitlementId: args.entitlementId,
+          });
+        },
+      }),
+      getExpiresAtMs: queryGeneric({
+        args: { entitlementId: v.string() },
+        returns: v.union(v.number(), v.null()),
+        handler: async (ctx, args) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getExpiresAtMs(ctx, {
+            appUserId,
+            entitlementId: args.entitlementId,
+          });
+        },
+      }),
+      getCustomer: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getCustomer(ctx, { appUserId });
+        },
+      }),
+      isSubscriber: queryGeneric({
+        args: {},
+        returns: v.boolean(),
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.isSubscriber(ctx, { appUserId });
+        },
+      }),
+      hasAnyEntitlement: queryGeneric({
+        args: {},
+        returns: v.boolean(),
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.hasAnyEntitlement(ctx, { appUserId });
+        },
+      }),
+      hasEntitlement: queryGeneric({
+        args: { entitlementId: v.string() },
+        returns: v.boolean(),
+        handler: async (ctx, args) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.hasEntitlement(ctx, {
+            appUserId,
+            entitlementId: args.entitlementId,
+          });
+        },
+      }),
+      isInTrial: queryGeneric({
+        args: {},
+        returns: v.boolean(),
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.isInTrial(ctx, { appUserId });
+        },
+      }),
+      wasInTrialEver: queryGeneric({
+        args: {},
+        returns: v.boolean(),
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.wasInTrialEver(ctx, { appUserId });
+        },
+      }),
+      getLatestSubscription: queryGeneric({
+        args: {},
+        handler: async (ctx) => {
+          const appUserId = await this.resolveAppUserId(ctx);
+          return await this.getLatestSubscription(ctx, { appUserId });
+        },
+      }),
+    };
+  }
+
   httpHandler() {
     const component = this.component;
     const expectedAuth = this.options.REVENUECAT_WEBHOOK_AUTH;
@@ -632,18 +936,37 @@ export class RevenueCat {
         ? undefined
         : (this.options.redactPayload ?? defaultRedactPayload);
 
-    return httpActionGeneric(async (ctx, request) => {
-      if (expectedAuth) {
-        const authHeader = request.headers.get("Authorization") ?? "";
-        const providedToken = extractAuthToken(authHeader);
-        const expectedToken = extractAuthToken(expectedAuth);
+    // Crash at module load when secret is missing. Fails the deploy
+    // instead of silently exposing a public mutation endpoint.
+    if (!expectedAuth) {
+      throw new Error(
+        "[convex-revenuecat] httpHandler() requires REVENUECAT_WEBHOOK_AUTH. " +
+          "Generate a secret with `openssl rand -base64 32`, set it via " +
+          "`npx convex env set REVENUECAT_WEBHOOK_AUTH <secret>`, and pass it " +
+          "as `REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH`.",
+      );
+    }
+    validateAuthSecret(expectedAuth);
+    const expectedToken = extractAuthToken(expectedAuth).trim();
 
-        if (!secureCompare(providedToken, expectedToken)) {
-          return new Response(JSON.stringify({ error: "Unauthorized" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
+    return httpActionGeneric(async (ctx, request) => {
+      const authHeader = request.headers.get("Authorization") ?? "";
+      const providedToken = extractAuthToken(authHeader).trim();
+
+      if (providedToken.length === 0 || !secureCompare(providedToken, expectedToken)) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Cap before parsing. RC's documented payloads are <100KB.
+      const contentLength = request.headers.get("Content-Length");
+      if (contentLength && Number(contentLength) > MAX_WEBHOOK_BODY_BYTES) {
+        return new Response(JSON.stringify({ error: "Payload too large" }), {
+          status: 413,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       let body: unknown;
@@ -666,23 +989,58 @@ export class RevenueCat {
         });
       }
 
-      // Reject oversized event IDs at the HTTP boundary so we don't waste a
-      // mutation round-trip to bounce them. Matches the component-side cap.
-      if (event.id.length > 128) {
-        return new Response(JSON.stringify({ error: "Event ID too long" }), {
+      // Validate the union. The mutation-side cast is type-only, so a
+      // misspelled environment would otherwise land tagged PRODUCTION.
+      const inboundEnv = event.environment;
+      if (
+        inboundEnv !== undefined &&
+        inboundEnv !== "SANDBOX" &&
+        inboundEnv !== "PRODUCTION"
+      ) {
+        return new Response(JSON.stringify({ error: "Invalid environment" }), {
           status: 400,
           headers: { "Content-Type": "application/json" },
         });
       }
 
-      let sanitizedEvent = transformPayload(event) as Record<string, unknown>;
+      // Reject malformed IDs and types here so an attacker can't flood
+      // `recordFailure` with whitespace-only values that pass `v.string()`.
+      if (event.id.trim().length === 0 || event.id.length > 128) {
+        return new Response(JSON.stringify({ error: "Invalid event id" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (event.type.trim().length === 0) {
+        return new Response(JSON.stringify({ error: "Invalid event type" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      const transformed = transformPayload(event);
+      let sanitizedEvent: Record<string, unknown> =
+        transformed && typeof transformed === "object" && !Array.isArray(transformed)
+          ? (transformed as Record<string, unknown>)
+          : (event as Record<string, unknown>);
       if (redactPayload) {
-        sanitizedEvent = redactPayload(sanitizedEvent);
+        // Don't let a buggy consumer redactor 500 the request. RC drops the
+        // event after 5 retries. Fall back to unredacted on throw or non-object.
+        try {
+          const result = redactPayload(sanitizedEvent);
+          if (result && typeof result === "object" && !Array.isArray(result)) {
+            sanitizedEvent = result;
+          } else {
+            console.warn(
+              "[convex-revenuecat] redactPayload returned non-object; using unredacted",
+            );
+          }
+        } catch (err) {
+          console.warn("[convex-revenuecat] redactPayload threw; using unredacted", err);
+        }
       }
       const normalizedStore = normalizeStore(event.store) as Store | undefined;
       if (normalizedStore && normalizedStore !== event.store) {
-        // Keep the payload consistent with the outer event object so inner
-        // handlers see the normalized form if they inspect `event.store`.
         sanitizedEvent.store = normalizedStore;
       }
 
@@ -708,7 +1066,10 @@ export class RevenueCat {
         });
       } catch (error) {
         if (error && typeof error === "object" && "data" in error) {
-          const convexError = error as { data?: { code?: string; data?: { resetAt?: number } } };
+          const convexError = error as {
+            message?: string;
+            data?: { code?: string; message?: string; data?: { resetAt?: number } };
+          };
           if (convexError.data?.code === "RATE_LIMITED") {
             const resetAt = convexError.data?.data?.resetAt;
             return new Response(JSON.stringify({ error: "Rate limit exceeded", resetAt }), {
@@ -722,6 +1083,32 @@ export class RevenueCat {
             });
           }
           if (convexError.data?.code === "INVALID_ARGUMENT") {
+            // Record in a fresh transaction so the audit row survives the
+            // rollback. Swallow recordFailure errors, losing the audit row
+            // beats RC retrying a permanent 400.
+            const failureMessage =
+              convexError.data?.message ?? convexError.message ?? "INVALID_ARGUMENT";
+            try {
+              await ctx.runMutation(component.webhooks.recordFailure, {
+                event: {
+                  id: event.id as string,
+                  type: event.type as string,
+                  app_id: event.app_id as string | undefined,
+                  app_user_id: event.app_user_id as string | undefined,
+                  environment: (event.environment as Environment) ?? "PRODUCTION",
+                  store: normalizedStore,
+                },
+                payload: sanitizedEvent,
+                error: failureMessage,
+              });
+            } catch (recordErr) {
+              // Audit-row drop is operationally significant, surface as
+              // error so observability tools page on it.
+              console.error(
+                "[convex-revenuecat] recordFailure threw; audit row skipped",
+                recordErr,
+              );
+            }
             return new Response(JSON.stringify({ error: "Invalid webhook payload" }), {
               status: 400,
               headers: { "Content-Type": "application/json" },
@@ -730,6 +1117,15 @@ export class RevenueCat {
         }
         throw error;
       }
+    });
+  }
+
+  /** Mount the webhook handler at `path` (default `/webhooks/revenuecat`). */
+  registerRoutes(http: HttpRouter, opts: { path?: string } = {}): void {
+    http.route({
+      path: opts.path ?? "/webhooks/revenuecat",
+      method: "POST",
+      handler: this.httpHandler(),
     });
   }
 }

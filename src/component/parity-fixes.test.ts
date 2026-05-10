@@ -74,8 +74,8 @@ async function dispatch(
   });
 }
 
-describe("parity fixes 2026-04-18", () => {
-  describe("#1 expiresAtMs fallback on partial events", () => {
+describe("parity fixes", () => {
+  describe("expiresAtMs fallback on partial events", () => {
     test("RENEWAL without expiration_at_ms preserves prior entitlement expiry", async () => {
       const t = initConvexTest();
       const originalExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
@@ -136,7 +136,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#2 processRenewal clears stale period-specific markers", () => {
+  describe("processRenewal clears stale period-specific markers", () => {
     test("RENEWAL clears billingIssueDetectedAt, gracePeriod, newProductId, expirationReason, unsubscribeDetectedAt", async () => {
       const t = initConvexTest();
       const initialExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
@@ -231,7 +231,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#3 processExpiration clears stale state", () => {
+  describe("processExpiration clears stale state", () => {
     test("EXPIRATION clears autoResumeAtMs and gracePeriodExpirationAtMs", async () => {
       const t = initConvexTest();
       const initialExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
@@ -305,7 +305,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#4 CANCELLATION with BILLING_ERROR sets billingIssueDetectedAt", () => {
+  describe("CANCELLATION with BILLING_ERROR sets billingIssueDetectedAt", () => {
     test("coherent with BILLING_ISSUE event state", async () => {
       const t = initConvexTest();
       const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
@@ -345,7 +345,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#5 BILLING_ISSUE sets autoRenewStatus false", () => {
+  describe("BILLING_ISSUE sets autoRenewStatus false", () => {
     test("derived willRenew flips false while billing retry is active", async () => {
       const t = initConvexTest();
       const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
@@ -388,7 +388,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#6 willRenew drift: PREPAID / PROMOTIONAL / lifetime", () => {
+  describe("willRenew drift: PREPAID / PROMOTIONAL / lifetime", () => {
     test("PREPAID sub stores autoRenewStatus false", async () => {
       const t = initConvexTest();
       await dispatch(
@@ -439,7 +439,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#7 isInGracePeriod without normalExpired clause", () => {
+  describe("isInGracePeriod without normalExpired clause", () => {
     test("pre-expiry billing retry window returns inGracePeriod true", async () => {
       const t = initConvexTest();
       const expiry = Date.now() + 14 * 24 * 60 * 60 * 1000;
@@ -485,7 +485,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#8 transferEntitlements sourceIsNewer guard", () => {
+  describe("transferEntitlements sourceIsNewer guard", () => {
     test("out-of-order TRANSFER doesn't regress destination's newer expiry", async () => {
       const t = initConvexTest();
       const oldExpiry = Date.now() + 10 * 24 * 60 * 60 * 1000;
@@ -590,7 +590,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#9 anonymous customer cleanup", () => {
+  describe("anonymous customer cleanup", () => {
     test("TRANSFER from $RCAnonymousID: deletes the source customer row", async () => {
       const t = initConvexTest();
       const anonId = "$RCAnonymousID:abcdef12345";
@@ -709,7 +709,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#10 transferSubscriptions dedup on originalTransactionId", () => {
+  describe("transferSubscriptions dedup on originalTransactionId", () => {
     test("retried TRANSFER doesn't duplicate subs when dest already has the row", async () => {
       const t = initConvexTest();
       const sharedTxn = "otxn_p10_shared";
@@ -767,7 +767,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#11 lifetime vs finite selection in transfer/alias", () => {
+  describe("lifetime vs finite selection in transfer/alias", () => {
     async function seedEntitlement(
       t: ReturnType<typeof initConvexTest>,
       userId: string,
@@ -903,7 +903,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#12 sync.ts derives autoRenewStatus from five signals", () => {
+  describe("sync.ts derives autoRenewStatus from five signals", () => {
     const isoIn = (daysFromNow: number) =>
       new Date(Date.now() + daysFromNow * 86_400_000).toISOString();
 
@@ -1018,7 +1018,7 @@ describe("parity fixes 2026-04-18", () => {
     });
   });
 
-  describe("#13 purgeAnonymousCustomerIfEmpty bails when source has active data", () => {
+  describe("purgeAnonymousCustomerIfEmpty bails when source has active data", () => {
     test("partial TRANSFER leaves anonymous customer row in place", async () => {
       const t = initConvexTest();
       const anonId = "$RCAnonymousID:partial_src";
@@ -1036,7 +1036,7 @@ describe("parity fixes 2026-04-18", () => {
       });
       await dispatch(t, initPayload);
 
-      // Transfer ONLY the premium entitlement; bonus stays on source
+      // Transfer ONLY the premium entitlement. Bonus stays on source
       await t.mutation(internal.handlers.processTransfer, {
         event: {
           type: "TRANSFER",

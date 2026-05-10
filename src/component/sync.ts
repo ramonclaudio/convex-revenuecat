@@ -1,14 +1,12 @@
-import { v, type Infer } from "convex/values";
+import { v } from "convex/values";
 import { mutation } from "./_generated/server.js";
-import { storeValidator } from "./schema.js";
+import type { OwnershipType, PeriodType, Store } from "./types.js";
 import {
   fireTransitionHooks,
   resolveHooks,
   snapshotEntitlements,
 } from "./transitions.js";
 import { deriveWillRenew } from "./handlers.js";
-
-type Store = Infer<typeof storeValidator>;
 
 const hooksValidator = v.optional(
   v.object({
@@ -33,48 +31,41 @@ const KNOWN_STORES = new Set<Store>([
   "UNKNOWN_STORE",
 ]);
 
-// Normalize `store` values from RC's REST `/v1/subscribers` response
-// (lowercase: `app_store`, `unknown`, etc.) to the uppercase form used by
-// webhook payloads and our schema. The `unknown` → `UNKNOWN_STORE` mapping
-// mirrors the RC iOS/Android SDK Store enum, which uses `unknown` as the
-// wire value for `UNKNOWN_STORE`. Unknown future values fall back to
-// `UNKNOWN_STORE` rather than failing validation, matching SDK behavior.
+// REST returns lowercase store values (`app_store`, `unknown`, etc.). Webhooks
+// and our schema use uppercase. Unknown values fall back to UNKNOWN_STORE.
 const mapStore = (s: string): Store => {
   const upper = s.toUpperCase();
   const candidate = upper === "UNKNOWN" ? "UNKNOWN_STORE" : upper;
   return KNOWN_STORES.has(candidate as Store) ? (candidate as Store) : "UNKNOWN_STORE";
 };
+
 const mapEnvironment = (sandbox: boolean) =>
   sandbox ? ("SANDBOX" as const) : ("PRODUCTION" as const);
 
-const KNOWN_PERIOD_TYPES = new Set(["TRIAL", "INTRO", "NORMAL", "PROMOTIONAL", "PREPAID"]);
-// Unknown period_type falls back to NORMAL instead of crashing validation.
-// Mirrors Android SDK's `optPeriodType` which defaults unknown values to NORMAL
-// (EntitlementInfoFactories.kt). Forward-compat against new period types.
-const mapPeriodType = (s: string): "TRIAL" | "INTRO" | "NORMAL" | "PROMOTIONAL" | "PREPAID" => {
-  const upper = s.toUpperCase();
-  return (KNOWN_PERIOD_TYPES.has(upper) ? upper : "NORMAL") as
-    | "TRIAL"
-    | "INTRO"
-    | "NORMAL"
-    | "PROMOTIONAL"
-    | "PREPAID";
+const KNOWN_PERIOD_TYPES = new Set<PeriodType>([
+  "TRIAL",
+  "INTRO",
+  "NORMAL",
+  "PROMOTIONAL",
+  "PREPAID",
+]);
+// Unknown period_type defaults to NORMAL. Matches Android SDK's `optPeriodType`.
+const mapPeriodType = (s: string): PeriodType => {
+  const upper = s.toUpperCase() as PeriodType;
+  return KNOWN_PERIOD_TYPES.has(upper) ? upper : "NORMAL";
 };
 
-const KNOWN_OWNERSHIP_TYPES = new Set(["PURCHASED", "FAMILY_SHARED", "UNKNOWN"]);
-// Android SDK emits `ownership_type: "UNKNOWN"` as a real wire value when the
-// store doesn't report ownership info. Anything outside the known set maps to
-// undefined rather than crashing the validator.
-const mapOwnership = (s?: string): "PURCHASED" | "FAMILY_SHARED" | "UNKNOWN" | undefined => {
+// Android emits `UNKNOWN` as a real wire value. Unknown future values → undefined.
+const KNOWN_OWNERSHIP_TYPES = new Set<OwnershipType>([
+  "PURCHASED",
+  "FAMILY_SHARED",
+  "UNKNOWN",
+]);
+const mapOwnership = (s?: string): OwnershipType | undefined => {
   if (!s) return undefined;
-  const upper = s.toUpperCase();
-  return (KNOWN_OWNERSHIP_TYPES.has(upper) ? upper : undefined) as
-    | "PURCHASED"
-    | "FAMILY_SHARED"
-    | "UNKNOWN"
-    | undefined;
+  const upper = s.toUpperCase() as OwnershipType;
+  return KNOWN_OWNERSHIP_TYPES.has(upper) ? upper : undefined;
 };
-
 
 function parseDate(d: string | null | undefined): number | undefined {
   if (!d) return undefined;
@@ -82,21 +73,11 @@ function parseDate(d: string | null | undefined): number | undefined {
   return isNaN(ms) ? undefined : ms;
 }
 
-/**
- * Ingest a RevenueCat v1 subscriber snapshot.
- *
- * Accepts the `subscriber` object from `GET /v1/subscribers/{app_user_id}`.
- * Upserts customer, subscriptions, and entitlements to match RevenueCat's
- * source of truth. All writes are idempotent.
- */
+/** Ingest a RevenueCat v1 subscriber snapshot. Idempotent upsert of
+ * customer, subscriptions, and entitlements. */
 export const ingest = mutation({
   args: {
     appUserId: v.string(),
-    // Accept `v.any()` because RC's REST subscriber response carries many
-    // top-level fields beyond what we read (management_url, last_purchase_date,
-    // first_seen_attribution_network_info, etc.) and RC reserves the right to
-    // add more. A strict `v.object` would reject the real response shape.
-    // The TypeScript `RevenueCatSubscriber` type documents the fields we consume.
     subscriber: v.any(),
     hooks: hooksValidator,
   },
@@ -113,25 +94,15 @@ export const ingest = mutation({
     let entitlementCount = 0;
     let nonSubscriptionCount = 0;
 
-    // Snapshot ONLY when hooks are registered — avoids full entitlements
-    // reads per ingest for consumers who don't use hooks. Covers activation
-    // (previously inactive or missing) and deactivation (e.g. sync catches a
-    // refund the webhook missed).
     const beforeSnap = hooks
       ? await snapshotEntitlements(ctx, [appUserId])
       : undefined;
 
-    // --- Customer ---
     const existingCustomer = await ctx.db
       .query("customers")
       .withIndex("by_app_user_id", (q) => q.eq("appUserId", appUserId))
       .first();
 
-    // `subscriber_attributes` $-keys are encoded to `__dollar__*` by the client
-    // SDK's `transformPayload` because Convex rejects `$` at every nesting
-    // level (document fields AND record keys). We store the encoded form and
-    // provide `decodeSubscriberAttributes` in the client SDK for read-time
-    // decoding.
     const rawAttrs = subscriber.subscriber_attributes as
       | Record<string, { value: string; updated_at_ms: number }>
       | undefined;
@@ -152,6 +123,7 @@ export const ingest = mutation({
       attributes:
         Object.keys(mergedAttrs).length > 0 ? mergedAttrs : undefined,
       lastSeenAt: parseDate(subscriber.last_seen) ?? now,
+      managementUrl: subscriber.management_url ?? existingCustomer?.managementUrl,
       updatedAt: now,
     };
 
@@ -166,7 +138,6 @@ export const ingest = mutation({
       });
     }
 
-    // --- Build product→entitlement mapping ---
     const productEntitlements = new Map<string, string[]>();
     const entitlementState = new Map<
       string,
@@ -200,9 +171,7 @@ export const ingest = mutation({
 
         const expiresAtMs = parseDate(ent.expires_date);
         const gracePeriodExpiresAtMs = parseDate(ent.grace_period_expires_date);
-        // Fold grace period into effective expiry so downstream queries can
-        // rely on a single `expiresAtMs` field. Matches how BILLING_ISSUE
-        // webhook handler extends the entitlement during grace.
+        // Fold grace into effective expiry, matches BILLING_ISSUE handler.
         const effectiveExpiresAtMs =
           gracePeriodExpiresAtMs &&
           (!expiresAtMs || gracePeriodExpiresAtMs > expiresAtMs)
@@ -221,7 +190,6 @@ export const ingest = mutation({
       }
     }
 
-    // --- Subscriptions ---
     if (subscriber.subscriptions) {
       for (const [productId, raw] of Object.entries(
         subscriber.subscriptions as Record<string, any>,
@@ -250,8 +218,8 @@ export const ingest = mutation({
         const entIds = productEntitlements.get(productId) ?? [];
         const ownershipType = mapOwnership(s.ownership_type);
 
-        // Coerce `amount` to number — Android SDK types it `Double` but the
-        // wire format has been observed as a string in test fixtures.
+        // Coerce, Android types `amount` as Double but the wire format
+        // has been observed as a string in fixtures.
         const priceAmount =
           typeof s.price?.amount === "string"
             ? Number(s.price.amount)
@@ -260,19 +228,16 @@ export const ingest = mutation({
 
         const existing = await ctx.db
           .query("subscriptions")
-          .withIndex("by_app_user", (q) => q.eq("appUserId", appUserId))
-          .filter((q) => q.eq(q.field("productId"), productId))
+          .withIndex("by_app_user_product", (q) =>
+            q.eq("appUserId", appUserId).eq("productId", productId),
+          )
           .first();
 
         const billingIssueDetectedAt = parseDate(s.billing_issues_detected_at);
         const unsubscribeDetectedAt = parseDate(s.unsubscribe_detected_at);
         const expirationAtMs = parseDate(s.expires_date);
-        // iOS `EntitlementInfo.willRenew` / Android `EntitlementInfoHelper.getWillRenew`
-        // semantics. RC's v1 REST `/v1/subscribers/{id}` response carries no
-        // explicit auto-renew field (verified against the v1 OpenAPI spec and
-        // both SDK decoders); `willRenew` is derived entirely from primitives.
-        // We compute it from the same five signals the SDKs use so sync and
-        // webhook paths converge on the same stored value.
+        // RC v1 REST has no explicit auto-renew field. Derive from primitives
+        // so sync and webhook paths converge on the same stored value.
         const autoRenewStatus = deriveWillRenew({
           periodType,
           store,
@@ -284,6 +249,7 @@ export const ingest = mutation({
         const data = {
           appUserId,
           productId,
+          kind: "subscription" as const,
           entitlementIds: entIds.length > 0 ? entIds : undefined,
           store,
           environment,
@@ -298,13 +264,9 @@ export const ingest = mutation({
           autoResumeAtMs: parseDate(s.auto_resume_date),
           unsubscribeDetectedAt,
           refundedAtMs: parseDate(s.refunded_at),
-          // REST sync is authoritative: clear `cancelReason` on reconciliation
-          // since REST doesn't carry it. A stale CUSTOMER_SUPPORT/UNSUBSCRIBE
-          // reason from a prior webhook would otherwise persist across resyncs.
+          // REST is authoritative. Clear stale cancelReason from prior webhooks.
           cancelReason: undefined,
           autoRenewStatus,
-          // Price fields from REST. Coerce USD-only into priceUsd; store the
-          // purchase-currency amount and ISO code for revenue reporting.
           priceUsd: priceCurrency === "USD" ? priceAmount : undefined,
           currency: priceCurrency,
           priceInPurchasedCurrency: priceAmount,
@@ -322,7 +284,6 @@ export const ingest = mutation({
         }
         subscriptionCount++;
 
-        // Propagate store/sandbox/ownership info to entitlements.
         for (const entId of entIds) {
           const d = entitlementState.get(entId);
           if (d) {
@@ -334,9 +295,7 @@ export const ingest = mutation({
       }
     }
 
-    // --- Non-subscription (one-time) purchases ---
-    // Each product_id maps to an array of individual purchases; one row per
-    // purchase, deduped by originalTransactionId. Period type NORMAL, no expiry.
+    // One-shot purchases, one row per transaction, deduped by id, no expiry.
     if (subscriber.non_subscriptions) {
       for (const [productId, rawPurchases] of Object.entries(
         subscriber.non_subscriptions as Record<string, any>,
@@ -355,8 +314,7 @@ export const ingest = mutation({
         for (const p of purchases) {
           const transactionId = p.store_transaction_id ?? p.id;
           const isSandbox = p.is_sandbox ?? false;
-          // Unknown store falls back to UNKNOWN_STORE (matches subscription path),
-          // not APP_STORE — avoids silently misattributing non-iOS purchases.
+          // Unknown store → UNKNOWN_STORE. Never silently default to APP_STORE.
           const store = p.store ? mapStore(p.store) : ("UNKNOWN_STORE" as const);
           const priceAmount =
             typeof p.price?.amount === "string" ? Number(p.price.amount) : p.price?.amount;
@@ -372,6 +330,7 @@ export const ingest = mutation({
           const data = {
             appUserId,
             productId,
+            kind: "consumable" as const,
             entitlementIds: entIds.length > 0 ? entIds : undefined,
             store,
             environment: mapEnvironment(isSandbox),
@@ -380,8 +339,7 @@ export const ingest = mutation({
             originalPurchasedAtMs: parseDate(p.original_purchase_date),
             expirationAtMs: undefined,
             isFamilyShare: false,
-            // One-time purchases are owned by the purchaser. RC REST doesn't
-            // carry ownership_type on non_subscriptions; default to PURCHASED.
+            // RC REST doesn't carry ownership_type on non_subscriptions.
             ownershipType: "PURCHASED" as const,
             priceUsd: priceCurrency === "USD" ? priceAmount : undefined,
             currency: priceCurrency,
@@ -400,8 +358,6 @@ export const ingest = mutation({
           }
           nonSubscriptionCount++;
 
-          // Propagate store/sandbox/ownership info to entitlements linked to
-          // this product so single-seat filtering works for lifetime purchases.
           for (const entId of entIds) {
             const d = entitlementState.get(entId);
             if (d) {
@@ -414,7 +370,6 @@ export const ingest = mutation({
       }
     }
 
-    // --- Entitlements ---
     for (const [entitlementId, data] of entitlementState) {
       const existing = await ctx.db
         .query("entitlements")

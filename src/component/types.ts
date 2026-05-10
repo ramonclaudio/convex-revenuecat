@@ -26,7 +26,7 @@ export type Entitlement = {
   isSandbox: boolean;
   unsubscribeDetectedAt?: number;
   billingIssueDetectedAt?: number;
-  // PURCHASED = direct purchase; FAMILY_SHARED = received via Family Sharing.
+  // PURCHASED = direct purchase. FAMILY_SHARED = received via Family Sharing.
   // Populated from the linked subscription when known. Consumers can filter
   // family-shared entitlements for single-seat products.
   ownershipType?: OwnershipType;
@@ -38,6 +38,10 @@ export type Subscription = {
   _creationTime: number;
   appUserId: string;
   productId: string;
+  /** "subscription" = recurring. "consumable" = NON_RENEWING_PURCHASE one-shot.
+   * Optional for backwards compat. Missing values are treated as "subscription"
+   * by `getActiveSubscriptions`. */
+  kind?: "subscription" | "consumable";
   entitlementIds?: string[];
   store: Store;
   environment: Environment;
@@ -69,7 +73,7 @@ export type Subscription = {
   // Set when a refund is detected (CANCELLATION with CUSTOMER_SUPPORT or
   // price < 0, or from subscriber REST `refunded_at`).
   refundedAtMs?: number;
-  // First purchase in this subscription chain — stable across renewals.
+  // First purchase in this subscription chain, stable across renewals.
   // Populated by syncSubscriber from `original_purchase_date`.
   originalPurchasedAtMs?: number;
   // Set on CANCELLATION with reason UNSUBSCRIBE and from REST
@@ -87,6 +91,13 @@ export type Customer = {
   firstSeenAt: number;
   lastSeenAt?: number;
   attributes?: SubscriberAttributes;
+  /** ISO 3166-1 alpha-2 country code from the latest webhook event that
+   * carried one. Mirrored monotonically by `event_timestamp_ms`. */
+  countryCode?: string;
+  /** RevenueCat REST `subscriber.management_url`, deep link to the native
+   * subscription manager (App Store, Play Store, Stripe portal). Populated
+   * only by `syncSubscriber`. Webhooks don't carry it. */
+  managementUrl?: string;
   updatedAt: number;
 };
 

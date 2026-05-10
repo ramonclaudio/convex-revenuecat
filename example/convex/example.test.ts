@@ -52,33 +52,45 @@ async function processEvent(
   });
 }
 
+// Example queries derive `appUserId` from `ctx.auth.getUserIdentity().subject`,
+// so tests run them inside an identity context that matches the test
+// webhook's `app_user_id`.
+function asUser(t: ReturnType<typeof initConvexTest>, subject: string) {
+  return t.withIdentity({ subject });
+}
+
 describe("subscriptions", () => {
   describe("checkPremium", () => {
+    test("rejects unauthenticated callers", async () => {
+      const t = initConvexTest();
+      await expect(t.query(api.subscriptions.checkPremium, {})).rejects.toThrow(
+        /Not authenticated/,
+      );
+    });
+
     test("returns false when no entitlement", async () => {
       const t = initConvexTest();
-
-      const result = await t.query(api.subscriptions.checkPremium, {
-        appUserId: "user_no_premium",
-      });
-
+      const result = await asUser(t, "user_no_premium").query(
+        api.subscriptions.checkPremium,
+        {},
+      );
       expect(result).toBe(false);
     });
 
     test("returns true when premium entitlement exists", async () => {
       const t = initConvexTest();
+      const subject = "user_example_1";
 
-      const payload = createEventPayload({
-        id: "evt_example_1",
-        app_user_id: "user_example_1",
-        entitlement_ids: ["premium"],
-      });
+      await processEvent(
+        t,
+        createEventPayload({
+          id: "evt_example_1",
+          app_user_id: subject,
+          entitlement_ids: ["premium"],
+        }),
+      );
 
-      await processEvent(t, payload);
-
-      const result = await t.query(api.subscriptions.checkPremium, {
-        appUserId: "user_example_1",
-      });
-
+      const result = await asUser(t, subject).query(api.subscriptions.checkPremium, {});
       expect(result).toBe(true);
     });
   });
@@ -86,19 +98,21 @@ describe("subscriptions", () => {
   describe("getActiveEntitlements", () => {
     test("returns active entitlements", async () => {
       const t = initConvexTest();
+      const subject = "user_example_2";
 
-      const payload = createEventPayload({
-        id: "evt_example_2",
-        app_user_id: "user_example_2",
-        entitlement_ids: ["premium", "pro"],
-      });
+      await processEvent(
+        t,
+        createEventPayload({
+          id: "evt_example_2",
+          app_user_id: subject,
+          entitlement_ids: ["premium", "pro"],
+        }),
+      );
 
-      await processEvent(t, payload);
-
-      const result = await t.query(api.subscriptions.getActiveEntitlements, {
-        appUserId: "user_example_2",
-      });
-
+      const result = await asUser(t, subject).query(
+        api.subscriptions.getActiveEntitlements,
+        {},
+      );
       expect(result.length).toBe(2);
     });
   });
@@ -106,27 +120,25 @@ describe("subscriptions", () => {
   describe("getAllEntitlements", () => {
     test("returns all entitlements including expired", async () => {
       const t = initConvexTest();
-      const userId = "user_all_entitlements";
+      const subject = "user_all_entitlements";
 
-      // Active entitlement
       await processEvent(
         t,
         createEventPayload({
           id: "evt_active",
-          app_user_id: userId,
+          app_user_id: subject,
           entitlement_ids: ["premium"],
           original_transaction_id: "txn_orig_1",
           transaction_id: "txn_1",
         }),
       );
 
-      // Expired entitlement
       await processEvent(
         t,
         createEventPayload({
           id: "evt_expired",
           type: "EXPIRATION",
-          app_user_id: userId,
+          app_user_id: subject,
           entitlement_ids: ["pro"],
           expiration_at_ms: Date.now() - 1000,
           original_transaction_id: "txn_orig_2",
@@ -134,8 +146,11 @@ describe("subscriptions", () => {
         }),
       );
 
-      const all = await t.query(api.subscriptions.getAllEntitlements, { appUserId: userId });
-      const active = await t.query(api.subscriptions.getActiveEntitlements, { appUserId: userId });
+      const all = await asUser(t, subject).query(api.subscriptions.getAllEntitlements, {});
+      const active = await asUser(t, subject).query(
+        api.subscriptions.getActiveEntitlements,
+        {},
+      );
 
       expect(all.length).toBeGreaterThanOrEqual(active.length);
     });
@@ -144,13 +159,13 @@ describe("subscriptions", () => {
   describe("getAllSubscriptions", () => {
     test("returns all subscriptions", async () => {
       const t = initConvexTest();
-      const userId = "user_all_subs";
+      const subject = "user_all_subs";
 
       await processEvent(
         t,
         createEventPayload({
           id: "evt_sub_1",
-          app_user_id: userId,
+          app_user_id: subject,
           product_id: "monthly",
           original_transaction_id: "txn_orig_sub_1",
           transaction_id: "txn_sub_1",
@@ -161,15 +176,17 @@ describe("subscriptions", () => {
         t,
         createEventPayload({
           id: "evt_sub_2",
-          app_user_id: userId,
+          app_user_id: subject,
           product_id: "yearly",
           original_transaction_id: "txn_orig_sub_2",
           transaction_id: "txn_sub_2",
         }),
       );
 
-      const result = await t.query(api.subscriptions.getAllSubscriptions, { appUserId: userId });
-
+      const result = await asUser(t, subject).query(
+        api.subscriptions.getAllSubscriptions,
+        {},
+      );
       expect(result.length).toBe(2);
     });
   });
@@ -177,27 +194,28 @@ describe("subscriptions", () => {
   describe("getCustomer", () => {
     test("returns customer after webhook", async () => {
       const t = initConvexTest();
-      const userId = "user_customer";
+      const subject = "user_customer";
 
       await processEvent(
         t,
         createEventPayload({
           id: "evt_customer",
-          app_user_id: userId,
+          app_user_id: subject,
         }),
       );
 
-      const result = await t.query(api.subscriptions.getCustomer, { appUserId: userId });
+      const result = await asUser(t, subject).query(api.subscriptions.getCustomer, {});
 
       expect(result).not.toBeNull();
-      expect(result?.appUserId).toBe(userId);
+      expect(result?.appUserId).toBe(subject);
     });
 
     test("returns null for unknown user", async () => {
       const t = initConvexTest();
-
-      const result = await t.query(api.subscriptions.getCustomer, { appUserId: "unknown_user" });
-
+      const result = await asUser(t, "unknown_user").query(
+        api.subscriptions.getCustomer,
+        {},
+      );
       expect(result).toBeNull();
     });
   });
@@ -205,21 +223,21 @@ describe("subscriptions", () => {
   describe("getExperiment", () => {
     test("returns experiment for user", async () => {
       const t = initConvexTest();
-      const userId = "user_experiment";
+      const subject = "user_experiment";
       const experimentId = "pricing_test";
 
       await t.mutation(components.revenuecat.webhooks.process, {
         event: {
           id: "evt_exp_1",
           type: "EXPERIMENT_ENROLLMENT",
-          app_user_id: userId,
+          app_user_id: subject,
           environment: "SANDBOX" as const,
         },
         payload: {
           type: "EXPERIMENT_ENROLLMENT",
           id: "evt_exp_1",
-          app_user_id: userId,
-          original_app_user_id: userId,
+          app_user_id: subject,
+          original_app_user_id: subject,
           event_timestamp_ms: Date.now(),
           experiment_id: experimentId,
           experiment_variant: "variant_b",
@@ -229,8 +247,7 @@ describe("subscriptions", () => {
         },
       });
 
-      const result = await t.query(api.subscriptions.getExperiment, {
-        appUserId: userId,
+      const result = await asUser(t, subject).query(api.subscriptions.getExperiment, {
         experimentId,
       });
 
@@ -241,12 +258,10 @@ describe("subscriptions", () => {
 
     test("returns null for unknown experiment", async () => {
       const t = initConvexTest();
-
-      const result = await t.query(api.subscriptions.getExperiment, {
-        appUserId: "user_unknown",
-        experimentId: "unknown_exp",
-      });
-
+      const result = await asUser(t, "user_unknown").query(
+        api.subscriptions.getExperiment,
+        { experimentId: "unknown_exp" },
+      );
       expect(result).toBeNull();
     });
   });
@@ -254,21 +269,21 @@ describe("subscriptions", () => {
   describe("getExperiments", () => {
     test("returns all experiments for user", async () => {
       const t = initConvexTest();
-      const userId = "user_multi_exp";
+      const subject = "user_multi_exp";
 
       for (const [i, expId] of ["exp_1", "exp_2"].entries()) {
         await t.mutation(components.revenuecat.webhooks.process, {
           event: {
             id: `evt_multi_${i}`,
             type: "EXPERIMENT_ENROLLMENT",
-            app_user_id: userId,
+            app_user_id: subject,
             environment: "SANDBOX" as const,
           },
           payload: {
             type: "EXPERIMENT_ENROLLMENT",
             id: `evt_multi_${i}`,
-            app_user_id: userId,
-            original_app_user_id: userId,
+            app_user_id: subject,
+            original_app_user_id: subject,
             event_timestamp_ms: Date.now(),
             experiment_id: expId,
             experiment_variant: "control",
@@ -277,8 +292,7 @@ describe("subscriptions", () => {
         });
       }
 
-      const result = await t.query(api.subscriptions.getExperiments, { appUserId: userId });
-
+      const result = await asUser(t, subject).query(api.subscriptions.getExperiments, {});
       expect(result.length).toBe(2);
     });
   });

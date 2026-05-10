@@ -6,8 +6,8 @@ I ship security fixes for the latest minor release only. If you're on an older v
 
 | Version | Supported |
 | :------ | :-------- |
-| 0.2.x   | Yes       |
-| < 0.2.0 | No        |
+| 0.3.x   | Yes       |
+| < 0.3.0 | No        |
 
 Once 1.0 lands, this table will cover the current major plus the previous major for a deprecation window. Pre-1.0, treat the latest `0.x` as the only supported line.
 

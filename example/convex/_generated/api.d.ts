@@ -8,14 +8,14 @@
  * @module
  */
 
-import type * as example from "../example.js";
 import type * as http from "../http.js";
+import type * as subscriptions from "../subscriptions.js";
 
 import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  example: typeof example;
   http: typeof http;
+  subscriptions: typeof subscriptions;
 }>;
 
 /**

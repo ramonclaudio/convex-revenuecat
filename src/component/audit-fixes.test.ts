@@ -2,7 +2,7 @@
 
 import { describe, expect, test } from "vitest";
 import { ConvexError } from "convex/values";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
 function basePayload(overrides: Record<string, unknown> = {}) {
@@ -49,8 +49,8 @@ async function postEvent(
   });
 }
 
-describe("0.2.1 audit fixes", () => {
-  describe("BLOCKER 2: ownership_type UNKNOWN accepted", () => {
+describe("audit fixes", () => {
+  describe("ownership_type UNKNOWN accepted", () => {
     test("webhook with ownership_type: UNKNOWN doesn't crash", async () => {
       const t = initConvexTest();
       await postEvent(
@@ -102,7 +102,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("BLOCKER 3: mapPeriodType unknown falls back", () => {
+  describe("mapPeriodType unknown falls back", () => {
     test("unknown period_type stored as NORMAL", async () => {
       const t = initConvexTest();
       const expires = new Date(Date.now() + 86400000).toISOString();
@@ -115,7 +115,6 @@ describe("0.2.1 audit fixes", () => {
             monthly: {
               store: "APP_STORE",
               is_sandbox: false,
-              // Future or unknown RC period_type — must not crash.
               period_type: "future_unknown_period_type",
               expires_date: expires,
               purchase_date: "2024-01-01T00:00:00Z",
@@ -131,7 +130,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("BLOCKER 4: REST sync price data persisted", () => {
+  describe("REST sync price data persisted", () => {
     test("subscription price fields populated from REST", async () => {
       const t = initConvexTest();
       const expires = new Date(Date.now() + 86400000).toISOString();
@@ -191,29 +190,105 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("BLOCKER 1: empty-string auth throws at construction", () => {
+  describe("webhook auth is mandatory and high-entropy", () => {
+    const VALID_SECRET = "kZ9tQ1xH8mF3vR7yL2nP5sJ6cW0bD4gE8aT1iU4oY3w=";
+
     test("RevenueCat class rejects empty auth secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error — intentionally probing with a stub component
+      // @ts-expect-error: Intentionally probing with a stub component
       expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "" })).toThrow(
-        /cannot be empty/,
+        /is empty after stripping/,
       );
     });
 
-    test("RevenueCat class accepts undefined auth (explicit no-auth)", async () => {
+    test("RevenueCat class rejects 'Bearer ' (paste error: header label only)", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error — stub component for construction test
+      // @ts-expect-error: Stub component for construction test
+      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "Bearer " })).toThrow(
+        /is empty after stripping/,
+      );
+    });
+
+    test("RevenueCat class rejects whitespace-only secret", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      // @ts-expect-error: Stub component for construction test
+      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "    " })).toThrow(
+        /is empty after stripping/,
+      );
+    });
+
+    test("RevenueCat class rejects sub-32-char secret", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      // @ts-expect-error: Stub component for construction test
+      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "s3cret" })).toThrow(
+        /is 6 chars after stripping \(minimum 32\)/,
+      );
+    });
+
+    test("RevenueCat class rejects 31-char secret (just under floor)", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      const justUnder = "a".repeat(31);
+      // @ts-expect-error: Stub component for construction test
+      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: justUnder })).toThrow(
+        /is 31 chars after stripping \(minimum 32\)/,
+      );
+    });
+
+    test("RevenueCat class rejects short secret hidden behind 'Bearer ' prefix", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      // @ts-expect-error: Stub component for construction test
+      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "Bearer s3cret" })).toThrow(
+        /is 6 chars after stripping \(minimum 32\)/,
+      );
+    });
+
+    test("RevenueCat class accepts undefined auth for non-webhook usage", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      // @ts-expect-error: Stub component for construction test
       expect(() => new RevenueCat({}, {})).not.toThrow();
     });
 
-    test("RevenueCat class accepts non-empty auth", async () => {
+    test("RevenueCat class accepts a 32-char secret (at floor)", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error — stub component for construction test
-      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "s3cret" })).not.toThrow();
+      const atFloor = "a".repeat(32);
+      // @ts-expect-error: Stub component for construction test
+      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: atFloor })).not.toThrow();
+    });
+
+    test("RevenueCat class accepts a real openssl-style secret", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      expect(
+        // @ts-expect-error: Stub component for construction test
+        () => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: VALID_SECRET }),
+      ).not.toThrow();
+    });
+
+    test("RevenueCat class accepts the same secret with a Bearer prefix", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      expect(
+        // @ts-expect-error: Stub component for construction test
+        () => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: `Bearer ${VALID_SECRET}` }),
+      ).not.toThrow();
+    });
+
+    test("httpHandler() throws when auth is undefined", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      // @ts-expect-error: Stub component for handler-construction test
+      const rc = new RevenueCat({}, {});
+      expect(() => rc.httpHandler()).toThrow(
+        /httpHandler\(\) requires REVENUECAT_WEBHOOK_AUTH/,
+      );
+    });
+
+    test("httpHandler() succeeds when a real secret is configured", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      // @ts-expect-error: Stub component for handler-construction test
+      const rc = new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: VALID_SECRET });
+      expect(() => rc.httpHandler()).not.toThrow();
     });
   });
 
-  describe("HIGH 5: dedup before rate limit", () => {
+  describe("dedup before rate limit", () => {
     test("replay of the same event.id doesn't consume rate-limit budget", async () => {
       const t = initConvexTest();
       const payload = basePayload({
@@ -222,12 +297,11 @@ describe("0.2.1 audit fixes", () => {
         app_user_id: "user_dedup_rate",
       });
       await postEvent(t, payload);
-      // Replay 150 times — would blow the 100/min rate limit if dedup wasn't first.
+      // 150 replays > 100/min rate limit. Dedup must run first.
       for (let i = 0; i < 150; i++) {
         const result = await postEvent(t, payload);
         expect(result.processed).toBe(false);
       }
-      // A genuinely new event must still go through.
       const result = await postEvent(
         t,
         basePayload({
@@ -241,12 +315,11 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 6: transferEntitlements copies all flags", () => {
+  describe("transferEntitlements copies all flags", () => {
     test("TRANSFER preserves ownershipType and status flags on destination", async () => {
       const t = initConvexTest();
       const source = "user_transfer_src_audit";
       const dest = "user_transfer_dst_audit";
-      // Source user has an entitlement with ownership + billing-issue flags.
       await postEvent(
         t,
         basePayload({
@@ -288,7 +361,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 7: deleteCustomer purges transfers", () => {
+  describe("deleteCustomer purges transfers", () => {
     test("transfers involving the user are deleted", async () => {
       const t = initConvexTest();
       await t.run(async (ctx) => {
@@ -326,11 +399,10 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 8: REFUND_REVERSED clears stale refund markers", () => {
+  describe("REFUND_REVERSED clears stale refund markers", () => {
     test("reverse of a refund clears refundedAtMs and cancelReason", async () => {
       const t = initConvexTest();
       const txnId = "txn_refund_reversed";
-      // Seed: initial + refund CANCELLATION.
       await postEvent(
         t,
         basePayload({
@@ -351,7 +423,6 @@ describe("0.2.1 audit fixes", () => {
           cancel_reason: "CUSTOMER_SUPPORT",
         }),
       );
-      // Reversal.
       await postEvent(
         t,
         basePayload({
@@ -372,7 +443,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 9: RENEWAL clears autoResumeAtMs", () => {
+  describe("RENEWAL clears autoResumeAtMs", () => {
     test("resumption after pause clears the resume marker", async () => {
       const t = initConvexTest();
       const txnId = "txn_pause_resume";
@@ -414,7 +485,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 10: legacy singular entitlement_id still grants", () => {
+  describe("legacy singular entitlement_id still grants", () => {
     test("entitlement_id (singular) with no entitlement_ids grants the entitlement", async () => {
       const t = initConvexTest();
       await postEvent(t, {
@@ -433,7 +504,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 11: PRODUCT_CHANGE updates entitlements", () => {
+  describe("PRODUCT_CHANGE updates entitlements", () => {
     test("productId and expiresAtMs on entitlement reflect the change", async () => {
       const t = initConvexTest();
       const txnId = "txn_product_change";
@@ -472,7 +543,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 12: VIRTUAL_CURRENCY accepts purchase_environment", () => {
+  describe("VIRTUAL_CURRENCY accepts purchase_environment", () => {
     test("VC event with only purchase_environment stores the transaction", async () => {
       const t = initConvexTest();
       await postEvent(t, {
@@ -500,7 +571,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 13: UNSUBSCRIBE CANCELLATION records unsubscribeDetectedAt", () => {
+  describe("UNSUBSCRIBE CANCELLATION records unsubscribeDetectedAt", () => {
     test("CANCELLATION with reason UNSUBSCRIBE sets unsubscribeDetectedAt", async () => {
       const t = initConvexTest();
       const txnId = "txn_unsub";
@@ -532,7 +603,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 16: event.id length capped", () => {
+  describe("event.id length capped", () => {
     test("oversized event.id is rejected", async () => {
       const t = initConvexTest();
       const huge = "x".repeat(500);
@@ -552,7 +623,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 17: sync accepts unknown subscriber fields", () => {
+  describe("sync accepts unknown subscriber fields", () => {
     test("sync doesn't reject unknown top-level subscriber keys", async () => {
       const t = initConvexTest();
       await t.mutation(api.sync.ingest, {
@@ -561,7 +632,7 @@ describe("0.2.1 audit fixes", () => {
           first_seen: "2024-01-01T00:00:00Z",
           entitlements: {},
           subscriptions: {},
-          // Fields RC's REST actually returns but we don't consume:
+          // Fields RC returns that we don't consume. Must not crash ingest.
           management_url: "https://example.com/manage",
           last_purchase_date: "2024-06-01T00:00:00Z",
           other_purchases: {},
@@ -576,13 +647,12 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("MEDIUM 21: aliasExperiments on SUBSCRIBER_ALIAS", () => {
+  describe("aliasExperiments on SUBSCRIBER_ALIAS", () => {
     test("experiment enrollment follows the alias migration", async () => {
       const t = initConvexTest();
       const anon = "$RCAnonymousID:cccccccccccccccccccccccccccccccc";
       const real = "user_real_alias";
 
-      // Enroll anon in an experiment via the dedicated handler.
       await postEvent(t, {
         ...basePayload({
           id: "evt_exp_enroll",
@@ -594,7 +664,6 @@ describe("0.2.1 audit fixes", () => {
         offering_id: "default",
       });
 
-      // Anon logs in — SUBSCRIBER_ALIAS fires.
       await postEvent(t, {
         ...basePayload({
           id: "evt_alias_exp",
@@ -604,7 +673,6 @@ describe("0.2.1 audit fixes", () => {
         }),
       });
 
-      // Experiment lookup under the real ID should find the enrollment.
       const exp = await t.query(api.experiments.get, {
         appUserId: real,
         experimentId: "onboarding_v2",
@@ -612,7 +680,6 @@ describe("0.2.1 audit fixes", () => {
       expect(exp).not.toBeNull();
       expect(exp?.variant).toBe("B");
 
-      // Nothing left under anon.
       const anonExp = await t.query(api.experiments.list, {
         appUserId: anon,
       });
@@ -620,7 +687,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("MEDIUM 22: unsubscribe_detected_at from REST sync", () => {
+  describe("unsubscribe_detected_at from REST sync", () => {
     test("sync persists unsubscribe_detected_at on the subscription", async () => {
       const t = initConvexTest();
       const expires = new Date(Date.now() + 86400000).toISOString();
@@ -650,7 +717,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 19: revokeEntitlements uses indexed lookup", () => {
+  describe("revokeEntitlements uses indexed lookup", () => {
     test("EXPIRATION with specific entitlement_ids revokes only those", async () => {
       const t = initConvexTest();
       // Grant two entitlements for one user.
@@ -662,7 +729,6 @@ describe("0.2.1 audit fixes", () => {
           entitlement_ids: ["premium", "vip"],
         }),
       );
-      // Expire only "premium".
       await postEvent(
         t,
         basePayload({
@@ -684,7 +750,7 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 20: non_subscriptions default ownership + original_purchase_date", () => {
+  describe("non_subscriptions default ownership + original_purchase_date", () => {
     test("one-time purchases default to PURCHASED ownership and carry original_purchase_date", async () => {
       const t = initConvexTest();
       const original = "2023-01-15T00:00:00Z";
@@ -728,9 +794,8 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  describe("HIGH 15: PII redaction from webhookEvents payload", () => {
+  describe("PII redaction from webhookEvents payload", () => {
     test("default redactor strips $email/$phoneNumber from stored payload", async () => {
-      // Direct test of the helper since httpHandler requires fetch glue.
       const { decodeSubscriberAttributes } = await import("../client/index.js");
       const stored = {
         subscriber_attributes: {
@@ -750,8 +815,616 @@ describe("0.2.1 audit fixes", () => {
     });
   });
 
-  // Ensure ConvexError import stays used for the typing above.
-  test("noop — ConvexError import guard", () => {
+  describe("customers.lastSeenAt monotonic guard", () => {
+    test("out-of-order webhook delivery does not regress lastSeenAt", async () => {
+      const t = initConvexTest();
+      const earlier = Date.now() - 60_000;
+      const later = Date.now();
+
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_lastseen_later",
+          app_user_id: "user_lastseen",
+          event_timestamp_ms: later,
+        }),
+      );
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_lastseen_earlier",
+          app_user_id: "user_lastseen",
+          event_timestamp_ms: earlier,
+        }),
+      );
+
+      const customer = await t.query(api.customers.get, { appUserId: "user_lastseen" });
+      expect(customer?.lastSeenAt).toBe(later);
+    });
+  });
+
+  describe("originalAppUserId fallback on partial events", () => {
+    test("event lacking original_app_user_id does not clobber the canonical value", async () => {
+      const t = initConvexTest();
+      const canonical = "$RCAnonymousID:abc123";
+
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_canon_set",
+          app_user_id: "user_canon",
+          original_app_user_id: canonical,
+        }),
+      );
+      const partial = basePayload({
+        id: "evt_canon_partial",
+        app_user_id: "user_canon",
+      });
+      partial.original_app_user_id = undefined as unknown as string;
+      await postEvent(t, partial);
+
+      const customer = await t.query(api.customers.get, { appUserId: "user_canon" });
+      expect(customer?.originalAppUserId).toBe(canonical);
+    });
+  });
+
+  describe("subscription patch fields preserve on partial events", () => {
+    test("BILLING_ISSUE without price fields does not erase priceUsd/currency", async () => {
+      const t = initConvexTest();
+      const subject = "user_partial";
+
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_partial_init",
+          type: "INITIAL_PURCHASE",
+          app_user_id: subject,
+          original_transaction_id: "otxn_partial",
+          transaction_id: "txn_partial",
+        }),
+      );
+      // Patch in revenue fields the helper doesn't carry. Partial follow-up
+      // event then arrives without them.
+      const sub = (
+        await t.query(api.subscriptions.getByUser, { appUserId: subject })
+      )[0];
+      expect(sub).toBeDefined();
+      await t.run(async (ctx) => {
+        await ctx.db.patch(sub._id, {
+          priceUsd: 9.99,
+          currency: "USD",
+          countryCode: "US",
+          taxPercentage: 10,
+          presentedOfferingId: "offering_default",
+        });
+      });
+
+      const partial = basePayload({
+        id: "evt_partial_billing_issue",
+        type: "BILLING_ISSUE",
+        app_user_id: subject,
+        original_transaction_id: "otxn_partial",
+        transaction_id: "txn_partial",
+      });
+      partial.expiration_at_ms = undefined as unknown as number;
+      await postEvent(t, partial);
+
+      const after = (
+        await t.query(api.subscriptions.getByUser, { appUserId: subject })
+      )[0];
+      expect(after.priceUsd).toBe(9.99);
+      expect(after.currency).toBe("USD");
+      expect(after.countryCode).toBe("US");
+      expect(after.taxPercentage).toBe(10);
+      expect(after.presentedOfferingId).toBe("offering_default");
+    });
+  });
+
+  describe("TRANSFER dedup on direct re-invocation", () => {
+    test("processing the same TRANSFER event twice does not duplicate transfers rows", async () => {
+      const t = initConvexTest();
+      const payload = basePayload({
+        id: "evt_transfer_dedup",
+        type: "TRANSFER",
+        transferred_from: ["user_from"],
+        transferred_to: ["user_to"],
+      });
+      await postEvent(t, payload);
+      // Direct re-invocation simulating an admin replay. Should be a no-op.
+      await t.mutation(internal.handlers.processTransfer, { event: payload });
+
+      const transfers = await t.query(api.transfers.list, {});
+      const sameEvent = transfers.filter((tr) => tr.eventId === "evt_transfer_dedup");
+      expect(sameEvent.length).toBe(1);
+    });
+  });
+
+  describe("customers.purge uses transferParticipants index", () => {
+    test("purge deletes transfers via the join table without scanning globally", async () => {
+      const t = initConvexTest();
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_purge_transfer",
+          type: "TRANSFER",
+          app_user_id: "user_purge",
+          transferred_from: ["user_old"],
+          transferred_to: ["user_purge"],
+        }),
+      );
+
+      // 100 unrelated transfers. The index-path read sees only the user's 1.
+      await t.run(async (ctx) => {
+        for (let i = 0; i < 100; i++) {
+          await ctx.db.insert("transfers", {
+            eventId: `unrelated_${i}`,
+            transferredFrom: ["other_a"],
+            transferredTo: ["other_b"],
+            timestamp: Date.now(),
+          });
+        }
+      });
+
+      const result = await t.mutation(api.customers.purge, {
+        appUserId: "user_purge",
+      });
+      expect(result.transfers).toBe(1);
+
+      const remainingForPurgeUser = await t.run(async (ctx) => {
+        return await ctx.db
+          .query("transferParticipants")
+          .withIndex("by_app_user", (q) => q.eq("appUserId", "user_purge"))
+          .collect();
+      });
+      expect(remainingForPurgeUser.length).toBe(0);
+    });
+  });
+
+  describe("subscription.kind discriminator", () => {
+    test("NON_RENEWING_PURCHASE writes kind: consumable", async () => {
+      const t = initConvexTest();
+      const subject = "user_consumable";
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_consumable",
+          type: "NON_RENEWING_PURCHASE",
+          app_user_id: subject,
+          product_id: "extra_lives_10",
+          original_transaction_id: "otxn_consumable",
+          transaction_id: "txn_consumable",
+        }),
+      );
+      const subs = await t.query(api.subscriptions.getByUser, { appUserId: subject });
+      expect(subs[0].kind).toBe("consumable");
+    });
+
+    test("INITIAL_PURCHASE writes kind: subscription", async () => {
+      const t = initConvexTest();
+      const subject = "user_recurring";
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_recurring",
+          type: "INITIAL_PURCHASE",
+          app_user_id: subject,
+          original_transaction_id: "otxn_recurring",
+          transaction_id: "txn_recurring",
+        }),
+      );
+      const subs = await t.query(api.subscriptions.getByUser, { appUserId: subject });
+      expect(subs[0].kind).toBe("subscription");
+    });
+
+    test("getActive filters out consumables", async () => {
+      const t = initConvexTest();
+      const subject = "user_mixed";
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_mixed_recurring",
+          type: "INITIAL_PURCHASE",
+          app_user_id: subject,
+          product_id: "premium_monthly",
+          original_transaction_id: "otxn_mixed_a",
+          transaction_id: "txn_mixed_a",
+        }),
+      );
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_mixed_consumable",
+          type: "NON_RENEWING_PURCHASE",
+          app_user_id: subject,
+          product_id: "extra_lives_10",
+          original_transaction_id: "otxn_mixed_b",
+          transaction_id: "txn_mixed_b",
+        }),
+      );
+      const active = await t.query(api.subscriptions.getActive, { appUserId: subject });
+      expect(active.length).toBe(1);
+      expect(active[0].productId).toBe("premium_monthly");
+      const consumables = await t.query(api.subscriptions.getConsumables, {
+        appUserId: subject,
+      });
+      expect(consumables.length).toBe(1);
+      expect(consumables[0].productId).toBe("extra_lives_10");
+    });
+  });
+
+  describe("customer.countryCode mirrors latest event", () => {
+    test("country_code from latest event lands on customer", async () => {
+      const t = initConvexTest();
+      const subject = "user_country";
+      const earlier = Date.now() - 60_000;
+      const later = Date.now();
+      await postEvent(t, {
+        ...basePayload({
+          id: "evt_country_us",
+          app_user_id: subject,
+          event_timestamp_ms: earlier,
+        }),
+        country_code: "US",
+      });
+      await postEvent(t, {
+        ...basePayload({
+          id: "evt_country_de",
+          app_user_id: subject,
+          event_timestamp_ms: later,
+        }),
+        country_code: "DE",
+      });
+      const customer = await t.query(api.customers.get, { appUserId: subject });
+      expect(customer?.countryCode).toBe("DE");
+    });
+
+    test("out-of-order older event does not regress countryCode", async () => {
+      const t = initConvexTest();
+      const subject = "user_country_oo";
+      const earlier = Date.now() - 60_000;
+      const later = Date.now();
+      await postEvent(t, {
+        ...basePayload({
+          id: "evt_country_later",
+          app_user_id: subject,
+          event_timestamp_ms: later,
+        }),
+        country_code: "DE",
+      });
+      await postEvent(t, {
+        ...basePayload({
+          id: "evt_country_earlier",
+          app_user_id: subject,
+          event_timestamp_ms: earlier,
+        }),
+        country_code: "US",
+      });
+      const customer = await t.query(api.customers.get, { appUserId: subject });
+      expect(customer?.countryCode).toBe("DE");
+    });
+  });
+
+  describe("future-timestamp poisoning guard", () => {
+    test("event_timestamp_ms far in the future is clamped on insert", async () => {
+      const t = initConvexTest();
+      const subject = "user_future_ts";
+      const farFuture = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_future",
+          app_user_id: subject,
+          event_timestamp_ms: farFuture,
+        }),
+      );
+      const skewCap = Date.now() + 5 * 60 * 1000;
+      const customer = await t.query(api.customers.get, { appUserId: subject });
+      expect(customer?.lastSeenAt).toBeLessThanOrEqual(skewCap);
+      expect(customer?.firstSeenAt).toBeLessThanOrEqual(skewCap);
+      expect(customer?.lastSeenAt).toBeLessThan(farFuture);
+    });
+
+    test("clamping does not block subsequent legitimate events", async () => {
+      const t = initConvexTest();
+      const subject = "user_future_unblocked";
+      const farFuture = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_future_first",
+          app_user_id: subject,
+          event_timestamp_ms: farFuture,
+        }),
+      );
+      const realtimeMs = Date.now();
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_future_second",
+          app_user_id: subject,
+          event_timestamp_ms: realtimeMs,
+          country_code: "FR",
+        }),
+      );
+      const customer = await t.query(api.customers.get, { appUserId: subject });
+      expect(customer?.countryCode).toBe("FR");
+    });
+  });
+
+  describe("TRANSFER participants count assertion", () => {
+    test("dedup leaves exactly one set of participant rows per event", async () => {
+      const t = initConvexTest();
+      const payload = basePayload({
+        id: "evt_transfer_participants",
+        type: "TRANSFER",
+        transferred_from: ["user_from"],
+        transferred_to: ["user_to"],
+      });
+      await postEvent(t, payload);
+      await t.mutation(internal.handlers.processTransfer, { event: payload });
+      const participants = await t.run(async (ctx) => {
+        return await ctx.db.query("transferParticipants").collect();
+      });
+      expect(participants.length).toBe(2);
+      const roles = participants.map((p) => p.role).sort();
+      expect(roles).toEqual(["from", "to"]);
+    });
+  });
+
+  describe("anonymous TRANSFER source purges its participants", () => {
+    test("transferParticipants for the anonymous source are dropped after merge", async () => {
+      const t = initConvexTest();
+      const anon = "$RCAnonymousID:anon123";
+      const real = "user_real";
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_anon_transfer",
+          type: "TRANSFER",
+          transferred_from: [anon],
+          transferred_to: [real],
+        }),
+      );
+      const participants = await t.run(async (ctx) => {
+        return await ctx.db.query("transferParticipants").collect();
+      });
+      expect(participants.length).toBe(1);
+      expect(participants[0].appUserId).toBe(real);
+      expect(participants[0].role).toBe("to");
+    });
+  });
+
+  describe("recordFailure is dedup-safe and capped", () => {
+    test("malformed event.id is rejected at HTTP boundary, not via recordFailure", async () => {
+      // The HTTP boundary rejects whitespace event.ids before the mutation.
+      // Direct invocation (unreachable from the wire) still throws.
+      const t = initConvexTest();
+      await expect(
+        t.mutation(api.webhooks.process, {
+          event: {
+            id: "   ",
+            type: "INITIAL_PURCHASE",
+            environment: "SANDBOX" as const,
+          },
+          payload: { id: "   ", type: "INITIAL_PURCHASE" },
+        }),
+      ).rejects.toThrow(/Event ID is required/);
+    });
+  });
+
+  describe("backfillTransferParticipants is idempotent", () => {
+    test("re-running the backfill does not double-write participant rows", async () => {
+      const t = initConvexTest();
+      await t.run(async (ctx) => {
+        await ctx.db.insert("transfers", {
+          eventId: "evt_legacy_transfer",
+          transferredFrom: ["legacy_a"],
+          transferredTo: ["legacy_b"],
+          timestamp: Date.now(),
+        });
+      });
+
+      const first = await t.mutation(api.transfers.backfillTransferParticipants, {});
+      expect(first.written).toBe(2);
+      expect(first.nextCursor).toBeNull();
+
+      const second = await t.mutation(api.transfers.backfillTransferParticipants, {});
+      expect(second.written).toBe(0);
+
+      const participants = await t.run(async (ctx) => {
+        return await ctx.db.query("transferParticipants").collect();
+      });
+      expect(participants.length).toBe(2);
+    });
+  });
+
+  describe("backfillKind retroactively classifies consumables", () => {
+    test("walks webhookEvents and patches matching subs to kind: consumable", async () => {
+      const t = initConvexTest();
+      const subject = "user_backfill";
+      const txnA = "otxn_consumable_pre_kind";
+      const txnB = "otxn_recurring_pre_kind";
+
+      // Pre-0.3.0 state: process the events with `kind` blanked out so the
+      // rows mimic legacy data that landed before the discriminator existed.
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_pre_consumable",
+          type: "NON_RENEWING_PURCHASE",
+          app_user_id: subject,
+          product_id: "lives_pack",
+          original_transaction_id: txnA,
+          transaction_id: txnA,
+        }),
+      );
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_pre_recurring",
+          type: "INITIAL_PURCHASE",
+          app_user_id: subject,
+          product_id: "premium_monthly",
+          original_transaction_id: txnB,
+          transaction_id: txnB,
+        }),
+      );
+      await t.run(async (ctx) => {
+        for (const txn of [txnA, txnB]) {
+          const sub = await ctx.db
+            .query("subscriptions")
+            .withIndex("by_original_transaction", (q) =>
+              q.eq("originalTransactionId", txn),
+            )
+            .first();
+          if (sub) await ctx.db.patch(sub._id, { kind: undefined });
+        }
+      });
+
+      const first = await t.mutation(api.subscriptions.backfillKind, {});
+      expect(first.written).toBe(1);
+      expect(first.nextCursor).toBeNull();
+
+      const subs = await t.query(api.subscriptions.getByUser, { appUserId: subject });
+      const consumable = subs.find((s) => s.originalTransactionId === txnA);
+      const recurring = subs.find((s) => s.originalTransactionId === txnB);
+      expect(consumable?.kind).toBe("consumable");
+      expect(recurring?.kind).toBeUndefined();
+
+      // Idempotent: a second run finds nothing to do.
+      const second = await t.mutation(api.subscriptions.backfillKind, {});
+      expect(second.written).toBe(0);
+    });
+
+    test("getActive filters consumables once backfilled", async () => {
+      const t = initConvexTest();
+      const subject = "user_backfill_filter";
+      const txn = "otxn_filter";
+      await postEvent(
+        t,
+        basePayload({
+          id: "evt_filter_pre",
+          type: "NON_RENEWING_PURCHASE",
+          app_user_id: subject,
+          product_id: "coins_100",
+          original_transaction_id: txn,
+          transaction_id: txn,
+        }),
+      );
+      // Strip kind to simulate legacy data. Pre-backfill it leaks into getActive.
+      await t.run(async (ctx) => {
+        const sub = await ctx.db
+          .query("subscriptions")
+          .withIndex("by_original_transaction", (q) =>
+            q.eq("originalTransactionId", txn),
+          )
+          .first();
+        if (sub) await ctx.db.patch(sub._id, { kind: undefined });
+      });
+      const beforeActive = await t.query(api.subscriptions.getActive, { appUserId: subject });
+      expect(beforeActive.length).toBe(1);
+
+      await t.mutation(api.subscriptions.backfillKind, {});
+
+      const afterActive = await t.query(api.subscriptions.getActive, { appUserId: subject });
+      expect(afterActive.length).toBe(0);
+      const afterConsumables = await t.query(api.subscriptions.getConsumables, {
+        appUserId: subject,
+      });
+      expect(afterConsumables.length).toBe(1);
+    });
+  });
+
+  describe("future-poisoned timestamp does not block country update", () => {
+    test("real-time event 30s+ after a clamped future event still mirrors countryCode", async () => {
+      const t = initConvexTest();
+      const subject = "user_country_unblock";
+      const farFuture = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
+
+      // First event poisons lastSeenAt at `now + 5min` (after clamp).
+      await postEvent(t, {
+        ...basePayload({
+          id: "evt_country_poison",
+          app_user_id: subject,
+          event_timestamp_ms: farFuture,
+        }),
+        country_code: "US",
+      });
+
+      // Real-time event 30s after wall-clock. Its event_timestamp lands well
+      // before the clamped lastSeenAt, but still passes the lag-tolerance gate.
+      const realtime = Date.now() + 30_000;
+      await postEvent(t, {
+        ...basePayload({
+          id: "evt_country_realtime",
+          app_user_id: subject,
+          event_timestamp_ms: realtime,
+        }),
+        country_code: "JP",
+      });
+
+      const customer = await t.query(api.customers.get, { appUserId: subject });
+      expect(customer?.countryCode).toBe("JP");
+    });
+  });
+
+  describe("rate-limit key falls back to app_user_id", () => {
+    test("events without app_id share a per-user bucket, not a global one", async () => {
+      const t = initConvexTest();
+      // Two distinct users posting events without app_id should not contend
+      // for the same global bucket. Send 50 each, neither reaches the
+      // 100/min cap on its own bucket.
+      const userA = "user_rl_a";
+      const userB = "user_rl_b";
+      for (let i = 0; i < 50; i++) {
+        await postEvent(
+          t,
+          basePayload({
+            id: `evt_rl_a_${i}`,
+            app_id: undefined as unknown as string,
+            app_user_id: userA,
+            original_transaction_id: `txn_a_${i}`,
+            transaction_id: `txn_a_${i}`,
+          }),
+        );
+        await postEvent(
+          t,
+          basePayload({
+            id: `evt_rl_b_${i}`,
+            app_id: undefined as unknown as string,
+            app_user_id: userB,
+            original_transaction_id: `txn_b_${i}`,
+            transaction_id: `txn_b_${i}`,
+          }),
+        );
+      }
+      // Both users still under cap. An additional event for each succeeds.
+      const a = await postEvent(
+        t,
+        basePayload({
+          id: "evt_rl_a_final",
+          app_id: undefined as unknown as string,
+          app_user_id: userA,
+          original_transaction_id: "txn_a_final",
+          transaction_id: "txn_a_final",
+        }),
+      );
+      const b = await postEvent(
+        t,
+        basePayload({
+          id: "evt_rl_b_final",
+          app_id: undefined as unknown as string,
+          app_user_id: userB,
+          original_transaction_id: "txn_b_final",
+          transaction_id: "txn_b_final",
+        }),
+      );
+      expect(a.processed).toBe(true);
+      expect(b.processed).toBe(true);
+    });
+  });
+
+  test("noop, ConvexError import guard", () => {
     expect(ConvexError).toBeDefined();
   });
 });

@@ -53,6 +53,7 @@ interface SubscriptionDoc {
   _creationTime: number;
   appUserId: string;
   productId: string;
+  kind?: "subscription" | "consumable";
   entitlementIds?: string[];
   store: Store;
   environment: Environment;
@@ -101,6 +102,8 @@ interface CustomerDoc {
   firstSeenAt: number;
   lastSeenAt?: number;
   attributes?: any;
+  countryCode?: string;
+  managementUrl?: string;
   updatedAt: number;
 }
 
@@ -179,107 +182,10 @@ interface WebhookEventDoc {
   error?: string;
 }
 
-type Duration =
-  | "daily"
-  | "three_day"
-  | "weekly"
-  | "monthly"
-  | "two_month"
-  | "three_month"
-  | "six_month"
-  | "yearly"
-  | "lifetime";
-
 /**
  * A utility for referencing a Convex component's exposed API.
  */
 export type ComponentApi<Name extends string | undefined = string | undefined> = {
-  api: {
-    /**
-     * Get customer from RevenueCat API (v2)
-     * Requires: sk_* format API key and projectId
-     */
-    getCustomer: FunctionReference<
-      "action",
-      "internal",
-      { apiKey: string; projectId: string; appUserId: string },
-      any,
-      Name
-    >;
-    /**
-     * Grant promotional entitlement via RevenueCat API (v1)
-     * Requires: v1 API key (NOT sk_* format) - v2 does not support this operation
-     */
-    grantEntitlement: FunctionReference<
-      "action",
-      "internal",
-      {
-        apiKey: string;
-        appUserId: string;
-        entitlementId: string;
-        duration: Duration;
-      },
-      any,
-      Name
-    >;
-    /**
-     * Revoke promotional entitlement via RevenueCat API (v1)
-     * Requires: v1 API key (NOT sk_* format) - v2 does not support this operation
-     */
-    revokeEntitlement: FunctionReference<
-      "action",
-      "internal",
-      {
-        apiKey: string;
-        appUserId: string;
-        entitlementId: string;
-      },
-      any,
-      Name
-    >;
-    /**
-     * Delete a customer from RevenueCat (v1)
-     * Use for GDPR compliance / right to deletion requests.
-     */
-    deleteCustomer: FunctionReference<
-      "action",
-      "internal",
-      {
-        apiKey: string;
-        appUserId: string;
-      },
-      { deleted: boolean; app_user_id: string },
-      Name
-    >;
-    /**
-     * Update customer attributes via RevenueCat API (v1)
-     */
-    updateAttributes: FunctionReference<
-      "action",
-      "internal",
-      {
-        apiKey: string;
-        appUserId: string;
-        attributes: Record<string, { value: string | null; updated_at_ms?: number }>;
-      },
-      { success: boolean },
-      Name
-    >;
-    /**
-     * Get offerings for a customer via RevenueCat API (v1)
-     */
-    getOfferings: FunctionReference<
-      "action",
-      "internal",
-      {
-        apiKey: string;
-        appUserId: string;
-        platform?: "ios" | "android" | "amazon" | "macos" | "uikitformac";
-      },
-      any,
-      Name
-    >;
-  };
   customers: {
     get: FunctionReference<"query", "public", { appUserId: string }, CustomerDoc | null, Name>;
     getByOriginalId: FunctionReference<
@@ -323,42 +229,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       EntitlementDoc[],
       Name
     >;
-    grant: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        appUserId: string;
-        entitlementId: string;
-        productId?: string;
-        expiresAtMs?: number;
-        purchasedAtMs?: number;
-        store?: Store;
-        isSandbox: boolean;
-      },
-      string,
-      Name
-    >;
-    revoke: FunctionReference<
-      "mutation",
-      "internal",
-      { appUserId: string; entitlementId: string },
-      boolean,
-      Name
-    >;
-    sync: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        appUserId: string;
-        entitlementIds: string[];
-        productId?: string;
-        expiresAtMs?: number;
-        store?: Store;
-        isSandbox: boolean;
-      },
-      { granted: string[]; revoked: string[] },
-      Name
-    >;
   };
   subscriptions: {
     getByUser: FunctionReference<
@@ -373,6 +243,20 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       "internal",
       { appUserId: string },
       SubscriptionDoc[],
+      Name
+    >;
+    getConsumables: FunctionReference<
+      "query",
+      "internal",
+      { appUserId: string },
+      SubscriptionDoc[],
+      Name
+    >;
+    backfillKind: FunctionReference<
+      "mutation",
+      "internal",
+      { cursor?: string; pageSize?: number },
+      { scanned: number; written: number; nextCursor: string | null },
       Name
     >;
     getByOriginalTransaction: FunctionReference<
@@ -394,43 +278,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       "internal",
       { appUserId: string },
       SubscriptionDoc[],
-      Name
-    >;
-    upsert: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        appUserId: string;
-        productId: string;
-        entitlementIds?: string[];
-        store: Store;
-        environment: Environment;
-        periodType: PeriodType;
-        purchasedAtMs: number;
-        expirationAtMs?: number;
-        originalTransactionId: string;
-        transactionId: string;
-        isFamilyShare: boolean;
-        ownershipType?: OwnershipType;
-        isTrialConversion?: boolean;
-        autoRenewStatus?: boolean;
-        cancelReason?: string;
-        expirationReason?: string;
-        gracePeriodExpirationAtMs?: number;
-        billingIssueDetectedAt?: number;
-        autoResumeAtMs?: number;
-        priceUsd?: number;
-        currency?: string;
-        priceInPurchasedCurrency?: number;
-        countryCode?: string;
-        taxPercentage?: number;
-        commissionPercentage?: number;
-        offerCode?: string;
-        presentedOfferingId?: string;
-        renewalNumber?: number;
-        newProductId?: string;
-      },
-      string,
       Name
     >;
   };
@@ -476,9 +323,8 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           onEntitlementActivated?: string;
           onEntitlementDeactivated?: string;
         };
-        _skipRateLimit?: boolean;
       },
-      { processed: boolean; eventId: string; rateLimited?: boolean },
+      { processed: boolean; eventId: string },
       Name
     >;
     checkRateLimit: FunctionReference<
@@ -486,6 +332,24 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       "internal",
       { key: string },
       { allowed: boolean; remaining: number; resetAt: number },
+      Name
+    >;
+    recordFailure: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        event: {
+          id: string;
+          type: string;
+          app_id?: string;
+          app_user_id?: string;
+          environment: Environment;
+          store?: Store;
+        };
+        payload: any;
+        error: string;
+      },
+      null,
       Name
     >;
   };
@@ -539,6 +403,13 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       Name
     >;
     list: FunctionReference<"query", "public", { limit?: number }, TransferDoc[], Name>;
+    backfillTransferParticipants: FunctionReference<
+      "mutation",
+      "public",
+      { cursor?: string; pageSize?: number },
+      { scanned: number; written: number; nextCursor: string | null },
+      Name
+    >;
   };
   invoices: {
     get: FunctionReference<"query", "public", { invoiceId: string }, InvoiceDoc | null, Name>;

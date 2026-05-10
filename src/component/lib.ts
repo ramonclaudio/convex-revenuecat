@@ -8,7 +8,7 @@ import { internalMutation } from "./_generated/server.js";
  * `onEntitlementDeactivated`, and `onCustomerDeleted` hooks without
  * adding a bespoke helper file to every consumer.
  *
- * Not part of the component's public API — consumers pass their own
+ * Not part of the component's public API, consumers pass their own
  * mutation/action references via `RevenueCatOptions.hooks`.
  */
 export const noop = internalMutation({

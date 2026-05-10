@@ -1,6 +1,7 @@
 import { ConvexError, v } from "convex/values";
 import type { FunctionHandle } from "convex/server";
 import { mutation, query } from "./_generated/server.js";
+import type { Id } from "./_generated/dataModel.js";
 import schema from "./schema.js";
 
 const customerDoc = schema.tables.customers.validator.extend({
@@ -39,26 +40,14 @@ export const getByOriginalId = query({
   },
 });
 
-/**
- * Purge all component-local data for an appUserId.
- *
- * Deletes: customer, subscriptions, entitlements, experiments, invoices,
- * virtual currency balances/transactions, and webhookEvents keyed to this
- * user. Returns deletion counts per table.
- *
- * Does not call RevenueCat's REST API. Consumers wanting to also purge
- * from RC should call `DELETE /v1/subscribers/{app_user_id}` from an
- * action with a secret API key.
- *
- * Throws `PURGE_SAFETY_CAP_EXCEEDED` if any table holds more than 500
- * rows for this user — fails loudly rather than silently truncating.
- */
+/** Purge all component-local data for an appUserId. Throws
+ * `PURGE_SAFETY_CAP_EXCEEDED` if any table holds more than 500 rows.
+ * Does not call RC's REST API. Use a separate action with `REVENUECAT_API_KEY`
+ * for `DELETE /v1/subscribers/{app_user_id}`. */
 export const purge = mutation({
   args: {
     appUserId: v.string(),
-    // Optional FunctionHandle (from `createFunctionHandle`) fired after the
-    // purge commits. Receives `{ appUserId }`. Scheduling is atomic with the
-    // purge — if any write throws, the hook doesn't fire.
+    /** FunctionHandle fired atomically with purge commit. */
     onCustomerDeleted: v.optional(v.string()),
   },
   returns: v.object({
@@ -113,28 +102,68 @@ export const purge = mutation({
       transfers: 0,
     };
 
-    // Transfers: no `appUserId` column (keyed on transferredFrom/transferredTo
-    // string arrays). Filter in-memory. For GDPR, any transfer involving this
-    // user must be deleted — the arrays contain the app_user_id verbatim.
-    // Bounded by PURGE_SAFETY_CAP against runaway pathological users.
-    const allTransfers = await ctx.db
-      .query("transfers")
-      .order("desc")
+    const participants = await ctx.db
+      .query("transferParticipants")
+      .withIndex("by_app_user", (q) => q.eq("appUserId", appUserId))
       .take(PURGE_SAFETY_CAP + 1);
-    if (allTransfers.length > PURGE_SAFETY_CAP) {
+    if (participants.length > PURGE_SAFETY_CAP) {
       throw new ConvexError({
         code: "PURGE_SAFETY_CAP_EXCEEDED",
-        message: `purge aborted: transfers table exceeds ${PURGE_SAFETY_CAP} rows for scan`,
+        message: `purge aborted: ${appUserId} participates in more than ${PURGE_SAFETY_CAP} transfers`,
       });
     }
-    for (const transfer of allTransfers) {
+    const transferIdsViaJoin = new Set<Id<"transfers">>(
+      participants.map((p) => p.transferId),
+    );
+    await Promise.all(participants.map((p) => ctx.db.delete(p._id)));
+    const transferIdList = [...transferIdsViaJoin];
+    const transferRows = await Promise.all(
+      transferIdList.map((id) => ctx.db.get(id)),
+    );
+    const siblingsLists = await Promise.all(
+      transferIdList.map((id) =>
+        ctx.db
+          .query("transferParticipants")
+          .withIndex("by_transfer", (q) => q.eq("transferId", id))
+          .collect(),
+      ),
+    );
+    for (let i = 0; i < transferIdList.length; i++) {
+      const transfer = transferRows[i];
+      if (!transfer) continue;
+      await ctx.db.delete(transfer._id);
+      counts.transfers++;
+      await Promise.all(
+        siblingsLists[i].map((sibling) => ctx.db.delete(sibling._id)),
+      );
+    }
+
+    // Backwards-compat fallback for pre-0.3.0 transfer rows that lack
+    // participant entries. After running `backfillTransferParticipants` this
+    // scan finds nothing relevant.
+    const legacyTransfers = await ctx.db
+      .query("transfers")
+      .order("desc")
+      .take(PURGE_SAFETY_CAP);
+    let legacyHits = 0;
+    for (const transfer of legacyTransfers) {
+      if (transferIdsViaJoin.has(transfer._id)) continue;
       if (
         transfer.transferredFrom.includes(appUserId) ||
         transfer.transferredTo.includes(appUserId)
       ) {
         await ctx.db.delete(transfer._id);
         counts.transfers++;
+        legacyHits++;
       }
+    }
+    // Only throw if we hit the cap AND found unbackfilled hits, otherwise
+    // the cap is a benign side effect of large but-fully-backfilled tables.
+    if (legacyHits > 0 && legacyTransfers.length === PURGE_SAFETY_CAP) {
+      throw new ConvexError({
+        code: "PURGE_SAFETY_CAP_EXCEEDED",
+        message: `purge incomplete: legacy transfers scan capped at ${PURGE_SAFETY_CAP} with hits for ${appUserId}; run backfillTransferParticipants then retry`,
+      });
     }
 
     const customer = await ctx.db

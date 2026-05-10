@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { api, internal } from "./_generated/api.js";
+import { api } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
 function createEventPayload(
@@ -666,7 +666,7 @@ describe("handlers", () => {
         payload: expirePayload,
       });
 
-      // Both entitlements should still be active — neither was targeted
+      // Both entitlements should still be active, neither was targeted
       expect(await t.query(api.entitlements.check, { appUserId: "user_expire_guard", entitlementId: "premium" })).toBe(true);
       expect(await t.query(api.entitlements.check, { appUserId: "user_expire_guard", entitlementId: "pro" })).toBe(true);
     });
@@ -948,11 +948,15 @@ describe("handlers", () => {
       const t = initConvexTest();
 
       // Seed a lifetime entitlement directly.
-      const entId = await t.mutation(internal.entitlements.grant, {
-        appUserId: "user_lifetime_billing",
-        entitlementId: "premium",
-        isSandbox: false,
-      });
+      const entId = await t.run(async (ctx) =>
+        ctx.db.insert("entitlements", {
+          appUserId: "user_lifetime_billing",
+          entitlementId: "premium",
+          isActive: true,
+          isSandbox: false,
+          updatedAt: Date.now(),
+        }),
+      );
       const before = await t.run(async (ctx) => ctx.db.get(entId));
       expect(before?.expiresAtMs).toBeUndefined();
 
@@ -976,7 +980,7 @@ describe("handlers", () => {
       });
 
       const after = await t.run(async (ctx) => ctx.db.get(entId));
-      // Lifetime entitlement must stay lifetime — never coerce to finite expiry.
+      // Lifetime entitlement must stay lifetime, never coerce to finite expiry.
       expect(after?.expiresAtMs).toBeUndefined();
     });
 
@@ -2046,7 +2050,7 @@ describe("handlers", () => {
         }),
       ).toBe(false);
 
-      // logIn() fires — RC sends SUBSCRIBER_ALIAS
+      // logIn() fires, RC sends SUBSCRIBER_ALIAS
       // app_user_id = real user, original_app_user_id = anonymous
       const aliasPayload = {
         id: "evt_alias_migrate",
@@ -2100,7 +2104,7 @@ describe("handlers", () => {
       const realUserId = "user_billing_alias_real";
       const now = Date.now();
 
-      // Real user purchases first — shorter expiry (older record)
+      // Real user purchases first, shorter expiry (older record)
       const realPurchase = createEventPayload({
         id: "evt_billing_alias_real_purchase",
         type: "INITIAL_PURCHASE",
@@ -2119,7 +2123,7 @@ describe("handlers", () => {
         payload: realPurchase,
       });
 
-      // Anonymous user purchases same entitlement — longer expiry (newer record)
+      // Anonymous user purchases same entitlement, longer expiry (newer record)
       const anonPurchase = createEventPayload({
         id: "evt_billing_alias_anon_purchase",
         type: "INITIAL_PURCHASE",
@@ -2138,7 +2142,7 @@ describe("handlers", () => {
         payload: anonPurchase,
       });
 
-      // Billing issue on anonymous — stamps billingIssueDetectedAt
+      // Billing issue on anonymous, stamps billingIssueDetectedAt
       const billingPayload = createEventPayload({
         id: "evt_billing_alias_issue",
         type: "BILLING_ISSUE",
@@ -2164,7 +2168,7 @@ describe("handlers", () => {
       const realEntsBefore = await t.query(api.entitlements.list, { appUserId: realUserId });
       expect(realEntsBefore[0].billingIssueDetectedAt).toBeUndefined();
 
-      // User logs in — SUBSCRIBER_ALIAS merges anonymous (newer) → real (existing, older)
+      // User logs in, SUBSCRIBER_ALIAS merges anonymous (newer) → real (existing, older)
       // This hits the `if (existing) { if (sourceIsNewer) { patch(...) } }` branch.
       const aliasPayload = {
         id: "evt_billing_alias_merge",
@@ -2186,7 +2190,7 @@ describe("handlers", () => {
       });
 
       // billingIssueDetectedAt from the anonymous (source) record must be carried
-      // over to the real user's entitlement — without it they'd lose grace-period access.
+      // over to the real user's entitlement, without it they'd lose grace-period access.
       const realEnts = await t.query(api.entitlements.list, { appUserId: realUserId });
       expect(realEnts.length).toBe(1);
       expect(realEnts[0].billingIssueDetectedAt).toBeDefined();
@@ -2200,23 +2204,31 @@ describe("handlers", () => {
       const realUserId = "user_unsub_alias_real";
       const now = Date.now();
 
-      // Real user: grant with shorter expiry (older record)
-      await t.mutation(internal.entitlements.grant, {
-        appUserId: realUserId,
-        entitlementId: "premium",
-        isSandbox: false,
-        expiresAtMs: now + 10 * 24 * 60 * 60 * 1000, // +10 days
-      });
+      // Real user: shorter expiry (older record).
+      await t.run(async (ctx) =>
+        ctx.db.insert("entitlements", {
+          appUserId: realUserId,
+          entitlementId: "premium",
+          isActive: true,
+          isSandbox: false,
+          expiresAtMs: now + 10 * 24 * 60 * 60 * 1000,
+          updatedAt: now,
+        }),
+      );
 
-      // Anonymous user: grant with longer expiry (newer record)
-      const anonEntId = await t.mutation(internal.entitlements.grant, {
-        appUserId: anonymousId,
-        entitlementId: "premium",
-        isSandbox: false,
-        expiresAtMs: now + 30 * 24 * 60 * 60 * 1000, // +30 days
-      });
+      // Anonymous user: longer expiry (newer record).
+      const anonEntId = await t.run(async (ctx) =>
+        ctx.db.insert("entitlements", {
+          appUserId: anonymousId,
+          entitlementId: "premium",
+          isActive: true,
+          isSandbox: false,
+          expiresAtMs: now + 30 * 24 * 60 * 60 * 1000,
+          updatedAt: now,
+        }),
+      );
 
-      // Seed unsubscribeDetectedAt directly — no handler sets this yet
+      // Seed unsubscribeDetectedAt directly, no handler sets this yet
       const unsubscribeTs = now - 500;
       await t.run(async (ctx) => {
         await ctx.db.patch(anonEntId, { unsubscribeDetectedAt: unsubscribeTs });
@@ -2283,7 +2295,7 @@ describe("handlers", () => {
         await t.query(api.entitlements.check, { appUserId: "user_refund_1", entitlementId: "premium" }),
       ).toBe(true);
 
-      // Refund issued — should revoke entitlement immediately
+      // Refund issued, should revoke entitlement immediately
       const refundPayload = createEventPayload({
         id: "evt_refund_issued",
         type: "REFUND",
@@ -2330,7 +2342,7 @@ describe("handlers", () => {
         payload: purchasePayload,
       });
 
-      // Refund with no entitlement_ids (product not mapped) — should not revoke anything
+      // Refund with no entitlement_ids (product not mapped), should not revoke anything
       const refundPayload = {
         ...createEventPayload({
           id: "evt_refund_no_ents",
@@ -2351,7 +2363,7 @@ describe("handlers", () => {
         payload: refundPayload,
       });
 
-      // Entitlement should still be active — unmapped product refund shouldn't revoke
+      // Entitlement should still be active, unmapped product refund shouldn't revoke
       expect(
         await t.query(api.entitlements.check, { appUserId: "user_refund_multi", entitlementId: "premium" }),
       ).toBe(true);
