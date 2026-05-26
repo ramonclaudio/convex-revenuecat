@@ -1,5 +1,5 @@
 import { v, ConvexError } from "convex/values";
-import { internalMutation, mutation } from "./_generated/server.js";
+import { internalMutation } from "./_generated/server.js";
 import { internal } from "./_generated/api.js";
 import { environmentValidator, storeValidator } from "./schema.js";
 import {
@@ -80,7 +80,7 @@ export const checkRateLimit = internalMutation({
   },
 });
 
-export const process = mutation({
+export const process = internalMutation({
   args: {
     event: v.object({
       id: v.string(),

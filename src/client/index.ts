@@ -6,6 +6,7 @@ import type {
   HttpRouter,
 } from "convex/server";
 import { v } from "convex/values";
+import type { ComponentApi } from "../component/_generated/component.js";
 import type {
   Customer,
   Entitlement,
@@ -20,72 +21,10 @@ import type {
   VirtualCurrencyTransaction,
 } from "../component/types.js";
 
-// Convex generates component types with "internal" visibility in consumer apps
-// regardless of how they're defined in the component. Define the expected API
-// shape directly to avoid visibility mismatches.
-type AnyVisibility = "public" | "internal";
-
 type GracePeriodReturn = {
   inGracePeriod: boolean;
   gracePeriodExpiresAt?: number;
   billingIssueDetectedAt?: number;
-};
-
-type ClientComponentApi = {
-  entitlements: {
-    check: FunctionReference<"query", AnyVisibility, { appUserId: string; entitlementId: string }, boolean>;
-    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, Entitlement[]>;
-    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, Entitlement[]>;
-  };
-  subscriptions: {
-    getActive: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
-    getConsumables: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
-    getByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
-    isInGracePeriod: FunctionReference<"query", AnyVisibility, { originalTransactionId: string }, GracePeriodReturn>;
-    getInGracePeriod: FunctionReference<"query", AnyVisibility, { appUserId: string }, Subscription[]>;
-    backfillKind: FunctionReference<"mutation", AnyVisibility, { cursor?: string; pageSize?: number }, { scanned: number; written: number; nextCursor: string | null }>;
-  };
-  customers: {
-    get: FunctionReference<"query", AnyVisibility, { appUserId: string }, Customer | null>;
-    purge: FunctionReference<"mutation", AnyVisibility, { appUserId: string; onCustomerDeleted?: string }, DeleteCustomerResult>;
-  };
-  experiments: {
-    get: FunctionReference<"query", AnyVisibility, { appUserId: string; experimentId: string }, Experiment | null>;
-    list: FunctionReference<"query", AnyVisibility, { appUserId: string }, Experiment[]>;
-  };
-  transfers: {
-    getByEventId: FunctionReference<"query", AnyVisibility, { eventId: string }, Transfer | null>;
-    list: FunctionReference<"query", AnyVisibility, { limit?: number }, Transfer[]>;
-  };
-  invoices: {
-    get: FunctionReference<"query", AnyVisibility, { invoiceId: string }, Invoice | null>;
-    listByUser: FunctionReference<"query", AnyVisibility, { appUserId: string }, Invoice[]>;
-  };
-  virtualCurrency: {
-    getBalance: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode: string }, VirtualCurrencyBalance | null>;
-    listBalances: FunctionReference<"query", AnyVisibility, { appUserId: string }, VirtualCurrencyBalance[]>;
-    listTransactions: FunctionReference<"query", AnyVisibility, { appUserId: string; currencyCode?: string }, VirtualCurrencyTransaction[]>;
-  };
-  webhooks: {
-    process: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown>; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, { processed: boolean; eventId: string }>;
-    recordFailure: FunctionReference<"mutation", AnyVisibility, { event: { id: string; type: string; app_id?: string; app_user_id?: string; environment: Environment; store?: Store }; payload: Record<string, unknown>; error: string }, null>;
-  };
-  sync: {
-    ingest: FunctionReference<"mutation", AnyVisibility, { appUserId: string; subscriber: RevenueCatSubscriberInput; hooks?: { onEntitlementActivated?: string; onEntitlementDeactivated?: string } }, SyncResult>;
-  };
-};
-
-type RevenueCatSubscriberInput = {
-  entitlements?: Record<string, unknown>;
-  subscriptions?: Record<string, unknown>;
-  non_subscriptions?: Record<string, unknown>;
-  subscriber_attributes?: Record<string, unknown>;
-  first_seen?: string;
-  last_seen?: string;
-  original_app_user_id?: string;
-  /** Native subscription-manager deep link from RC's REST. iOS routes to App
-   * Store settings, Android to Play Store, web to the Stripe portal. */
-  management_url?: string;
 };
 
 export type {
@@ -480,7 +419,7 @@ function transformPayload(obj: unknown): unknown {
 
 export class RevenueCat {
   constructor(
-    public component: ClientComponentApi,
+    public component: ComponentApi,
     public options: RevenueCatOptions = {},
   ) {
     // `undefined` is allowed here for query-only consumers. `httpHandler()`

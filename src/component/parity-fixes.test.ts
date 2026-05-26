@@ -61,7 +61,7 @@ async function dispatch(
   t: ReturnType<typeof initConvexTest>,
   payload: ReturnType<typeof basePayload>,
 ) {
-  await t.mutation(api.webhooks.process, {
+  await t.mutation(internal.webhooks.process, {
     event: {
       id: payload.id,
       type: payload.type,

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server.js";
+import { paginator } from "convex-helpers/server/pagination";
+import { internalMutation, query } from "./_generated/server.js";
 import schema from "./schema.js";
 
 const subscriptionDoc = schema.tables.subscriptions.validator.extend({
@@ -73,7 +74,7 @@ export const getConsumables = query({
  * NON_RENEWING_PURCHASE event predates retention can't be backfilled this
  * way and stay `kind: undefined` (so `getActiveSubscriptions` will keep
  * returning them). Operators with older data should patch directly. */
-export const backfillKind = mutation({
+export const backfillKind = internalMutation({
   args: {
     cursor: v.optional(v.string()),
     pageSize: v.optional(v.number()),
@@ -85,7 +86,7 @@ export const backfillKind = mutation({
   }),
   handler: async (ctx, args) => {
     const pageSize = Math.min(args.pageSize ?? 256, 1000);
-    const page = await ctx.db
+    const page = await paginator(ctx.db, schema)
       .query("webhookEvents")
       .withIndex("by_type", (q) => q.eq("eventType", "NON_RENEWING_PURCHASE"))
       .paginate({ cursor: args.cursor ?? null, numItems: pageSize });

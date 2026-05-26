@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { initConvexTest } from "./setup.test.js";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 
 describe("invoices", () => {
   describe("get", () => {
@@ -16,7 +16,7 @@ describe("invoices", () => {
       const t = initConvexTest();
 
       // INVOICE_ISSUANCE uses event.id as the invoice identifier (no separate invoice_id field)
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_invoice_1",
           type: "INVOICE_ISSUANCE",
@@ -65,7 +65,7 @@ describe("invoices", () => {
       const userId = "user_multi_invoice";
 
       for (let i = 1; i <= 3; i++) {
-        await t.mutation(api.webhooks.process, {
+        await t.mutation(internal.webhooks.process, {
           event: {
             id: `evt_inv_${i}`,
             type: "INVOICE_ISSUANCE",

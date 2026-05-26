@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { initConvexTest } from "./setup.test.js";
-import { api } from "./_generated/api.js";
+import { api, internal } from "./_generated/api.js";
 
 describe("virtualCurrency", () => {
   describe("getBalance", () => {
@@ -16,7 +16,7 @@ describe("virtualCurrency", () => {
     test("returns balance after VIRTUAL_CURRENCY_TRANSACTION event", async () => {
       const t = initConvexTest();
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_vc_1",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -59,7 +59,7 @@ describe("virtualCurrency", () => {
       const userId = "user_vc_accumulate";
 
       // First transaction: +100
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_vc_add",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -83,7 +83,7 @@ describe("virtualCurrency", () => {
       });
 
       // Second transaction: -30 (refund)
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_vc_sub",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -120,7 +120,7 @@ describe("virtualCurrency", () => {
       const t = initConvexTest();
       const userId = "user_multi_currency";
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_vc_multi",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -157,7 +157,7 @@ describe("virtualCurrency", () => {
       const t = initConvexTest();
       const userId = "user_tx_list";
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_tx_1",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -176,7 +176,7 @@ describe("virtualCurrency", () => {
         },
       });
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_tx_2",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -206,7 +206,7 @@ describe("virtualCurrency", () => {
       const t = initConvexTest();
       const userId = "user_tx_filter";
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_tx_coins",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -224,7 +224,7 @@ describe("virtualCurrency", () => {
         },
       });
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_tx_gems",
           type: "VIRTUAL_CURRENCY_TRANSACTION",

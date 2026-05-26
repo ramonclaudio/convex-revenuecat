@@ -86,7 +86,7 @@ describe("lifecycle hooks", () => {
         entitlement_ids: ["premium", "pro"],
       });
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -120,7 +120,7 @@ describe("lifecycle hooks", () => {
       const userId = "user_hook_already_active";
 
       // First purchase activates.
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_hook_a1",
           type: "INITIAL_PURCHASE",
@@ -133,7 +133,7 @@ describe("lifecycle hooks", () => {
 
       // Second event with the same entitlement but NEW transaction id shouldn't
       // double-fire the hook (state is already active).
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_hook_a2",
           type: "RENEWAL",
@@ -165,7 +165,7 @@ describe("lifecycle hooks", () => {
       });
 
       // First delivery activates + fires hook.
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -179,7 +179,7 @@ describe("lifecycle hooks", () => {
 
       // RC retries, same event.id. The outer mutation short-circuits via
       // the webhookEvents dedup check. No snapshot or hook fires on retry.
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -202,7 +202,7 @@ describe("lifecycle hooks", () => {
       const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_hook_expire";
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_hook_e1",
           type: "INITIAL_PURCHASE",
@@ -220,7 +220,7 @@ describe("lifecycle hooks", () => {
         expiration_at_ms: Date.now() - 1000,
         original_transaction_id: "txn_original_evt_hook_e1",
       });
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: expirePayload.id,
           type: expirePayload.type,
@@ -245,7 +245,7 @@ describe("lifecycle hooks", () => {
       const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_hook_refund";
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_hook_r1",
           type: "INITIAL_PURCHASE",
@@ -265,7 +265,7 @@ describe("lifecycle hooks", () => {
         }),
         cancel_reason: "CUSTOMER_SUPPORT",
       };
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: cancelPayload.id,
           type: cancelPayload.type,
@@ -289,7 +289,7 @@ describe("lifecycle hooks", () => {
       const source = "user_transfer_src";
       const dest = "user_transfer_dst";
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_t_seed",
           type: "INITIAL_PURCHASE",
@@ -300,7 +300,7 @@ describe("lifecycle hooks", () => {
         payload: createPurchasePayload({ id: "evt_t_seed", app_user_id: source }),
       });
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_transfer",
           type: "TRANSFER",
@@ -439,7 +439,7 @@ describe("lifecycle hooks", () => {
       const t = initConvexTest();
       const handle = await handleFor(t, internal.lib.noop);
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_purge_seed",
           type: "INITIAL_PURCHASE",
@@ -489,7 +489,7 @@ describe("lifecycle hooks", () => {
         purchased_at_ms: now,
         expiration_at_ms: now + 30 * 24 * 60 * 60 * 1000,
       };
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -567,7 +567,7 @@ describe("lifecycle hooks", () => {
       const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_deact_args";
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_deact_args_1",
           type: "INITIAL_PURCHASE",
@@ -585,7 +585,7 @@ describe("lifecycle hooks", () => {
         expiration_at_ms: Date.now() - 1000,
         original_transaction_id: "txn_original_evt_deact_args_1",
       });
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: expirePayload.id,
           type: expirePayload.type,
@@ -618,7 +618,7 @@ describe("lifecycle hooks", () => {
       // No handler matches a UNKNOWN event type, so the dispatch table
       // short-circuits to status="ignored" and never reads entitlements or
       // fires hooks.
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_unknown_rollback",
           type: "FUTURE_UNKNOWN_EVENT",
@@ -643,7 +643,7 @@ describe("lifecycle hooks", () => {
       const t = initConvexTest();
       const handle = await handleFor(t, internal.lib.noop);
 
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_test",
           type: "TEST",
@@ -674,7 +674,7 @@ describe("lifecycle hooks", () => {
       const real = "user_real";
 
       // Seed an anonymous user with an active entitlement.
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_alias_seed",
           type: "INITIAL_PURCHASE",
@@ -692,7 +692,7 @@ describe("lifecycle hooks", () => {
       // aliases array carries both IDs. AffectedUserIds must pick up both so
       // the migration's deactivation from anon and activation on real are
       // detected.
-      await t.mutation(api.webhooks.process, {
+      await t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_alias_migrate",
           type: "SUBSCRIBER_ALIAS",
@@ -733,7 +733,7 @@ describe("lifecycle hooks", () => {
         app_user_id: "user_no_hooks",
       });
 
-      const result = await t.mutation(api.webhooks.process, {
+      const result = await t.mutation(internal.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
