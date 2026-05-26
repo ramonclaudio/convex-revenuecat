@@ -41,7 +41,7 @@ describe("webhook validation", () => {
     const payload = createEventPayload({ id: "   " });
 
     await expect(
-      t.mutation(api.webhooks.process, {
+      t.mutation(internal.webhooks.process, {
         event: {
           id: "   ",
           type: payload.type,
@@ -58,7 +58,7 @@ describe("webhook validation", () => {
     const payload = createEventPayload({ id: "evt_valid_id" });
 
     await expect(
-      t.mutation(api.webhooks.process, {
+      t.mutation(internal.webhooks.process, {
         event: {
           id: "evt_valid_id",
           type: "   ",
@@ -101,7 +101,7 @@ describe("future-proofing", () => {
       another_future_field: 42,
       nested_future_object: { a: 1, b: [true, null] },
     };
-    await t.mutation(api.webhooks.process, {
+    await t.mutation(internal.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -126,7 +126,7 @@ describe("webhooks", () => {
 
     const payload = createEventPayload({ id: "evt_123" });
 
-    const result = await t.mutation(api.webhooks.process, {
+    const result = await t.mutation(internal.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -147,7 +147,7 @@ describe("webhooks", () => {
 
     const payload = createEventPayload({ id: "evt_456", type: "RENEWAL" });
 
-    const first = await t.mutation(api.webhooks.process, {
+    const first = await t.mutation(internal.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -158,7 +158,7 @@ describe("webhooks", () => {
 
     expect(first.processed).toBe(true);
 
-    const second = await t.mutation(api.webhooks.process, {
+    const second = await t.mutation(internal.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -181,7 +181,7 @@ describe("webhooks", () => {
       environment: "SANDBOX" as const,
     };
 
-    const result = await t.mutation(api.webhooks.process, {
+    const result = await t.mutation(internal.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -194,7 +194,7 @@ describe("webhooks", () => {
     expect(result.processed).toBe(false);
     expect(result.eventId).toBe("evt_unknown_1");
 
-    const secondResult = await t.mutation(api.webhooks.process, {
+    const secondResult = await t.mutation(internal.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,

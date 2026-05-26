@@ -32,7 +32,7 @@ async function postEvent(
   t: ReturnType<typeof initConvexTest>,
   payload: Record<string, unknown>,
 ) {
-  return t.mutation(api.webhooks.process, {
+  return t.mutation(internal.webhooks.process, {
     event: {
       id: payload.id as string,
       type: payload.type as string,
@@ -1216,7 +1216,7 @@ describe("audit fixes", () => {
       // Direct invocation (unreachable from the wire) still throws.
       const t = initConvexTest();
       await expect(
-        t.mutation(api.webhooks.process, {
+        t.mutation(internal.webhooks.process, {
           event: {
             id: "   ",
             type: "INITIAL_PURCHASE",
@@ -1240,11 +1240,11 @@ describe("audit fixes", () => {
         });
       });
 
-      const first = await t.mutation(api.transfers.backfillTransferParticipants, {});
+      const first = await t.mutation(internal.transfers.backfillTransferParticipants, {});
       expect(first.written).toBe(2);
       expect(first.nextCursor).toBeNull();
 
-      const second = await t.mutation(api.transfers.backfillTransferParticipants, {});
+      const second = await t.mutation(internal.transfers.backfillTransferParticipants, {});
       expect(second.written).toBe(0);
 
       const participants = await t.run(async (ctx) => {
@@ -1297,7 +1297,7 @@ describe("audit fixes", () => {
         }
       });
 
-      const first = await t.mutation(api.subscriptions.backfillKind, {});
+      const first = await t.mutation(internal.subscriptions.backfillKind, {});
       expect(first.written).toBe(1);
       expect(first.nextCursor).toBeNull();
 
@@ -1308,7 +1308,7 @@ describe("audit fixes", () => {
       expect(recurring?.kind).toBeUndefined();
 
       // Idempotent: a second run finds nothing to do.
-      const second = await t.mutation(api.subscriptions.backfillKind, {});
+      const second = await t.mutation(internal.subscriptions.backfillKind, {});
       expect(second.written).toBe(0);
     });
 
@@ -1340,7 +1340,7 @@ describe("audit fixes", () => {
       const beforeActive = await t.query(api.subscriptions.getActive, { appUserId: subject });
       expect(beforeActive.length).toBe(1);
 
-      await t.mutation(api.subscriptions.backfillKind, {});
+      await t.mutation(internal.subscriptions.backfillKind, {});
 
       const afterActive = await t.query(api.subscriptions.getActive, { appUserId: subject });
       expect(afterActive.length).toBe(0);
