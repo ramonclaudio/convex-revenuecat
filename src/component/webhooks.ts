@@ -35,6 +35,7 @@ const EVENT_HANDLERS = {
   PRODUCT_CHANGE: internal.handlers.processProductChange,
   NON_RENEWING_PURCHASE: internal.handlers.processNonRenewingPurchase,
   TRANSFER: internal.handlers.processTransfer,
+  PURCHASE_REDEEMED: internal.handlers.processPurchaseRedeemed,
   TEMPORARY_ENTITLEMENT_GRANT: internal.handlers.processTemporaryEntitlementGrant,
   REFUND: internal.handlers.processRefund,
   REFUND_REVERSED: internal.handlers.processRefundReversed,
@@ -42,6 +43,8 @@ const EVENT_HANDLERS = {
   INVOICE_ISSUANCE: internal.handlers.processInvoiceIssuance,
   VIRTUAL_CURRENCY_TRANSACTION: internal.handlers.processVirtualCurrencyTransaction,
   EXPERIMENT_ENROLLMENT: internal.handlers.processExperimentEnrollment,
+  // Legacy/non-primary event: modern RC reflects aliasing through the customer
+  // fields on every event. Kept for back-compat; harmless if it never fires.
   SUBSCRIBER_ALIAS: internal.handlers.processSubscriberAlias,
 } as const;
 
@@ -57,12 +60,20 @@ export const checkRateLimit = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
 
+    // Bound the read to the limit: we only need to know whether the window is
+    // at capacity and the oldest row (for `resetAt`), not the exact overage.
+    // This caps read amplification when one key is flooded. The key is derived
+    // from caller-supplied `app_id`/`app_user_id` (see `process`), so the
+    // bucket is best-effort tenant fairness, not a security boundary. Concurrent
+    // webhooks for the same key overlap this read range and the insert below,
+    // so they can OCC-conflict and retry; correctness holds, and at RC webhook
+    // volumes the contention is negligible.
     const currentRequests = await ctx.db
       .query("rateLimits")
       .withIndex("by_key_and_time", (q) =>
         q.eq("key", args.key).gte("timestamp", now - RATE_LIMIT_WINDOW_MS),
       )
-      .collect();
+      .take(RATE_LIMIT_MAX_REQUESTS);
 
     const remaining = Math.max(0, RATE_LIMIT_MAX_REQUESTS - currentRequests.length);
     const allowed = remaining > 0;
