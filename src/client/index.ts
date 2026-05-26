@@ -936,20 +936,26 @@ export class RevenueCat {
         ? undefined
         : (this.options.redactPayload ?? defaultRedactPayload);
 
-    // Crash at module load when secret is missing. Fails the deploy
-    // instead of silently exposing a public mutation endpoint.
-    if (!expectedAuth) {
-      throw new Error(
-        "[convex-revenuecat] httpHandler() requires REVENUECAT_WEBHOOK_AUTH. " +
-          "Generate a secret with `openssl rand -base64 32`, set it via " +
-          "`npx convex env set REVENUECAT_WEBHOOK_AUTH <secret>`, and pass it " +
-          "as `REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH`.",
-      );
-    }
-    validateAuthSecret(expectedAuth);
-    const expectedToken = extractAuthToken(expectedAuth).trim();
-
     return httpActionGeneric(async (ctx, request) => {
+      // Validate the secret at request time, not at handler-build time. A
+      // throw during module evaluation fails Convex push analysis, which
+      // blocks component codegen: the consumer's `components.revenuecat`
+      // never leaves the `AnyComponents` stub and their app stops
+      // typechecking. Reading env at request time is the supported pattern.
+      // An unset secret rejects every webhook, so it still can't be bypassed.
+      if (!expectedAuth) {
+        console.error(
+          "[convex-revenuecat] REVENUECAT_WEBHOOK_AUTH is not set; rejecting webhook. " +
+            "Set it via `npx convex env set REVENUECAT_WEBHOOK_AUTH <secret>`.",
+        );
+        return new Response(JSON.stringify({ error: "Webhook auth not configured" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      validateAuthSecret(expectedAuth);
+      const expectedToken = extractAuthToken(expectedAuth).trim();
+
       const authHeader = request.headers.get("Authorization") ?? "";
       const providedToken = extractAuthToken(authHeader).trim();
 

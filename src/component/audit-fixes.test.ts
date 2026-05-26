@@ -271,13 +271,29 @@ describe("audit fixes", () => {
       ).not.toThrow();
     });
 
-    test("httpHandler() throws when auth is undefined", async () => {
+    test("httpHandler() does not throw at build time when auth is undefined", async () => {
       const { RevenueCat } = await import("../client/index.js");
       // @ts-expect-error: Stub component for handler-construction test
       const rc = new RevenueCat({}, {});
-      expect(() => rc.httpHandler()).toThrow(
-        /httpHandler\(\) requires REVENUECAT_WEBHOOK_AUTH/,
-      );
+      // A build-time throw would fail Convex push analysis and block
+      // component codegen for consumers. Validation moved to request time.
+      expect(() => rc.httpHandler()).not.toThrow();
+    });
+
+    test("webhook handler rejects with 500 when auth is undefined", async () => {
+      const { RevenueCat } = await import("../client/index.js");
+      // @ts-expect-error: Stub component for handler test
+      const rc = new RevenueCat({}, {});
+      const handler = rc.httpHandler() as unknown as {
+        _handler: (ctx: unknown, request: Request) => Promise<Response>;
+      };
+      const request = new Request("https://example.convex.site/webhooks/revenuecat", {
+        method: "POST",
+        headers: { Authorization: "Bearer anything", "Content-Type": "application/json" },
+        body: JSON.stringify({ event: { id: "evt_no_secret", type: "TEST" } }),
+      });
+      const res = await handler._handler({}, request);
+      expect(res.status).toBe(500);
     });
 
     test("httpHandler() succeeds when a real secret is configured", async () => {
