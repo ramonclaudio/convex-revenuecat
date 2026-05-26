@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 
-// Set BEFORE http.ts loads. `registerRoutes()` calls `httpHandler()` which
-// throws on a missing or short secret at module load.
+// Set BEFORE http.ts loads. A present-but-short or malformed secret throws
+// at construction. A missing secret is rejected per-request at runtime. The
+// auth tests below need a valid configured secret.
 const TEST_SECRET = "kZ9tQ1xH8mF3vR7yL2nP5sJ6cW0bD4gE8aT1iU4oY3w=";
 process.env.REVENUECAT_WEBHOOK_AUTH = TEST_SECRET;
 
