@@ -36,6 +36,9 @@ type AllInternal = AllTrue<
     IsInternal<Api["transfers"]["backfillTransferParticipants"]>,
     IsInternal<Api["invoices"]["get"]>,
     IsInternal<Api["webhooks"]["process"]>,
+    // cleanup.* must stay reachable: consumers schedule it from crons.
+    IsInternal<Api["cleanup"]["rateLimits"]>,
+    IsInternal<Api["cleanup"]["webhookEvents"]>,
   ]
 >;
 

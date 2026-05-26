@@ -444,4 +444,20 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       Name
     >;
   };
+  cleanup: {
+    rateLimits: FunctionReference<
+      "mutation",
+      "internal",
+      {},
+      { deleted: number; scheduledContinuation: boolean },
+      Name
+    >;
+    webhookEvents: FunctionReference<
+      "mutation",
+      "internal",
+      {},
+      { deleted: number; scheduledContinuation: boolean },
+      Name
+    >;
+  };
 };
