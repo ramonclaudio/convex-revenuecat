@@ -473,6 +473,37 @@ console.log(attrs?.$email?.value); // "user@example.com"
 - `event.id` is capped at 128 bytes. Webhook bodies are capped at 1MB. Both reject at the HTTP boundary before any database touch.
 - `event.event_timestamp_ms` is clamped to `now + 5min` on insert so a clock-skewed or malicious timestamp can't lock `customers.firstSeenAt` / `lastSeenAt` at a far-future value.
 
+## Maintenance
+
+Two internal cleanup mutations keep the bookkeeping tables bounded. They are NOT scheduled automatically: register them in your app's `crons.ts`, or `rateLimits` and the webhook audit log grow without limit.
+
+- `cleanup.rateLimits` drops rate-limit rows older than the 60s window.
+- `cleanup.webhookEvents` drops audit rows past the 30-day retention.
+
+Both delete in batches and self-reschedule when a backlog exceeds the per-run cap, so one cron tick drains any backlog.
+
+```typescript
+import { cronJobs } from "convex/server";
+import { components } from "./_generated/api";
+
+const crons = cronJobs();
+
+crons.interval(
+  "revenuecat: prune rate limits",
+  { hours: 1 },
+  components.revenuecat.cleanup.rateLimits,
+  {},
+);
+crons.interval(
+  "revenuecat: prune webhook events",
+  { hours: 24 },
+  components.revenuecat.cleanup.webhookEvents,
+  {},
+);
+
+export default crons;
+```
+
 ## Upgrading from 0.2.1
 
 If your deployment shipped 0.2.1 or earlier, run two one-shot migrations after upgrading. Both are idempotent and paginated. Loop until `nextCursor` is null.
@@ -506,7 +537,7 @@ export const backfillRevenueCat = internalAction({
 
 ## GDPR / data deletion
 
-`deleteCustomer(ctx, { appUserId })` purges all component-local rows for a user: customer, subscriptions, entitlements, experiments, invoices, virtual currency balances/transactions, webhook events, and transfers. Call from a mutation or action.
+`deleteCustomer(ctx, { appUserId })` purges all component-local rows for a user: customer, subscriptions, entitlements, experiments, invoices, virtual currency balances/transactions, webhook events (including the `TRANSFER` audit rows, which carry no `app_user_id` and are matched through the user's transfer records), and transfers. Audit rows recorded under a prior alias ID age out via the 30-day retention. Call from a mutation or action.
 
 To also purge RevenueCat-side, call `DELETE /v1/subscribers/{app_user_id}` from a Convex action with a secret API key. RC confirms the delete endpoint is sufficient for GDPR erasure on their side.
 

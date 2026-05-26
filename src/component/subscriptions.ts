@@ -27,6 +27,9 @@ export const getActive = query({
   },
   returns: v.array(subscriptionDoc),
   handler: async (ctx, args) => {
+    // `Date.now()` is deliberate here (see entitlements.ts header): it keeps the
+    // active/grace filter reactive between lifecycle webhooks. Per-user tables
+    // are tiny, so the query-cache cost is negligible.
     const now = Date.now();
     const subscriptions = await ctx.db
       .query("subscriptions")
