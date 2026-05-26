@@ -94,6 +94,7 @@
     "@convex-dev/eslint-plugin": "^2.0.0",
     "@edge-runtime/vm": "^5.0.0",
     "@eslint/js": "10.0.1",
+    "@revenuecat/purchases-js": "^1.41.1",
     "@types/node": "^25.6.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

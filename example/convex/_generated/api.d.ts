@@ -10,6 +10,7 @@
 
 import type * as demo from "../demo.js";
 import type * as http from "../http.js";
+import type * as simulate from "../simulate.js";
 import type * as subscriptions from "../subscriptions.js";
 
 import type {
@@ -21,6 +22,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   demo: typeof demo;
   http: typeof http;
+  simulate: typeof simulate;
   subscriptions: typeof subscriptions;
 }>;
 
