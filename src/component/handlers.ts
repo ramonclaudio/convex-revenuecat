@@ -371,13 +371,6 @@ async function upsertSubscription(
     event.is_family_share ?? event.ownership_type === "FAMILY_SHARED";
   const kind: "subscription" | "consumable" =
     overrides?.kind ?? existing?.kind ?? "subscription";
-  // priceUsd holds a USD amount only. RC `price` is in the transaction's own
-  // currency, so gate on currency (matches sync.ingest). A non-USD event keeps
-  // any prior USD value rather than mislabeling a foreign amount as USD.
-  const priceUsd =
-    event.currency === "USD" && event.price !== undefined
-      ? event.price
-      : existing?.priceUsd;
   const subscriptionData = {
     appUserId,
     productId,
@@ -398,7 +391,9 @@ async function upsertSubscription(
         : (existing?.isFamilyShare ?? false),
     ownershipType,
     isTrialConversion: event.is_trial_conversion ?? existing?.isTrialConversion,
-    priceUsd,
+    // RC `price` is already USD-normalized ("The USD price of the transaction");
+    // `priceInPurchasedCurrency` holds the charged-currency amount.
+    priceUsd: event.price ?? existing?.priceUsd,
     currency: event.currency ?? existing?.currency,
     priceInPurchasedCurrency:
       event.price_in_purchased_currency ?? existing?.priceInPurchasedCurrency,
@@ -1158,12 +1153,31 @@ export const processPurchaseRedeemed = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
-    // RC fires PURCHASE_REDEEMED for Web Billing code redemptions. When the
-    // redemption transfers a purchase between users a companion TRANSFER moves
-    // the entitlements, so only grant here for non-transfer outcomes (the
-    // common case: a code granting entitlements to the redeeming user).
-    if (event.redemption_outcome !== "transfer") {
-      await grantEntitlements(ctx, event);
+    // PURCHASE_REDEEMED (Web Billing code redemption) carries NO top-level
+    // app_user_id: the redeemer is in `redeemed_by`, the original purchaser in
+    // `redeemed_from`. Ensure the redeemer customers exist.
+    const redeemers = event.redeemed_by ?? [];
+    for (const redeemerId of redeemers) {
+      await upsertCustomer(ctx, { ...event, app_user_id: redeemerId, aliases: undefined });
+    }
+    // `transfer`: a companion TRANSFER moves the purchase to the redeemer with
+    // the real product/expiry, so let that handler own the movement.
+    if (event.redemption_outcome === "transfer") return null;
+    // `alias`: the redeemer now resolves to the same RC customer as the original
+    // purchaser, so merge the original's entitlements/subscriptions onto the
+    // redeemer (the original purchase carries the correct expiry). The event has
+    // no expiration_at_ms, so a blanket grant here would mint lifetime access.
+    // `redeemer_owns` and unknown outcomes need no movement.
+    if (event.redemption_outcome === "alias") {
+      for (const fromUserId of event.redeemed_from ?? []) {
+        for (const toUserId of redeemers) {
+          if (fromUserId === toUserId) continue;
+          await aliasEntitlements(ctx, fromUserId, toUserId);
+          await transferSubscriptions(ctx, fromUserId, toUserId);
+          await aliasExperiments(ctx, fromUserId, toUserId);
+          await purgeAnonymousCustomerIfEmpty(ctx, fromUserId);
+        }
+      }
     }
     return null;
   },
@@ -1198,9 +1212,9 @@ export const processInvoiceIssuance = internalMutation({
           productId: event.product_id,
           store: event.store,
           environment: event.environment,
-          // priceUsd holds a USD amount only; RC `price` is in the invoice's
-          // own currency. priceInPurchasedCurrency + currency carry the value.
-          priceUsd: event.currency === "USD" ? event.price : undefined,
+          // RC `price` is already USD-normalized; `priceInPurchasedCurrency`
+          // carries the charged-currency amount.
+          priceUsd: event.price,
           currency: event.currency,
           priceInPurchasedCurrency: event.price_in_purchased_currency,
           issuedAt: event.event_timestamp_ms,
@@ -1263,12 +1277,11 @@ export const processVirtualCurrencyTransaction = internalMutation({
       const amount = adjustment.amount;
 
       // Dedup by (transactionId, currencyCode): one event can carry many
-      // adjustments under one transactionId. The balance delta is applied only
-      // when the transaction is new, so a replay (same tx id under a different
-      // event id, or a direct re-invoke) can't double-count it. The mirror is
-      // advisory and stays commutative under out-of-order delivery (no clamp),
-      // so it can transiently differ from RC's authoritative ledger and
-      // converges once every adjustment lands.
+      // adjustments under one transactionId. Apply the delta only when the
+      // transaction is new, so a replay (same tx id under a different event id,
+      // or a direct re-invoke) can't double-count it. Clamp at 0 to mirror RC,
+      // whose ledger caps balances at 0 and never goes negative. The mirror is
+      // advisory; RC is the source of truth.
       if (existingTx) continue;
       await ctx.db.insert("virtualCurrencyTransactions", {
         transactionId,
@@ -1283,7 +1296,7 @@ export const processVirtualCurrencyTransaction = internalMutation({
 
       if (existingBalance) {
         await ctx.db.patch(existingBalance._id, {
-          balance: existingBalance.balance + amount,
+          balance: Math.max(0, existingBalance.balance + amount),
           updatedAt: now,
         });
       } else {
@@ -1291,7 +1304,7 @@ export const processVirtualCurrencyTransaction = internalMutation({
           appUserId: event.app_user_id,
           currencyCode,
           currencyName,
-          balance: amount,
+          balance: Math.max(0, amount),
           updatedAt: now,
         });
       }
