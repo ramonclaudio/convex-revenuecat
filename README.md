@@ -64,7 +64,7 @@ openssl rand -base64 32
 npx convex env set REVENUECAT_WEBHOOK_AUTH "your-generated-secret"
 ```
 
-The component throws at module load if the secret is missing or, after stripping any `Bearer ` prefix and whitespace, shorter than 32 characters. RevenueCat doesn't sign payloads, so the shared secret is the entire security boundary. Short or empty values fail the deploy rather than silently mounting an unauthenticated endpoint.
+A secret that's present but shorter than 32 characters (after stripping any `Bearer ` prefix and whitespace) throws at construction and fails the deploy. A missing secret doesn't fail the deploy. The handler rejects every webhook with a 500 until you set it. RevenueCat doesn't sign payloads, so the shared secret is the entire security boundary. An unauthenticated request is never processed.
 
 ### 4. Configure RevenueCat
 
