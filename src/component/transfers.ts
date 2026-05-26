@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { paginator } from "convex-helpers/server/pagination";
-import { internalMutation, query } from "./_generated/server.js";
+import { mutation, query } from "./_generated/server.js";
 import schema from "./schema.js";
 
 const transferDoc = schema.tables.transfers.validator.extend({
@@ -26,7 +26,10 @@ export const list = query({
   args: { limit: v.optional(v.number()) },
   returns: v.array(transferDoc),
   handler: async (ctx, args) => {
-    const limit = Math.min(args.limit ?? TRANSFER_LIMIT_DEFAULT, TRANSFER_LIMIT_MAX);
+    const limit = Math.min(
+      args.limit ?? TRANSFER_LIMIT_DEFAULT,
+      TRANSFER_LIMIT_MAX,
+    );
     return await ctx.db
       .query("transfers")
       .withIndex("by_timestamp")
@@ -37,7 +40,7 @@ export const list = query({
 
 /** Backfill `transferParticipants` for pre-0.3.0 `transfers` rows. Run once
  * after upgrading. Idempotent. Loop until `nextCursor` is null. */
-export const backfillTransferParticipants = internalMutation({
+export const backfillTransferParticipants = mutation({
   args: {
     cursor: v.optional(v.string()),
     pageSize: v.optional(v.number()),

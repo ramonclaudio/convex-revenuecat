@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { initConvexTest } from "./setup.test.js";
-import { api, internal } from "./_generated/api.js";
+import { api } from "./_generated/api.js";
 
 describe("virtualCurrency", () => {
   describe("getBalance", () => {
@@ -16,7 +16,7 @@ describe("virtualCurrency", () => {
     test("returns balance after VIRTUAL_CURRENCY_TRANSACTION event", async () => {
       const t = initConvexTest();
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_vc_1",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -59,7 +59,7 @@ describe("virtualCurrency", () => {
       const userId = "user_vc_accumulate";
 
       // First transaction: +100
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_vc_add",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -83,7 +83,7 @@ describe("virtualCurrency", () => {
       });
 
       // Second transaction: -30 (refund)
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_vc_sub",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -120,7 +120,7 @@ describe("virtualCurrency", () => {
       const t = initConvexTest();
       const userId = "user_multi_currency";
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_vc_multi",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -157,7 +157,7 @@ describe("virtualCurrency", () => {
       const t = initConvexTest();
       const userId = "user_tx_list";
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_tx_1",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -172,11 +172,13 @@ describe("virtualCurrency", () => {
           environment: "PRODUCTION",
           virtual_currency_transaction_id: "vct_1",
           source: "in_app_purchase",
-          adjustments: [{ amount: 100, currency: { code: "COINS", name: "Coins" } }],
+          adjustments: [
+            { amount: 100, currency: { code: "COINS", name: "Coins" } },
+          ],
         },
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_tx_2",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -191,7 +193,9 @@ describe("virtualCurrency", () => {
           environment: "PRODUCTION",
           virtual_currency_transaction_id: "vct_2",
           source: "admin_api",
-          adjustments: [{ amount: 50, currency: { code: "COINS", name: "Coins" } }],
+          adjustments: [
+            { amount: 50, currency: { code: "COINS", name: "Coins" } },
+          ],
         },
       });
 
@@ -206,7 +210,7 @@ describe("virtualCurrency", () => {
       const t = initConvexTest();
       const userId = "user_tx_filter";
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_tx_coins",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -220,11 +224,13 @@ describe("virtualCurrency", () => {
           app_user_id: userId,
           environment: "PRODUCTION",
           virtual_currency_transaction_id: "vct_coins",
-          adjustments: [{ amount: 100, currency: { code: "COINS", name: "Coins" } }],
+          adjustments: [
+            { amount: 100, currency: { code: "COINS", name: "Coins" } },
+          ],
         },
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_tx_gems",
           type: "VIRTUAL_CURRENCY_TRANSACTION",
@@ -238,7 +244,9 @@ describe("virtualCurrency", () => {
           app_user_id: userId,
           environment: "PRODUCTION",
           virtual_currency_transaction_id: "vct_gems",
-          adjustments: [{ amount: 50, currency: { code: "GEMS", name: "Gems" } }],
+          adjustments: [
+            { amount: 50, currency: { code: "GEMS", name: "Gems" } },
+          ],
         },
       });
 

@@ -181,6 +181,11 @@ const eventPayloadValidator = v.object({
   ),
   virtual_currency_transaction_id: v.optional(v.string()),
   source: v.optional(v.string()),
+  // PURCHASE_REDEEMED (Web Billing code redemption).
+  redeemed_from: v.optional(v.array(v.string())),
+  redeemed_by: v.optional(v.array(v.string())),
+  redemption_outcome: v.optional(v.string()),
+  redemption_platform: v.optional(v.string()),
   metadata: v.optional(v.any()),
   product_display_name: v.optional(v.string()),
   purchase_environment: v.optional(environmentValidator),
@@ -386,6 +391,8 @@ async function upsertSubscription(
         : (existing?.isFamilyShare ?? false),
     ownershipType,
     isTrialConversion: event.is_trial_conversion ?? existing?.isTrialConversion,
+    // RC `price` is already USD-normalized ("The USD price of the transaction");
+    // `priceInPurchasedCurrency` holds the charged-currency amount.
     priceUsd: event.price ?? existing?.priceUsd,
     currency: event.currency ?? existing?.currency,
     priceInPurchasedCurrency:
@@ -736,8 +743,13 @@ export const processCancellation = internalMutation({
     if (event.cancel_reason === "UNSUBSCRIBE") {
       overrides.unsubscribeDetectedAt = event.event_timestamp_ms;
     }
-    // BILLING_ERROR cancel = retry exhaustion. Mirror BILLING_ISSUE so
-    // willRenew/grace-period queries return the right state.
+    // BILLING_ERROR cancel = retry exhaustion. Set the billing-issue marker so
+    // willRenew goes false. Grace EXTENSION (pushing entitlement expiry to
+    // grace-end) is deliberately NOT done here: grace_period_expiration_at_ms
+    // rides only on the companion BILLING_ISSUE event RC sends alongside this
+    // one. Until it arrives the entitlement keeps its original expiry, denying
+    // grace access rather than risking a leak (see entitlements.ts: never gate
+    // on a bare billingIssueDetectedAt). EXPIRATION revokes at true grace-end.
     if (event.cancel_reason === "BILLING_ERROR") {
       overrides.billingIssueDetectedAt = event.event_timestamp_ms;
     }
@@ -1121,13 +1133,52 @@ export const processRefundReversed = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
-    // Reversal supersedes the refund, clear markers, re-enable auto-renew.
+    // Reversal supersedes the refund: clear refund markers, re-enable
+    // auto-renew. The `true` is AND-ed with the derived signal in
+    // upsertSubscription, so a prior unsubscribe or billing issue still wins;
+    // only an explicit `false` could force renewal off.
     await upsertSubscription(ctx, event, {
       refundedAtMs: undefined,
       cancelReason: undefined,
       autoRenewStatus: true,
     });
     await grantEntitlements(ctx, event);
+    return null;
+  },
+});
+
+export const processPurchaseRedeemed = internalMutation({
+  args: { event: v.any() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = args.event as EventPayload;
+    await recordEvent(ctx, event);
+    // PURCHASE_REDEEMED (Web Billing code redemption) carries NO top-level
+    // app_user_id: the redeemer is in `redeemed_by`, the original purchaser in
+    // `redeemed_from`. Ensure the redeemer customers exist.
+    const redeemers = event.redeemed_by ?? [];
+    for (const redeemerId of redeemers) {
+      await upsertCustomer(ctx, { ...event, app_user_id: redeemerId, aliases: undefined });
+    }
+    // `transfer`: a companion TRANSFER moves the purchase to the redeemer with
+    // the real product/expiry, so let that handler own the movement.
+    if (event.redemption_outcome === "transfer") return null;
+    // `alias`: the redeemer now resolves to the same RC customer as the original
+    // purchaser, so merge the original's entitlements/subscriptions onto the
+    // redeemer (the original purchase carries the correct expiry). The event has
+    // no expiration_at_ms, so a blanket grant here would mint lifetime access.
+    // `redeemer_owns` and unknown outcomes need no movement.
+    if (event.redemption_outcome === "alias") {
+      for (const fromUserId of event.redeemed_from ?? []) {
+        for (const toUserId of redeemers) {
+          if (fromUserId === toUserId) continue;
+          await aliasEntitlements(ctx, fromUserId, toUserId);
+          await transferSubscriptions(ctx, fromUserId, toUserId);
+          await aliasExperiments(ctx, fromUserId, toUserId);
+          await purgeAnonymousCustomerIfEmpty(ctx, fromUserId);
+        }
+      }
+    }
     return null;
   },
 });
@@ -1161,12 +1212,18 @@ export const processInvoiceIssuance = internalMutation({
           productId: event.product_id,
           store: event.store,
           environment: event.environment,
+          // RC `price` is already USD-normalized; `priceInPurchasedCurrency`
+          // carries the charged-currency amount.
           priceUsd: event.price,
           currency: event.currency,
           priceInPurchasedCurrency: event.price_in_purchased_currency,
           issuedAt: event.event_timestamp_ms,
         });
       }
+    } else {
+      console.warn(
+        `[revenuecat] processInvoiceIssuance skipped invoice for event ${event.id}: missing app_user_id or environment`,
+      );
     }
 
     return null;
@@ -1219,24 +1276,27 @@ export const processVirtualCurrencyTransaction = internalMutation({
       const currencyName = adjustment.currency.name;
       const amount = adjustment.amount;
 
-      // Dedup by (transactionId, currencyCode), one event can carry many
-      // adjustments under one transactionId.
-      if (!existingTx) {
-        await ctx.db.insert("virtualCurrencyTransactions", {
-          transactionId,
-          appUserId: event.app_user_id,
-          currencyCode,
-          amount,
-          source: event.source,
-          productId: event.product_id,
-          environment,
-          timestamp: event.event_timestamp_ms,
-        });
-      }
+      // Dedup by (transactionId, currencyCode): one event can carry many
+      // adjustments under one transactionId. Apply the delta only when the
+      // transaction is new, so a replay (same tx id under a different event id,
+      // or a direct re-invoke) can't double-count it. Clamp at 0 to mirror RC,
+      // whose ledger caps balances at 0 and never goes negative. The mirror is
+      // advisory; RC is the source of truth.
+      if (existingTx) continue;
+      await ctx.db.insert("virtualCurrencyTransactions", {
+        transactionId,
+        appUserId: event.app_user_id,
+        currencyCode,
+        amount,
+        source: event.source,
+        productId: event.product_id,
+        environment,
+        timestamp: event.event_timestamp_ms,
+      });
 
       if (existingBalance) {
         await ctx.db.patch(existingBalance._id, {
-          balance: existingBalance.balance + amount,
+          balance: Math.max(0, existingBalance.balance + amount),
           updatedAt: now,
         });
       } else {
@@ -1244,7 +1304,7 @@ export const processVirtualCurrencyTransaction = internalMutation({
           appUserId: event.app_user_id,
           currencyCode,
           currencyName,
-          balance: amount,
+          balance: Math.max(0, amount),
           updatedAt: now,
         });
       }

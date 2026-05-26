@@ -49,7 +49,9 @@
     "test:watch": "vitest --typecheck --clearScreen false",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:coverage": "vitest run --coverage --coverage.reporter=text",
-    "validate": "npm test && npm run lint && npm run typecheck"
+    "validate": "npm test && npm run lint && npm run typecheck",
+    "example": "vite example",
+    "example:build": "vite build example"
   },
   "files": [
     "dist",
@@ -92,7 +94,11 @@
     "@convex-dev/eslint-plugin": "^2.0.0",
     "@edge-runtime/vm": "^5.0.0",
     "@eslint/js": "10.0.1",
+    "@revenuecat/purchases-js": "^1.41.1",
     "@types/node": "^25.6.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "4.1.4",
     "chokidar-cli": "3.0.0",
     "convex": "1.35.1",
@@ -102,8 +108,11 @@
     "jiti": "^2.6.1",
     "pkg-pr-new": "0.0.66",
     "prettier": "3.8.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.58.2",
+    "vite": "^6.0.0",
     "vitest": "4.1.4"
   },
   "types": "./dist/client/index.d.ts",

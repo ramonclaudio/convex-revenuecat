@@ -128,11 +128,16 @@ export const purge = mutation({
           .collect(),
       ),
     );
+    // TRANSFER webhookEvents are stored with appUserId undefined (RC TRANSFER
+    // events carry no app_user_id), so the by_app_user sweep above can't reach
+    // them. Collect the originating event ids to purge those audit rows too.
+    const transferEventIds = new Set<string>();
     for (let i = 0; i < transferIdList.length; i++) {
       const transfer = transferRows[i];
       if (!transfer) continue;
       await ctx.db.delete(transfer._id);
       counts.transfers++;
+      if (transfer.eventId) transferEventIds.add(transfer.eventId);
       await Promise.all(
         siblingsLists[i].map((sibling) => ctx.db.delete(sibling._id)),
       );
@@ -155,6 +160,7 @@ export const purge = mutation({
         await ctx.db.delete(transfer._id);
         counts.transfers++;
         legacyHits++;
+        if (transfer.eventId) transferEventIds.add(transfer.eventId);
       }
     }
     // Only throw if we hit the cap AND found unbackfilled hits, otherwise
@@ -164,6 +170,20 @@ export const purge = mutation({
         code: "PURGE_SAFETY_CAP_EXCEEDED",
         message: `purge incomplete: legacy transfers scan capped at ${PURGE_SAFETY_CAP} with hits for ${appUserId}; run backfillTransferParticipants then retry`,
       });
+    }
+
+    // Purge the TRANSFER audit rows correlated to the deleted transfers. Each
+    // transfer's eventId is the originating TRANSFER webhook's id (see
+    // processTransfer), and those webhookEvents have a null appUserId.
+    for (const eventId of transferEventIds) {
+      const auditRow = await ctx.db
+        .query("webhookEvents")
+        .withIndex("by_event_id", (q) => q.eq("eventId", eventId))
+        .first();
+      if (auditRow) {
+        await ctx.db.delete(auditRow._id);
+        counts.webhookEvents++;
+      }
     }
 
     const customer = await ctx.db

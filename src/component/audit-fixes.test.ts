@@ -4,6 +4,12 @@ import { describe, expect, test } from "vitest";
 import { ConvexError } from "convex/values";
 import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
+import type { ComponentApi } from "./_generated/component.js";
+
+// The secret-validation tests below probe the RevenueCat constructor, not the
+// component, so the component shape is irrelevant. A typed stub keeps them
+// prettier-proof (no @ts-expect-error directive to misalign).
+const stubComponent = {} as unknown as ComponentApi;
 
 function basePayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -32,13 +38,14 @@ async function postEvent(
   t: ReturnType<typeof initConvexTest>,
   payload: Record<string, unknown>,
 ) {
-  return t.mutation(internal.webhooks.process, {
+  return t.mutation(api.webhooks.process, {
     event: {
       id: payload.id as string,
       type: payload.type as string,
       app_id: payload.app_id as string | undefined,
       app_user_id: payload.app_user_id as string | undefined,
-      environment: (payload.environment as "SANDBOX" | "PRODUCTION") ?? "SANDBOX",
+      environment:
+        (payload.environment as "SANDBOX" | "PRODUCTION") ?? "SANDBOX",
       store: payload.store as
         | "AMAZON"
         | "APP_STORE"
@@ -195,86 +202,80 @@ describe("audit fixes", () => {
 
     test("RevenueCat class rejects empty auth secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Intentionally probing with a stub component
-      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "" })).toThrow(
+      expect(() => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "" })).toThrow(
         /is empty after stripping/,
       );
     });
 
     test("RevenueCat class rejects 'Bearer ' (paste error: header label only)", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Stub component for construction test
-      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "Bearer " })).toThrow(
-        /is empty after stripping/,
-      );
+      expect(
+        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "Bearer " }),
+      ).toThrow(/is empty after stripping/);
     });
 
     test("RevenueCat class rejects whitespace-only secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Stub component for construction test
-      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "    " })).toThrow(
-        /is empty after stripping/,
-      );
+      expect(
+        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "    " }),
+      ).toThrow(/is empty after stripping/);
     });
 
     test("RevenueCat class rejects sub-32-char secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Stub component for construction test
-      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "s3cret" })).toThrow(
-        /is 6 chars after stripping \(minimum 32\)/,
-      );
+      expect(
+        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "s3cret" }),
+      ).toThrow(/is 6 chars after stripping \(minimum 32\)/);
     });
 
     test("RevenueCat class rejects 31-char secret (just under floor)", async () => {
       const { RevenueCat } = await import("../client/index.js");
       const justUnder = "a".repeat(31);
-      // @ts-expect-error: Stub component for construction test
-      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: justUnder })).toThrow(
-        /is 31 chars after stripping \(minimum 32\)/,
-      );
+      expect(
+        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: justUnder }),
+      ).toThrow(/is 31 chars after stripping \(minimum 32\)/);
     });
 
     test("RevenueCat class rejects short secret hidden behind 'Bearer ' prefix", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Stub component for construction test
-      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: "Bearer s3cret" })).toThrow(
-        /is 6 chars after stripping \(minimum 32\)/,
-      );
+      expect(
+        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "Bearer s3cret" }),
+      ).toThrow(/is 6 chars after stripping \(minimum 32\)/);
     });
 
     test("RevenueCat class accepts undefined auth for non-webhook usage", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Stub component for construction test
-      expect(() => new RevenueCat({}, {})).not.toThrow();
+      expect(() => new RevenueCat(stubComponent, {})).not.toThrow();
     });
 
     test("RevenueCat class accepts a 32-char secret (at floor)", async () => {
       const { RevenueCat } = await import("../client/index.js");
       const atFloor = "a".repeat(32);
-      // @ts-expect-error: Stub component for construction test
-      expect(() => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: atFloor })).not.toThrow();
+      expect(
+        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: atFloor }),
+      ).not.toThrow();
     });
 
     test("RevenueCat class accepts a real openssl-style secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
       expect(
-        // @ts-expect-error: Stub component for construction test
-        () => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: VALID_SECRET }),
+        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: VALID_SECRET }),
       ).not.toThrow();
     });
 
     test("RevenueCat class accepts the same secret with a Bearer prefix", async () => {
       const { RevenueCat } = await import("../client/index.js");
       expect(
-        // @ts-expect-error: Stub component for construction test
-        () => new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: `Bearer ${VALID_SECRET}` }),
+        () =>
+          new RevenueCat(stubComponent,
+            { REVENUECAT_WEBHOOK_AUTH: `Bearer ${VALID_SECRET}` },
+          ),
       ).not.toThrow();
     });
 
     test("httpHandler() does not throw at build time when auth is undefined", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Stub component for handler-construction test
-      const rc = new RevenueCat({}, {});
+      const rc = new RevenueCat(stubComponent, {});
       // A build-time throw would fail Convex push analysis and block
       // component codegen for consumers. Validation moved to request time.
       expect(() => rc.httpHandler()).not.toThrow();
@@ -282,24 +283,30 @@ describe("audit fixes", () => {
 
     test("webhook handler rejects with 500 when auth is undefined", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Stub component for handler test
-      const rc = new RevenueCat({}, {});
+      const rc = new RevenueCat(stubComponent, {});
       const handler = rc.httpHandler() as unknown as {
         _handler: (ctx: unknown, request: Request) => Promise<Response>;
       };
-      const request = new Request("https://example.convex.site/webhooks/revenuecat", {
-        method: "POST",
-        headers: { Authorization: "Bearer anything", "Content-Type": "application/json" },
-        body: JSON.stringify({ event: { id: "evt_no_secret", type: "TEST" } }),
-      });
+      const request = new Request(
+        "https://example.convex.site/webhooks/revenuecat",
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer anything",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            event: { id: "evt_no_secret", type: "TEST" },
+          }),
+        },
+      );
       const res = await handler._handler({}, request);
       expect(res.status).toBe(500);
     });
 
     test("httpHandler() succeeds when a real secret is configured", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      // @ts-expect-error: Stub component for handler-construction test
-      const rc = new RevenueCat({}, { REVENUECAT_WEBHOOK_AUTH: VALID_SECRET });
+      const rc = new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: VALID_SECRET });
       expect(() => rc.httpHandler()).not.toThrow();
     });
   });
@@ -854,7 +861,9 @@ describe("audit fixes", () => {
         }),
       );
 
-      const customer = await t.query(api.customers.get, { appUserId: "user_lastseen" });
+      const customer = await t.query(api.customers.get, {
+        appUserId: "user_lastseen",
+      });
       expect(customer?.lastSeenAt).toBe(later);
     });
   });
@@ -879,7 +888,9 @@ describe("audit fixes", () => {
       partial.original_app_user_id = undefined as unknown as string;
       await postEvent(t, partial);
 
-      const customer = await t.query(api.customers.get, { appUserId: "user_canon" });
+      const customer = await t.query(api.customers.get, {
+        appUserId: "user_canon",
+      });
       expect(customer?.originalAppUserId).toBe(canonical);
     });
   });
@@ -950,7 +961,9 @@ describe("audit fixes", () => {
       await t.mutation(internal.handlers.processTransfer, { event: payload });
 
       const transfers = await t.query(api.transfers.list, {});
-      const sameEvent = transfers.filter((tr) => tr.eventId === "evt_transfer_dedup");
+      const sameEvent = transfers.filter(
+        (tr) => tr.eventId === "evt_transfer_dedup",
+      );
       expect(sameEvent.length).toBe(1);
     });
   });
@@ -1011,7 +1024,9 @@ describe("audit fixes", () => {
           transaction_id: "txn_consumable",
         }),
       );
-      const subs = await t.query(api.subscriptions.getByUser, { appUserId: subject });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: subject,
+      });
       expect(subs[0].kind).toBe("consumable");
     });
 
@@ -1028,7 +1043,9 @@ describe("audit fixes", () => {
           transaction_id: "txn_recurring",
         }),
       );
-      const subs = await t.query(api.subscriptions.getByUser, { appUserId: subject });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: subject,
+      });
       expect(subs[0].kind).toBe("subscription");
     });
 
@@ -1057,7 +1074,9 @@ describe("audit fixes", () => {
           transaction_id: "txn_mixed_b",
         }),
       );
-      const active = await t.query(api.subscriptions.getActive, { appUserId: subject });
+      const active = await t.query(api.subscriptions.getActive, {
+        appUserId: subject,
+      });
       expect(active.length).toBe(1);
       expect(active[0].productId).toBe("premium_monthly");
       const consumables = await t.query(api.subscriptions.getConsumables, {
@@ -1216,7 +1235,7 @@ describe("audit fixes", () => {
       // Direct invocation (unreachable from the wire) still throws.
       const t = initConvexTest();
       await expect(
-        t.mutation(internal.webhooks.process, {
+        t.mutation(api.webhooks.process, {
           event: {
             id: "   ",
             type: "INITIAL_PURCHASE",
@@ -1240,11 +1259,17 @@ describe("audit fixes", () => {
         });
       });
 
-      const first = await t.mutation(internal.transfers.backfillTransferParticipants, {});
+      const first = await t.mutation(
+        api.transfers.backfillTransferParticipants,
+        {},
+      );
       expect(first.written).toBe(2);
       expect(first.nextCursor).toBeNull();
 
-      const second = await t.mutation(internal.transfers.backfillTransferParticipants, {});
+      const second = await t.mutation(
+        api.transfers.backfillTransferParticipants,
+        {},
+      );
       expect(second.written).toBe(0);
 
       const participants = await t.run(async (ctx) => {
@@ -1297,18 +1322,20 @@ describe("audit fixes", () => {
         }
       });
 
-      const first = await t.mutation(internal.subscriptions.backfillKind, {});
+      const first = await t.mutation(api.subscriptions.backfillKind, {});
       expect(first.written).toBe(1);
       expect(first.nextCursor).toBeNull();
 
-      const subs = await t.query(api.subscriptions.getByUser, { appUserId: subject });
+      const subs = await t.query(api.subscriptions.getByUser, {
+        appUserId: subject,
+      });
       const consumable = subs.find((s) => s.originalTransactionId === txnA);
       const recurring = subs.find((s) => s.originalTransactionId === txnB);
       expect(consumable?.kind).toBe("consumable");
       expect(recurring?.kind).toBeUndefined();
 
       // Idempotent: a second run finds nothing to do.
-      const second = await t.mutation(internal.subscriptions.backfillKind, {});
+      const second = await t.mutation(api.subscriptions.backfillKind, {});
       expect(second.written).toBe(0);
     });
 
@@ -1337,12 +1364,16 @@ describe("audit fixes", () => {
           .first();
         if (sub) await ctx.db.patch(sub._id, { kind: undefined });
       });
-      const beforeActive = await t.query(api.subscriptions.getActive, { appUserId: subject });
+      const beforeActive = await t.query(api.subscriptions.getActive, {
+        appUserId: subject,
+      });
       expect(beforeActive.length).toBe(1);
 
-      await t.mutation(internal.subscriptions.backfillKind, {});
+      await t.mutation(api.subscriptions.backfillKind, {});
 
-      const afterActive = await t.query(api.subscriptions.getActive, { appUserId: subject });
+      const afterActive = await t.query(api.subscriptions.getActive, {
+        appUserId: subject,
+      });
       expect(afterActive.length).toBe(0);
       const afterConsumables = await t.query(api.subscriptions.getConsumables, {
         appUserId: subject,

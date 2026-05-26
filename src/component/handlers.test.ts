@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { api, internal } from "./_generated/api.js";
+import { api } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
 function createEventPayload(
@@ -15,7 +15,10 @@ function createEventPayload(
     expiration_reason: string;
     auto_resume_at_ms: number;
     transferred_from: string[];
-    subscriber_attributes: Record<string, { value: string; updated_at_ms: number }>;
+    subscriber_attributes: Record<
+      string,
+      { value: string; updated_at_ms: number }
+    >;
     experiments: Array<{
       experiment_id: string;
       experiment_variant: string;
@@ -30,16 +33,19 @@ function createEventPayload(
     id: overrides.id ?? `evt_${Date.now()}`,
     app_id: "app_123",
     app_user_id: overrides.app_user_id ?? "user_123",
-    original_app_user_id: overrides.original_app_user_id ?? overrides.app_user_id ?? "user_123",
+    original_app_user_id:
+      overrides.original_app_user_id ?? overrides.app_user_id ?? "user_123",
     aliases: [],
     event_timestamp_ms: Date.now(),
     product_id: overrides.product_id ?? "premium_monthly",
     entitlement_ids: overrides.entitlement_ids ?? ["premium"],
     period_type: "NORMAL" as const,
     purchased_at_ms: Date.now(),
-    expiration_at_ms: overrides.expiration_at_ms ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
+    expiration_at_ms:
+      overrides.expiration_at_ms ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
     transaction_id: overrides.transaction_id ?? `txn_${Date.now()}`,
-    original_transaction_id: overrides.original_transaction_id ?? `txn_original_${Date.now()}`,
+    original_transaction_id:
+      overrides.original_transaction_id ?? `txn_original_${Date.now()}`,
     store: "APP_STORE" as const,
     environment: "SANDBOX" as const,
     is_family_share: false,
@@ -63,7 +69,7 @@ describe("handlers", () => {
         entitlement_ids: ["premium", "pro"],
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -96,7 +102,7 @@ describe("handlers", () => {
         app_user_id: "user_initial_2",
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -128,7 +134,7 @@ describe("handlers", () => {
         is_family_share: undefined,
         ownership_type: "FAMILY_SHARED",
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -158,7 +164,7 @@ describe("handlers", () => {
         }),
         ownership_type: "FAMILY_SHARED",
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -185,7 +191,7 @@ describe("handlers", () => {
         product_id: "premium_yearly",
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -218,7 +224,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -238,7 +244,7 @@ describe("handlers", () => {
         cancel_reason: "UNSUBSCRIBE",
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: cancelPayload.id,
           type: cancelPayload.type,
@@ -268,7 +274,7 @@ describe("handlers", () => {
         app_user_id: "user_cancel_refund",
         expiration_at_ms: futureExpiration,
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -296,7 +302,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
         cancel_reason: "CUSTOMER_SUPPORT",
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: refundPayload.id,
           type: refundPayload.type,
@@ -332,7 +338,7 @@ describe("handlers", () => {
         type: "INITIAL_PURCHASE",
         app_user_id: "user_cancel_exp",
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -352,7 +358,7 @@ describe("handlers", () => {
         }),
         experiments: experimentsArr,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: cancelPayload.id,
           type: cancelPayload.type,
@@ -382,7 +388,7 @@ describe("handlers", () => {
         app_user_id: "user_refund_ts",
         original_transaction_id: "txn_refund_ts",
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -403,7 +409,7 @@ describe("handlers", () => {
         }),
         event_timestamp_ms: refundTime,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: cancelPayload.id,
           type: cancelPayload.type,
@@ -429,7 +435,7 @@ describe("handlers", () => {
         app_user_id: "user_nrefund",
         original_transaction_id: "txn_nrefund",
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -447,7 +453,7 @@ describe("handlers", () => {
         original_transaction_id: "txn_nrefund",
         cancel_reason: "UNSUBSCRIBE",
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: cancelPayload.id,
           type: cancelPayload.type,
@@ -474,7 +480,7 @@ describe("handlers", () => {
         app_user_id: "user_cancel_negprice",
         expiration_at_ms: futureExpiration,
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -497,7 +503,7 @@ describe("handlers", () => {
         }),
         price: -9.99,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: refundPayload.id,
           type: refundPayload.type,
@@ -526,7 +532,7 @@ describe("handlers", () => {
         entitlement_ids: ["premium"],
         expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: purchasePayload.id,
           type: purchasePayload.type,
@@ -546,7 +552,7 @@ describe("handlers", () => {
         }),
         entitlement_ids: undefined,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: refundPayload.id,
           type: refundPayload.type,
@@ -578,7 +584,7 @@ describe("handlers", () => {
         expiration_at_ms: Date.now() + 1000,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -604,7 +610,7 @@ describe("handlers", () => {
         expiration_reason: "SUBSCRIPTION_EXPIRED",
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: expirePayload.id,
           type: expirePayload.type,
@@ -644,8 +650,15 @@ describe("handlers", () => {
       });
 
       for (const p of [premiumPayload, proPayload]) {
-        await t.mutation(internal.webhooks.process, {
-          event: { id: p.id, type: p.type, app_id: p.app_id, app_user_id: p.app_user_id, environment: p.environment, store: p.store },
+        await t.mutation(api.webhooks.process, {
+          event: {
+            id: p.id,
+            type: p.type,
+            app_id: p.app_id,
+            app_user_id: p.app_user_id,
+            environment: p.environment,
+            store: p.store,
+          },
           payload: p,
         });
       }
@@ -661,14 +674,31 @@ describe("handlers", () => {
         entitlement_ids: undefined,
       };
 
-      await t.mutation(internal.webhooks.process, {
-        event: { id: expirePayload.id, type: expirePayload.type, app_id: expirePayload.app_id, app_user_id: expirePayload.app_user_id, environment: expirePayload.environment, store: expirePayload.store },
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: expirePayload.id,
+          type: expirePayload.type,
+          app_id: expirePayload.app_id,
+          app_user_id: expirePayload.app_user_id,
+          environment: expirePayload.environment,
+          store: expirePayload.store,
+        },
         payload: expirePayload,
       });
 
       // Both entitlements should still be active, neither was targeted
-      expect(await t.query(api.entitlements.check, { appUserId: "user_expire_guard", entitlementId: "premium" })).toBe(true);
-      expect(await t.query(api.entitlements.check, { appUserId: "user_expire_guard", entitlementId: "pro" })).toBe(true);
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_expire_guard",
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_expire_guard",
+          entitlementId: "pro",
+        }),
+      ).toBe(true);
     });
   });
 
@@ -685,7 +715,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -705,7 +735,7 @@ describe("handlers", () => {
         auto_resume_at_ms: futureResume,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: pausePayload.id,
           type: pausePayload.type,
@@ -739,7 +769,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -769,7 +799,7 @@ describe("handlers", () => {
         entitlement_ids: ["premium"],
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: transferPayload.id,
           type: transferPayload.type,
@@ -808,7 +838,7 @@ describe("handlers", () => {
         expiration_at_ms: newerExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: sourcePayload.id,
           type: sourcePayload.type,
@@ -828,7 +858,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: destPayload.id,
           type: destPayload.type,
@@ -852,7 +882,7 @@ describe("handlers", () => {
         entitlement_ids: ["premium"],
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: transferPayload.id,
           type: transferPayload.type,
@@ -895,7 +925,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -917,7 +947,7 @@ describe("handlers", () => {
         grace_period_expiration_at_ms: gracePeriodExpiration,
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: billingPayload.id,
           type: billingPayload.type,
@@ -968,7 +998,7 @@ describe("handlers", () => {
         }),
         grace_period_expiration_at_ms: Date.now() + 7 * 24 * 60 * 60 * 1000,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: billingPayload.id,
           type: billingPayload.type,
@@ -995,7 +1025,7 @@ describe("handlers", () => {
         app_user_id: "user_billing_ceiling",
         expiration_at_ms: Date.now() + 1000, // soon-to-expire
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -1015,7 +1045,7 @@ describe("handlers", () => {
         }),
         grace_period_expiration_at_ms: gracePeriodEnd,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: billingPayload.id,
           type: billingPayload.type,
@@ -1055,7 +1085,7 @@ describe("handlers", () => {
         expiration_at_ms: initialExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -1074,7 +1104,7 @@ describe("handlers", () => {
         expiration_at_ms: renewedExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: renewPayload.id,
           type: renewPayload.type,
@@ -1114,12 +1144,24 @@ describe("handlers", () => {
         expiration_at_ms: renewedExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
-        event: { id: renewPayload.id, type: renewPayload.type, app_id: renewPayload.app_id, app_user_id: renewPayload.app_user_id, environment: renewPayload.environment, store: renewPayload.store },
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: renewPayload.id,
+          type: renewPayload.type,
+          app_id: renewPayload.app_id,
+          app_user_id: renewPayload.app_user_id,
+          environment: renewPayload.environment,
+          store: renewPayload.store,
+        },
         payload: renewPayload,
       });
 
-      expect(await t.query(api.entitlements.check, { appUserId: "user_renew_missing", entitlementId: "premium" })).toBe(true);
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_renew_missing",
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
     });
   });
 
@@ -1140,7 +1182,7 @@ describe("handlers", () => {
         transaction_id: sharedTransactionId,
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -1164,7 +1206,7 @@ describe("handlers", () => {
         transaction_id: sharedTransactionId,
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: cancelPayload.id,
           type: cancelPayload.type,
@@ -1193,7 +1235,7 @@ describe("handlers", () => {
         transaction_id: sharedTransactionId,
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: uncancelPayload.id,
           type: uncancelPayload.type,
@@ -1232,7 +1274,7 @@ describe("handlers", () => {
         expiration_at_ms: initialExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -1251,7 +1293,7 @@ describe("handlers", () => {
         expiration_at_ms: extendedExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: extendPayload.id,
           type: extendPayload.type,
@@ -1291,7 +1333,7 @@ describe("handlers", () => {
         transaction_id: sharedTransactionId,
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -1316,7 +1358,7 @@ describe("handlers", () => {
         new_product_id: "yearly_premium",
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: changePayload.id,
           type: changePayload.type,
@@ -1357,7 +1399,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1403,7 +1445,7 @@ describe("handlers", () => {
         expiration_at_ms: tempExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1443,7 +1485,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -1463,7 +1505,7 @@ describe("handlers", () => {
         expiration_reason: "CUSTOMER_SUPPORT",
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: expirePayload.id,
           type: expirePayload.type,
@@ -1488,7 +1530,7 @@ describe("handlers", () => {
         expiration_at_ms: futureExpiration,
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: refundReversedPayload.id,
           type: refundReversedPayload.type,
@@ -1519,7 +1561,7 @@ describe("handlers", () => {
         environment: "SANDBOX" as const,
       };
 
-      const result = await t.mutation(internal.webhooks.process, {
+      const result = await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1546,7 +1588,7 @@ describe("handlers", () => {
         store: "RC_BILLING" as const,
       };
 
-      const result = await t.mutation(internal.webhooks.process, {
+      const result = await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1572,12 +1614,14 @@ describe("handlers", () => {
         app_user_id: "user_vcurrency_1",
         environment: "PRODUCTION" as const,
         store: "APP_STORE" as const,
-        adjustments: [{ amount: 100, currency: { code: "coins", name: "Coins" } }],
+        adjustments: [
+          { amount: 100, currency: { code: "coins", name: "Coins" } },
+        ],
         virtual_currency_transaction_id: "vct_123",
         source: "in_app_purchase",
       };
 
-      const result = await t.mutation(internal.webhooks.process, {
+      const result = await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1609,8 +1653,14 @@ describe("handlers", () => {
         source: "in_app_purchase",
       };
 
-      await t.mutation(internal.webhooks.process, {
-        event: { id: payload.id, type: payload.type, app_user_id: payload.app_user_id, environment: payload.environment, store: payload.store },
+      await t.mutation(api.webhooks.process, {
+        event: {
+          id: payload.id,
+          type: payload.type,
+          app_user_id: payload.app_user_id,
+          environment: payload.environment,
+          store: payload.store,
+        },
         payload,
       });
 
@@ -1632,7 +1682,10 @@ describe("handlers", () => {
 
       // Both currency adjustments must have their own transaction record
       expect(transactions.length).toBe(2);
-      expect(transactions.map((tx) => tx.currencyCode).sort()).toEqual(["coins", "gems"]);
+      expect(transactions.map((tx) => tx.currencyCode).sort()).toEqual([
+        "coins",
+        "gems",
+      ]);
     });
   });
 
@@ -1652,7 +1705,7 @@ describe("handlers", () => {
         experiment_enrolled_at_ms: Date.now(),
       };
 
-      const result = await t.mutation(internal.webhooks.process, {
+      const result = await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1681,7 +1734,7 @@ describe("handlers", () => {
         experiment_enrolled_at_ms: enrolledAt,
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1721,7 +1774,7 @@ describe("handlers", () => {
         ],
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload1.id,
           type: payload1.type,
@@ -1752,7 +1805,7 @@ describe("handlers", () => {
         ],
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload2.id,
           type: payload2.type,
@@ -1793,7 +1846,7 @@ describe("handlers", () => {
         },
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1811,7 +1864,9 @@ describe("handlers", () => {
 
       expect(customer).not.toBeNull();
       expect(customer?.attributes).toBeDefined();
-      expect(customer?.attributes?.__dollar__email?.value).toBe("test@example.com");
+      expect(customer?.attributes?.__dollar__email?.value).toBe(
+        "test@example.com",
+      );
       expect(customer?.attributes?.custom_plan?.value).toBe("enterprise");
     });
 
@@ -1836,7 +1891,7 @@ describe("handlers", () => {
         },
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload1.id,
           type: payload1.type,
@@ -1864,7 +1919,7 @@ describe("handlers", () => {
         },
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload2.id,
           type: payload2.type,
@@ -1880,7 +1935,9 @@ describe("handlers", () => {
         appUserId: "user_attrs_merge",
       });
 
-      expect(customer?.attributes?.__dollar__email?.value).toBe("new@example.com"); // newer
+      expect(customer?.attributes?.__dollar__email?.value).toBe(
+        "new@example.com",
+      ); // newer
       expect(customer?.attributes?.plan?.value).toBe("starter"); // older kept
     });
   });
@@ -1903,7 +1960,7 @@ describe("handlers", () => {
         ],
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1943,7 +2000,7 @@ describe("handlers", () => {
         ],
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
@@ -1976,7 +2033,7 @@ describe("handlers", () => {
         app_user_id: "user_alias_test",
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: initialPayload.id,
           type: initialPayload.type,
@@ -1997,7 +2054,7 @@ describe("handlers", () => {
         environment: "SANDBOX" as const,
       };
 
-      const result = await t.mutation(internal.webhooks.process, {
+      const result = await t.mutation(api.webhooks.process, {
         event: {
           id: aliasPayload.id,
           type: aliasPayload.type,
@@ -2031,7 +2088,7 @@ describe("handlers", () => {
         entitlement_ids: ["premium"],
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: purchasePayload.id,
           type: purchasePayload.type,
@@ -2062,7 +2119,7 @@ describe("handlers", () => {
         environment: "SANDBOX" as const,
       };
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: aliasPayload.id,
           type: aliasPayload.type,
@@ -2112,7 +2169,7 @@ describe("handlers", () => {
         original_app_user_id: realUserId,
         expiration_at_ms: now + 10 * 24 * 60 * 60 * 1000, // +10 days
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: realPurchase.id,
           type: realPurchase.type,
@@ -2131,7 +2188,7 @@ describe("handlers", () => {
         original_app_user_id: anonymousId,
         expiration_at_ms: now + 30 * 24 * 60 * 60 * 1000, // +30 days (newer)
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: anonPurchase.id,
           type: anonPurchase.type,
@@ -2150,7 +2207,7 @@ describe("handlers", () => {
         original_app_user_id: anonymousId,
         expiration_at_ms: now + 30 * 24 * 60 * 60 * 1000,
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: billingPayload.id,
           type: billingPayload.type,
@@ -2162,10 +2219,14 @@ describe("handlers", () => {
       });
 
       // Confirm the anonymous entitlement has billingIssueDetectedAt set
-      const anonEnts = await t.query(api.entitlements.list, { appUserId: anonymousId });
+      const anonEnts = await t.query(api.entitlements.list, {
+        appUserId: anonymousId,
+      });
       expect(anonEnts[0].billingIssueDetectedAt).toBeDefined();
       // And the real user's entitlement does NOT yet have it
-      const realEntsBefore = await t.query(api.entitlements.list, { appUserId: realUserId });
+      const realEntsBefore = await t.query(api.entitlements.list, {
+        appUserId: realUserId,
+      });
       expect(realEntsBefore[0].billingIssueDetectedAt).toBeUndefined();
 
       // User logs in, SUBSCRIBER_ALIAS merges anonymous (newer) → real (existing, older)
@@ -2179,7 +2240,7 @@ describe("handlers", () => {
         aliases: [anonymousId],
         environment: "SANDBOX" as const,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: aliasPayload.id,
           type: aliasPayload.type,
@@ -2191,7 +2252,9 @@ describe("handlers", () => {
 
       // billingIssueDetectedAt from the anonymous (source) record must be carried
       // over to the real user's entitlement, without it they'd lose grace-period access.
-      const realEnts = await t.query(api.entitlements.list, { appUserId: realUserId });
+      const realEnts = await t.query(api.entitlements.list, {
+        appUserId: realUserId,
+      });
       expect(realEnts.length).toBe(1);
       expect(realEnts[0].billingIssueDetectedAt).toBeDefined();
     });
@@ -2235,9 +2298,13 @@ describe("handlers", () => {
       });
 
       // Confirm state before alias: anon has it, real doesn't
-      const anonEnts = await t.query(api.entitlements.list, { appUserId: anonymousId });
+      const anonEnts = await t.query(api.entitlements.list, {
+        appUserId: anonymousId,
+      });
       expect(anonEnts[0].unsubscribeDetectedAt).toBe(unsubscribeTs);
-      const realEntsBefore = await t.query(api.entitlements.list, { appUserId: realUserId });
+      const realEntsBefore = await t.query(api.entitlements.list, {
+        appUserId: realUserId,
+      });
       expect(realEntsBefore[0].unsubscribeDetectedAt).toBeUndefined();
 
       // SUBSCRIBER_ALIAS: anon (newer) → real (existing, older)
@@ -2250,7 +2317,7 @@ describe("handlers", () => {
         aliases: [anonymousId],
         environment: "SANDBOX" as const,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: aliasPayload.id,
           type: aliasPayload.type,
@@ -2261,7 +2328,9 @@ describe("handlers", () => {
       });
 
       // unsubscribeDetectedAt from source must survive the merge
-      const realEnts = await t.query(api.entitlements.list, { appUserId: realUserId });
+      const realEnts = await t.query(api.entitlements.list, {
+        appUserId: realUserId,
+      });
       expect(realEnts.length).toBe(1);
       expect(realEnts[0].unsubscribeDetectedAt).toBe(unsubscribeTs);
     });
@@ -2279,7 +2348,7 @@ describe("handlers", () => {
         app_user_id: "user_refund_1",
         expiration_at_ms: futureExpiration,
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: purchasePayload.id,
           type: purchasePayload.type,
@@ -2292,7 +2361,10 @@ describe("handlers", () => {
       });
 
       expect(
-        await t.query(api.entitlements.check, { appUserId: "user_refund_1", entitlementId: "premium" }),
+        await t.query(api.entitlements.check, {
+          appUserId: "user_refund_1",
+          entitlementId: "premium",
+        }),
       ).toBe(true);
 
       // Refund issued, should revoke entitlement immediately
@@ -2303,7 +2375,7 @@ describe("handlers", () => {
         expiration_at_ms: Date.now() - 1000,
         expiration_reason: "CUSTOMER_SUPPORT",
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: refundPayload.id,
           type: refundPayload.type,
@@ -2316,7 +2388,10 @@ describe("handlers", () => {
       });
 
       expect(
-        await t.query(api.entitlements.check, { appUserId: "user_refund_1", entitlementId: "premium" }),
+        await t.query(api.entitlements.check, {
+          appUserId: "user_refund_1",
+          entitlementId: "premium",
+        }),
       ).toBe(false);
     });
 
@@ -2331,7 +2406,7 @@ describe("handlers", () => {
         entitlement_ids: ["premium"],
         expiration_at_ms: Date.now() + 30 * 24 * 60 * 60 * 1000,
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: purchasePayload.id,
           type: purchasePayload.type,
@@ -2352,7 +2427,7 @@ describe("handlers", () => {
         }),
         entitlement_ids: undefined,
       };
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: refundPayload.id,
           type: refundPayload.type,
@@ -2365,7 +2440,10 @@ describe("handlers", () => {
 
       // Entitlement should still be active, unmapped product refund shouldn't revoke
       expect(
-        await t.query(api.entitlements.check, { appUserId: "user_refund_multi", entitlementId: "premium" }),
+        await t.query(api.entitlements.check, {
+          appUserId: "user_refund_multi",
+          entitlementId: "premium",
+        }),
       ).toBe(true);
     });
   });
@@ -2416,7 +2494,7 @@ describe("handlers", () => {
         entitlement_ids: ["premium"],
         expiration_at_ms: Date.now() + 60 * 86400000,
       });
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
           type: payload.type,
