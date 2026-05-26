@@ -9,6 +9,7 @@
  */
 
 import type * as cleanup from "../cleanup.js";
+import type * as crons from "../crons.js";
 import type * as customers from "../customers.js";
 import type * as entitlements from "../entitlements.js";
 import type * as experiments from "../experiments.js";
@@ -18,15 +19,22 @@ import type * as lib from "../lib.js";
 import type * as subscriptions from "../subscriptions.js";
 import type * as sync from "../sync.js";
 import type * as transfers from "../transfers.js";
+import type * as transitions from "../transitions.js";
+import type * as types from "../types.js";
 import type * as virtualCurrency from "../virtualCurrency.js";
 import type * as webhookEvents from "../webhookEvents.js";
 import type * as webhooks from "../webhooks.js";
 
-import type { ApiFromModules, FilterApi, FunctionReference } from "convex/server";
+import type {
+  ApiFromModules,
+  FilterApi,
+  FunctionReference,
+} from "convex/server";
 import { anyApi, componentsGeneric } from "convex/server";
 
 const fullApi: ApiFromModules<{
   cleanup: typeof cleanup;
+  crons: typeof crons;
   customers: typeof customers;
   entitlements: typeof entitlements;
   experiments: typeof experiments;
@@ -36,6 +44,8 @@ const fullApi: ApiFromModules<{
   subscriptions: typeof subscriptions;
   sync: typeof sync;
   transfers: typeof transfers;
+  transitions: typeof transitions;
+  types: typeof types;
   virtualCurrency: typeof virtualCurrency;
   webhookEvents: typeof webhookEvents;
   webhooks: typeof webhooks;
@@ -49,7 +59,10 @@ const fullApi: ApiFromModules<{
  * const myFunctionReference = api.myModule.myFunction;
  * ```
  */
-export const api: FilterApi<typeof fullApi, FunctionReference<any, "public">> = anyApi as any;
+export const api: FilterApi<
+  typeof fullApi,
+  FunctionReference<any, "public">
+> = anyApi as any;
 
 /**
  * A utility for referencing Convex functions in your app's internal API.

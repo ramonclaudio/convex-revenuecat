@@ -15,7 +15,7 @@ describe("transfers", () => {
     test("returns transfer after TRANSFER event", async () => {
       const t = initConvexTest();
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_transfer_1",
           type: "TRANSFER",
@@ -54,7 +54,7 @@ describe("transfers", () => {
       const t = initConvexTest();
       const now = Date.now();
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_transfer_old",
           type: "TRANSFER",
@@ -70,7 +70,7 @@ describe("transfers", () => {
         },
       });
 
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_transfer_new",
           type: "TRANSFER",
@@ -128,7 +128,7 @@ describe("transfers", () => {
       expect(sourceSubs).toHaveLength(1);
 
       // Process TRANSFER event
-      await t.mutation(internal.webhooks.process, {
+      await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_transfer_sub",
           type: "TRANSFER",

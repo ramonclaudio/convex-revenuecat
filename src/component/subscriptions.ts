@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { paginator } from "convex-helpers/server/pagination";
-import { internalMutation, query } from "./_generated/server.js";
+import { mutation, query } from "./_generated/server.js";
 import schema from "./schema.js";
 
 const subscriptionDoc = schema.tables.subscriptions.validator.extend({
@@ -27,6 +27,9 @@ export const getActive = query({
   },
   returns: v.array(subscriptionDoc),
   handler: async (ctx, args) => {
+    // `Date.now()` is deliberate here (see entitlements.ts header): it keeps the
+    // active/grace filter reactive between lifecycle webhooks. Per-user tables
+    // are tiny, so the query-cache cost is negligible.
     const now = Date.now();
     const subscriptions = await ctx.db
       .query("subscriptions")
@@ -40,7 +43,10 @@ export const getActive = query({
       // consumables call `getConsumables`.
       if (s.kind === "consumable") return false;
       if (!s.expirationAtMs) return true;
-      const effectiveExpiration = Math.max(s.expirationAtMs, s.gracePeriodExpirationAtMs ?? 0);
+      const effectiveExpiration = Math.max(
+        s.expirationAtMs,
+        s.gracePeriodExpirationAtMs ?? 0,
+      );
       return effectiveExpiration > now;
     });
   },
@@ -74,7 +80,7 @@ export const getConsumables = query({
  * NON_RENEWING_PURCHASE event predates retention can't be backfilled this
  * way and stay `kind: undefined` (so `getActiveSubscriptions` will keep
  * returning them). Operators with older data should patch directly. */
-export const backfillKind = internalMutation({
+export const backfillKind = mutation({
   args: {
     cursor: v.optional(v.string()),
     pageSize: v.optional(v.number()),
@@ -93,9 +99,9 @@ export const backfillKind = internalMutation({
     const now = Date.now();
     let written = 0;
     for (const event of page.page) {
-      const payload = event.payload as
-        | { original_transaction_id?: string }
-        | null;
+      const payload = event.payload as {
+        original_transaction_id?: string;
+      } | null;
       const originalTransactionId = payload?.original_transaction_id;
       if (!originalTransactionId) continue;
       const sub = await ctx.db
@@ -164,8 +170,8 @@ export const isInGracePeriod = query({
     // original expiry).
     const inGracePeriod = Boolean(
       billingIssueDetectedAt &&
-        gracePeriodExpirationAtMs &&
-        gracePeriodExpirationAtMs > now,
+      gracePeriodExpirationAtMs &&
+      gracePeriodExpirationAtMs > now,
     );
 
     return {
@@ -193,8 +199,8 @@ export const getInGracePeriod = query({
       // rationale on dropping the `normalExpired` clause.
       return Boolean(
         s.billingIssueDetectedAt &&
-          s.gracePeriodExpirationAtMs &&
-          s.gracePeriodExpirationAtMs > now,
+        s.gracePeriodExpirationAtMs &&
+        s.gracePeriodExpirationAtMs > now,
       );
     });
   },

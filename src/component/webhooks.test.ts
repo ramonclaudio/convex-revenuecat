@@ -25,7 +25,8 @@ function createEventPayload(
     entitlement_ids: overrides.entitlement_ids ?? ["premium"],
     period_type: "NORMAL" as const,
     purchased_at_ms: Date.now(),
-    expiration_at_ms: overrides.expiration_at_ms ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
+    expiration_at_ms:
+      overrides.expiration_at_ms ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
     transaction_id: "txn_123",
     original_transaction_id: "txn_original_123",
     store: "APP_STORE" as const,
@@ -41,7 +42,7 @@ describe("webhook validation", () => {
     const payload = createEventPayload({ id: "   " });
 
     await expect(
-      t.mutation(internal.webhooks.process, {
+      t.mutation(api.webhooks.process, {
         event: {
           id: "   ",
           type: payload.type,
@@ -58,7 +59,7 @@ describe("webhook validation", () => {
     const payload = createEventPayload({ id: "evt_valid_id" });
 
     await expect(
-      t.mutation(internal.webhooks.process, {
+      t.mutation(api.webhooks.process, {
         event: {
           id: "evt_valid_id",
           type: "   ",
@@ -96,12 +97,15 @@ describe("future-proofing", () => {
     // then drops. This test guards against regression.
     const t = initConvexTest();
     const payload = {
-      ...createEventPayload({ id: "evt_unknown_fields", app_user_id: "user_future" }),
+      ...createEventPayload({
+        id: "evt_unknown_fields",
+        app_user_id: "user_future",
+      }),
       future_field_xyz: "value",
       another_future_field: 42,
       nested_future_object: { a: 1, b: [true, null] },
     };
-    await t.mutation(internal.webhooks.process, {
+    await t.mutation(api.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -126,7 +130,7 @@ describe("webhooks", () => {
 
     const payload = createEventPayload({ id: "evt_123" });
 
-    const result = await t.mutation(internal.webhooks.process, {
+    const result = await t.mutation(api.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -147,7 +151,7 @@ describe("webhooks", () => {
 
     const payload = createEventPayload({ id: "evt_456", type: "RENEWAL" });
 
-    const first = await t.mutation(internal.webhooks.process, {
+    const first = await t.mutation(api.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -158,7 +162,7 @@ describe("webhooks", () => {
 
     expect(first.processed).toBe(true);
 
-    const second = await t.mutation(internal.webhooks.process, {
+    const second = await t.mutation(api.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -181,7 +185,7 @@ describe("webhooks", () => {
       environment: "SANDBOX" as const,
     };
 
-    const result = await t.mutation(internal.webhooks.process, {
+    const result = await t.mutation(api.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,
@@ -194,7 +198,7 @@ describe("webhooks", () => {
     expect(result.processed).toBe(false);
     expect(result.eventId).toBe("evt_unknown_1");
 
-    const secondResult = await t.mutation(internal.webhooks.process, {
+    const secondResult = await t.mutation(api.webhooks.process, {
       event: {
         id: payload.id,
         type: payload.type,

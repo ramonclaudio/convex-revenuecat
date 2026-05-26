@@ -18,6 +18,13 @@
  * `billingIssueDetectedAt` check). That historically leaked access
  * indefinitely if EXPIRATION was delayed or dropped. Mirror the iOS SDK's
  * `EntitlementInfo.isActive`: pure expiry-date comparison.
+ *
+ * `Date.now()` in these queries is deliberate: it keeps the expiry gate
+ * reactive in the window between true expiry and the EXPIRATION webhook that
+ * flips `isActive`. Convex re-runs time-dependent queries so they don't go
+ * stale (a query-cache cost, not a correctness bug); the per-user tables are
+ * tiny, so the cost is negligible. Do not replace it with a cron-maintained
+ * boolean, that trades correctness for cache hits.
  */
 import { v } from "convex/values";
 import { query } from "./_generated/server.js";

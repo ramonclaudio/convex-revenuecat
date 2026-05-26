@@ -42,8 +42,7 @@ function basePayload(
     expiration_at_ms:
       overrides.expiration_at_ms ?? now + 30 * 24 * 60 * 60 * 1000,
     transaction_id: overrides.transaction_id ?? `txn_${now}`,
-    original_transaction_id:
-      overrides.original_transaction_id ?? `otxn_${now}`,
+    original_transaction_id: overrides.original_transaction_id ?? `otxn_${now}`,
     store: overrides.store ?? ("APP_STORE" as const),
     environment: "SANDBOX" as const,
     is_family_share: false,
@@ -61,7 +60,7 @@ async function dispatch(
   t: ReturnType<typeof initConvexTest>,
   payload: ReturnType<typeof basePayload>,
 ) {
-  await t.mutation(internal.webhooks.process, {
+  await t.mutation(api.webhooks.process, {
     event: {
       id: payload.id,
       type: payload.type,
@@ -162,7 +161,8 @@ describe("parity fixes", () => {
           type: "BILLING_ISSUE",
           app_user_id: "user_p2",
           expiration_at_ms: initialExpiry,
-          grace_period_expiration_at_ms: initialExpiry + 7 * 24 * 60 * 60 * 1000,
+          grace_period_expiration_at_ms:
+            initialExpiry + 7 * 24 * 60 * 60 * 1000,
           original_transaction_id: sharedTxn,
           transaction_id: sharedTxn,
         }),
@@ -271,7 +271,8 @@ describe("parity fixes", () => {
           type: "BILLING_ISSUE",
           app_user_id: "user_p3",
           expiration_at_ms: initialExpiry,
-          grace_period_expiration_at_ms: initialExpiry + 7 * 24 * 60 * 60 * 1000,
+          grace_period_expiration_at_ms:
+            initialExpiry + 7 * 24 * 60 * 60 * 1000,
           original_transaction_id: sharedTxn,
           transaction_id: sharedTxn,
         }),
@@ -794,8 +795,20 @@ describe("parity fixes", () => {
       const t = initConvexTest();
       const destExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      await seedEntitlement(t, "user_life_src", "otxn_life_src", undefined, "evt_life_src");
-      await seedEntitlement(t, "user_life_dst", "otxn_life_dst", destExpiry, "evt_life_dst");
+      await seedEntitlement(
+        t,
+        "user_life_src",
+        "otxn_life_src",
+        undefined,
+        "evt_life_src",
+      );
+      await seedEntitlement(
+        t,
+        "user_life_dst",
+        "otxn_life_dst",
+        destExpiry,
+        "evt_life_dst",
+      );
 
       await t.mutation(internal.handlers.processTransfer, {
         event: {
@@ -823,8 +836,20 @@ describe("parity fixes", () => {
       const t = initConvexTest();
       const srcExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      await seedEntitlement(t, "user_flife_dst", "otxn_flife_dst", undefined, "evt_flife_dst");
-      await seedEntitlement(t, "user_flife_src", "otxn_flife_src", srcExpiry, "evt_flife_src");
+      await seedEntitlement(
+        t,
+        "user_flife_dst",
+        "otxn_flife_dst",
+        undefined,
+        "evt_flife_dst",
+      );
+      await seedEntitlement(
+        t,
+        "user_flife_src",
+        "otxn_flife_src",
+        srcExpiry,
+        "evt_flife_src",
+      );
 
       await t.mutation(internal.handlers.processTransfer, {
         event: {
@@ -852,8 +877,20 @@ describe("parity fixes", () => {
       const t = initConvexTest();
       const existingExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      await seedEntitlement(t, "user_alias_existing", "otxn_ae", existingExpiry, "evt_alias_ex");
-      await seedEntitlement(t, "$RCAnonymousID:alias_src_life", "otxn_als", undefined, "evt_als");
+      await seedEntitlement(
+        t,
+        "user_alias_existing",
+        "otxn_ae",
+        existingExpiry,
+        "evt_alias_ex",
+      );
+      await seedEntitlement(
+        t,
+        "$RCAnonymousID:alias_src_life",
+        "otxn_als",
+        undefined,
+        "evt_als",
+      );
 
       await t.mutation(internal.handlers.processSubscriberAlias, {
         event: {
@@ -879,8 +916,20 @@ describe("parity fixes", () => {
       const t = initConvexTest();
       const srcExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      await seedEntitlement(t, "user_alias_life_ex", "otxn_ale", undefined, "evt_alias_le");
-      await seedEntitlement(t, "$RCAnonymousID:alias_src_fin", "otxn_alsf", srcExpiry, "evt_alsf");
+      await seedEntitlement(
+        t,
+        "user_alias_life_ex",
+        "otxn_ale",
+        undefined,
+        "evt_alias_le",
+      );
+      await seedEntitlement(
+        t,
+        "$RCAnonymousID:alias_src_fin",
+        "otxn_alsf",
+        srcExpiry,
+        "evt_alsf",
+      );
 
       await t.mutation(internal.handlers.processSubscriberAlias, {
         event: {
@@ -919,7 +968,8 @@ describe("parity fixes", () => {
           subscriptions: { premium_monthly: sub },
           entitlements: {
             premium: {
-              expires_date: (sub.expires_date as string | null | undefined) ?? null,
+              expires_date:
+                (sub.expires_date as string | null | undefined) ?? null,
               product_identifier: "premium_monthly",
               purchase_date: "2026-01-01T00:00:00Z",
             },

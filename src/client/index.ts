@@ -475,7 +475,11 @@ export class RevenueCat {
 
   /** Purge all component-local data for a user. Returns per-table counts.
    * Does NOT call RC's REST API. Wrap a Convex action around
-   * `DELETE /v1/subscribers/{id}` if you need that too. */
+   * `DELETE /v1/subscribers/{id}` if you need that too.
+   *
+   * Destructive and unauthenticated: it purges whatever `appUserId` you pass.
+   * Never expose it in a public mutation that takes `appUserId` from the
+   * client. Gate it behind your own auth/role check (e.g. an internal action). */
   async deleteCustomer(
     ctx: MutCtx,
     args: { appUserId: string },
@@ -596,7 +600,9 @@ export class RevenueCat {
     return subs.length > 0;
   }
 
-  /** True when any active subscription is in TRIAL or INTRO period. */
+  /** True when any active subscription is in a TRIAL (free) or INTRO (paid
+   * introductory) period. For free-trial-only semantics, check
+   * `periodType === "TRIAL"` directly. */
   async isInTrial(ctx: QueryCtx, args: { appUserId: string }): Promise<boolean> {
     const subs = (await ctx.runQuery(this.component.subscriptions.getActive, {
       appUserId: args.appUserId,
