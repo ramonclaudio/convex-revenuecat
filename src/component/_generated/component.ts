@@ -187,7 +187,7 @@ interface WebhookEventDoc {
  */
 export type ComponentApi<Name extends string | undefined = string | undefined> = {
   customers: {
-    get: FunctionReference<"query", "public", { appUserId: string }, CustomerDoc | null, Name>;
+    get: FunctionReference<"query", "internal", { appUserId: string }, CustomerDoc | null, Name>;
     getByOriginalId: FunctionReference<
       "query",
       "internal",
@@ -197,7 +197,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
     >;
     purge: FunctionReference<
       "mutation",
-      "public",
+      "internal",
       { appUserId: string; onCustomerDeleted?: string },
       {
         customer: number;
@@ -221,7 +221,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       boolean,
       Name
     >;
-    list: FunctionReference<"query", "public", { appUserId: string }, EntitlementDoc[], Name>;
+    list: FunctionReference<"query", "internal", { appUserId: string }, EntitlementDoc[], Name>;
     getActive: FunctionReference<
       "query",
       "internal",
@@ -284,7 +284,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
   sync: {
     ingest: FunctionReference<
       "mutation",
-      "public",
+      "internal",
       {
         appUserId: string;
         subscriber: {
@@ -354,7 +354,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
     >;
   };
   experiments: {
-    list: FunctionReference<"query", "public", { appUserId: string }, ExperimentDoc[], Name>;
+    list: FunctionReference<"query", "internal", { appUserId: string }, ExperimentDoc[], Name>;
     get: FunctionReference<
       "query",
       "internal",
@@ -392,7 +392,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       WebhookEventDoc[],
       Name
     >;
-    listFailed: FunctionReference<"query", "public", { limit?: number }, WebhookEventDoc[], Name>;
+    listFailed: FunctionReference<"query", "internal", { limit?: number }, WebhookEventDoc[], Name>;
   };
   transfers: {
     getByEventId: FunctionReference<
@@ -402,17 +402,17 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       TransferDoc | null,
       Name
     >;
-    list: FunctionReference<"query", "public", { limit?: number }, TransferDoc[], Name>;
+    list: FunctionReference<"query", "internal", { limit?: number }, TransferDoc[], Name>;
     backfillTransferParticipants: FunctionReference<
       "mutation",
-      "public",
+      "internal",
       { cursor?: string; pageSize?: number },
       { scanned: number; written: number; nextCursor: string | null },
       Name
     >;
   };
   invoices: {
-    get: FunctionReference<"query", "public", { invoiceId: string }, InvoiceDoc | null, Name>;
+    get: FunctionReference<"query", "internal", { invoiceId: string }, InvoiceDoc | null, Name>;
     listByUser: FunctionReference<
       "query",
       "internal",
