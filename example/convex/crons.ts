@@ -1,22 +1,28 @@
 import { cronJobs } from "convex/server";
-import { components } from "./_generated/api";
+import { v } from "convex/values";
+import { internalMutation } from "./_generated/server";
+import { components, internal } from "./_generated/api";
+
+// Component functions are reached across the component boundary via
+// ctx.runMutation, so wrap them in an app-side internal mutation and schedule
+// that. Scheduling `components.revenuecat.cleanup.*` directly from a cron fails
+// the push: crons serialize the target by name, and a component reference has
+// no same-deployment name.
+export const pruneRevenueCat = internalMutation({
+  args: {},
+  returns: v.null(),
+  handler: async (ctx) => {
+    await ctx.runMutation(components.revenuecat.cleanup.rateLimits, {});
+    await ctx.runMutation(components.revenuecat.cleanup.webhookEvents, {});
+    return null;
+  },
+});
 
 const crons = cronJobs();
-
-// Prune expired rate-limit rows (60s window) hourly. The mutation deletes in
-// batches and self-reschedules when a backlog exceeds the per-run cap.
 crons.interval(
-  "revenuecat: prune rate limits",
+  "prune revenuecat bookkeeping",
   { hours: 1 },
-  components.revenuecat.cleanup.rateLimits,
-  {},
-);
-
-// Drop webhook audit events past the 30-day retention, daily.
-crons.interval(
-  "revenuecat: prune webhook events",
-  { hours: 24 },
-  components.revenuecat.cleanup.webhookEvents,
+  internal.crons.pruneRevenueCat,
   {},
 );
 

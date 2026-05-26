@@ -482,22 +482,26 @@ Two internal cleanup mutations keep the bookkeeping tables bounded. They are NOT
 
 Both delete in batches and self-reschedule when a backlog exceeds the per-run cap, so one cron tick drains any backlog.
 
+Wrap them in an app-side `internalMutation` and schedule that. A cron can't schedule `components.revenuecat.cleanup.*` directly: crons serialize the target by name, and a component reference has no same-deployment name, so the push fails.
+
 ```typescript
 import { cronJobs } from "convex/server";
-import { components } from "./_generated/api";
+import { internalMutation } from "./_generated/server";
+import { components, internal } from "./_generated/api";
+
+export const pruneRevenueCat = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    await ctx.runMutation(components.revenuecat.cleanup.rateLimits, {});
+    await ctx.runMutation(components.revenuecat.cleanup.webhookEvents, {});
+  },
+});
 
 const crons = cronJobs();
-
 crons.interval(
-  "revenuecat: prune rate limits",
+  "prune revenuecat bookkeeping",
   { hours: 1 },
-  components.revenuecat.cleanup.rateLimits,
-  {},
-);
-crons.interval(
-  "revenuecat: prune webhook events",
-  { hours: 24 },
-  components.revenuecat.cleanup.webhookEvents,
+  internal.crons.pruneRevenueCat,
   {},
 );
 
