@@ -54,9 +54,6 @@ async function processEvent(
   });
 }
 
-// Example queries derive `appUserId` from `ctx.auth.getUserIdentity().subject`,
-// so tests run them inside an identity context that matches the test
-// webhook's `app_user_id`.
 function asUser(t: ReturnType<typeof initConvexTest>, subject: string) {
   return t.withIdentity({ subject });
 }
@@ -311,6 +308,36 @@ describe("subscriptions", () => {
         {},
       );
       expect(result.length).toBe(2);
+    });
+  });
+
+  describe("cross-user isolation", () => {
+    test("does not leak another user's entitlements (IDOR)", async () => {
+      const t = initConvexTest();
+      await processEvent(
+        t,
+        createEventPayload({
+          id: "evt_idor",
+          app_user_id: "user_a",
+          entitlement_ids: ["premium"],
+        }),
+      );
+
+      expect(
+        await asUser(t, "user_b").query(api.subscriptions.checkPremium, {}),
+      ).toBe(false);
+      expect(
+        (
+          await asUser(t, "user_b").query(
+            api.subscriptions.getActiveEntitlements,
+            {},
+          )
+        ).length,
+      ).toBe(0);
+
+      expect(
+        await asUser(t, "user_a").query(api.subscriptions.checkPremium, {}),
+      ).toBe(true);
     });
   });
 });

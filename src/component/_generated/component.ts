@@ -43,25 +43,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         },
         Name
       >;
-      getByOriginalId: FunctionReference<
-        "query",
-        "internal",
-        { originalAppUserId: string },
-        null | {
-          _creationTime: number;
-          _id: string;
-          aliases: Array<string>;
-          appUserId: string;
-          attributes?: Record<string, { updated_at_ms: number; value: string }>;
-          countryCode?: string;
-          firstSeenAt: number;
-          lastSeenAt?: number;
-          managementUrl?: string;
-          originalAppUserId: string;
-          updatedAt: number;
-        },
-        Name
-      >;
       purge: FunctionReference<
         "mutation",
         "internal",
@@ -180,22 +161,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "query",
         "internal",
         { appUserId: string },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          appUserId: string;
-          enrolledAtMs: number;
-          experimentId: string;
-          offeringId?: string;
-          updatedAt: number;
-          variant: string;
-        }>,
-        Name
-      >;
-      listByExperiment: FunctionReference<
-        "query",
-        "internal",
-        { experimentId: string },
         Array<{
           _creationTime: number;
           _id: string;
@@ -338,63 +303,6 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           unsubscribeDetectedAt?: number;
           updatedAt: number;
         }>,
-        Name
-      >;
-      getByOriginalTransaction: FunctionReference<
-        "query",
-        "internal",
-        { originalTransactionId: string },
-        null | {
-          _creationTime: number;
-          _id: string;
-          appUserId: string;
-          autoRenewStatus?: boolean;
-          autoResumeAtMs?: number;
-          billingIssueDetectedAt?: number;
-          cancelReason?: string;
-          commissionPercentage?: number;
-          countryCode?: string;
-          currency?: string;
-          entitlementIds?: Array<string>;
-          environment: "SANDBOX" | "PRODUCTION";
-          expirationAtMs?: number;
-          expirationReason?: string;
-          gracePeriodExpirationAtMs?: number;
-          isFamilyShare: boolean;
-          isTrialConversion?: boolean;
-          kind?: "subscription" | "consumable";
-          newProductId?: string;
-          offerCode?: string;
-          originalPurchasedAtMs?: number;
-          originalTransactionId: string;
-          ownershipType?: "PURCHASED" | "FAMILY_SHARED" | "UNKNOWN";
-          periodType: "TRIAL" | "INTRO" | "NORMAL" | "PROMOTIONAL" | "PREPAID";
-          presentedOfferingId?: string;
-          priceInPurchasedCurrency?: number;
-          priceUsd?: number;
-          productId: string;
-          purchasedAtMs: number;
-          refundedAtMs?: number;
-          renewalNumber?: number;
-          store:
-            | "AMAZON"
-            | "APP_STORE"
-            | "MAC_APP_STORE"
-            | "GALAXY"
-            | "PADDLE"
-            | "PLAY_STORE"
-            | "PROMOTIONAL"
-            | "RC_BILLING"
-            | "ROKU"
-            | "STRIPE"
-            | "TEST_STORE"
-            | "EXTERNAL"
-            | "UNKNOWN_STORE";
-          taxPercentage?: number;
-          transactionId: string;
-          unsubscribeDetectedAt?: number;
-          updatedAt: number;
-        },
         Name
       >;
       getByUser: FunctionReference<
@@ -690,109 +598,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       >;
     };
     webhookEvents: {
-      getByEventId: FunctionReference<
-        "query",
-        "internal",
-        { eventId: string },
-        null | {
-          _creationTime: number;
-          _id: string;
-          appId?: string;
-          appUserId?: string;
-          environment: "SANDBOX" | "PRODUCTION";
-          error?: string;
-          eventId: string;
-          eventType: string;
-          payload: any;
-          processedAt: number;
-          status: "processed" | "failed" | "ignored";
-          store?:
-            | "AMAZON"
-            | "APP_STORE"
-            | "MAC_APP_STORE"
-            | "GALAXY"
-            | "PADDLE"
-            | "PLAY_STORE"
-            | "PROMOTIONAL"
-            | "RC_BILLING"
-            | "ROKU"
-            | "STRIPE"
-            | "TEST_STORE"
-            | "EXTERNAL"
-            | "UNKNOWN_STORE";
-        },
-        Name
-      >;
-      listByType: FunctionReference<
-        "query",
-        "internal",
-        { eventType: string; limit?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          appId?: string;
-          appUserId?: string;
-          environment: "SANDBOX" | "PRODUCTION";
-          error?: string;
-          eventId: string;
-          eventType: string;
-          payload: any;
-          processedAt: number;
-          status: "processed" | "failed" | "ignored";
-          store?:
-            | "AMAZON"
-            | "APP_STORE"
-            | "MAC_APP_STORE"
-            | "GALAXY"
-            | "PADDLE"
-            | "PLAY_STORE"
-            | "PROMOTIONAL"
-            | "RC_BILLING"
-            | "ROKU"
-            | "STRIPE"
-            | "TEST_STORE"
-            | "EXTERNAL"
-            | "UNKNOWN_STORE";
-        }>,
-        Name
-      >;
       listByUser: FunctionReference<
         "query",
         "internal",
         { appUserId: string; limit?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          appId?: string;
-          appUserId?: string;
-          environment: "SANDBOX" | "PRODUCTION";
-          error?: string;
-          eventId: string;
-          eventType: string;
-          payload: any;
-          processedAt: number;
-          status: "processed" | "failed" | "ignored";
-          store?:
-            | "AMAZON"
-            | "APP_STORE"
-            | "MAC_APP_STORE"
-            | "GALAXY"
-            | "PADDLE"
-            | "PLAY_STORE"
-            | "PROMOTIONAL"
-            | "RC_BILLING"
-            | "ROKU"
-            | "STRIPE"
-            | "TEST_STORE"
-            | "EXTERNAL"
-            | "UNKNOWN_STORE";
-        }>,
-        Name
-      >;
-      listFailed: FunctionReference<
-        "query",
-        "internal",
-        { limit?: number },
         Array<{
           _creationTime: number;
           _id: string;

@@ -67,9 +67,9 @@ auth. That's an IDOR, never ship it; they exist only to power this demo.
 From the repo root, run the backend and the UI together:
 
 ```bash
-npm run dev        # Convex dev server (functions + deployment)
-npm run example    # Vite dev server for the React UI
-npm run test       # all tests
+npm run dev
+npm run example
+npm run test
 ```
 
 Open the Vite URL, buy an offering or fire a simulated webhook, and watch the
@@ -107,10 +107,10 @@ are handled:
 
 The `RevenueCat` client class exposes query and mutation methods plus `api()`
 and `registerRoutes()` helpers. `api()` returns identity-aware handlers for
-every user-scoped query. See the main [README](../README.md#api) for the full
-reference.
+every user-scoped query. See [`docs/reference.md`](../docs/reference.md) for the
+full API table.
 
 Lifecycle hooks (`onEntitlementActivated`, `onEntitlementDeactivated`,
-`onCustomerDeleted`) and the `deleteCustomer` GDPR purge are documented in the
-main README's [Lifecycle hooks](../README.md#lifecycle-hooks) section. Security
-and correctness fixes are documented in the [CHANGELOG](../CHANGELOG.md).
+`onCustomerDeleted`) live in [`docs/hooks.md`](../docs/hooks.md); the
+`deleteCustomer` GDPR purge is in [`docs/security.md`](../docs/security.md).
+Security and correctness fixes are logged in the [CHANGELOG](../CHANGELOG.md).

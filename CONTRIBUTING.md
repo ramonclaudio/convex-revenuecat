@@ -41,9 +41,13 @@
   captured payload, no SDK source).
 - Emojis in source, docs, comments, commits, `CHANGELOG.md`, or PR bodies.
 - Breaking API changes without a MINOR version bump. Pre-1.0: MINOR (`0.x`) for
-  breaking changes (removed or renamed exports, changed method signatures,
-  schema changes, semantic changes that produce less correct values). PATCH
-  (`0.0.y`) for bug fixes and additive helpers.
+  breaking changes to the documented public surface (removed or renamed client
+  SDK exports or README-documented functions, changed method signatures, a
+  consumer-visible schema or type change, or a semantic change that produces
+  less correct values). PATCH (`0.0.y`) for bug fixes, additive helpers, and
+  removing undocumented internal surface no consumer can be relying on
+  (component queries with no client wrapper and no README entry, their indexes,
+  dead validator fields).
 - `console.log` or commented-out code in the diff.
 - TODOs without a linked GitHub issue.
 - Commit messages that don't follow the convention below.
@@ -90,7 +94,7 @@ Tests sit next to the module under test (`handlers.test.ts` next to
 2. Clone:
 
    ```bash
-   git clone https://github.com/<your-username>/convex-revenuecat.git
+   git clone https://github.com/ramonclaudio/convex-revenuecat.git
    cd convex-revenuecat
    ```
 
@@ -128,8 +132,8 @@ not from `example/`.
 
 ```bash
 npm install
-npm run dev        # Convex dev server (functions + deployment)
-npm run example    # Vite UI for the demo, in a second terminal
+npm run dev
+npm run example
 ```
 
 Sample payloads for every RC event type live in `src/component/handlers.test.ts`
@@ -162,10 +166,14 @@ local HTTP endpoint to exercise manually.
   `recordEvent` for structural reasons: `processTransfer` calls `upsertCustomer`
   per participant in `transferred_from` and `transferred_to`, and `processTest`
   is a no-op.
-- `processTransfer` writes the `transfers` row plus per-user
-  `transferParticipants` rows BEFORE calling `purgeAnonymousCustomerIfEmpty`.
-  The purge cleans up an anonymous source's participant rows. Reversing the
-  order would orphan them.
+- `processTransfer` and the `alias` outcome of `processPurchaseRedeemed` record
+  the movement via the shared `recordTransfer` helper (a `transfers` row plus
+  per-user `transferParticipants`) BEFORE `purgeAnonymousCustomerIfEmpty`, which
+  cleans up an anonymous source's participant rows; reversing the order orphans
+  them. That participant join is also how `customers.purge` reaches `TRANSFER`
+  and `PURCHASE_REDEEMED` audit rows, which carry no top-level `app_user_id`.
+  Drop the `recordTransfer` call from either path and GDPR erasure silently
+  leaves those rows behind.
 - New entitlement state transitions flow through `snapshotEntitlements` +
   `fireTransitionHooks` in `webhooks.ts`. Do not schedule hooks from inside a
   handler.
@@ -182,12 +190,12 @@ local HTTP endpoint to exercise manually.
 ## Testing
 
 ```bash
-npm run test              # full suite
-npm run test -- handlers  # single module
-npm run typecheck         # tsc --noEmit + example typecheck
-npm run lint              # ESLint
-npm run format:check      # Prettier (npm run format to fix)
-npm run validate          # all four (CI runs this)
+npm run test
+npm run test -- handlers
+npm run typecheck
+npm run lint
+npm run format:check
+npm run validate
 ```
 
 Behaviour changes and new features land with tests. Refactors don't add tests
@@ -238,14 +246,14 @@ For client SDK changes:
 
 ### Coverage by change type
 
-| Change                | Unit tests                                                  | Integration test             | Docs                                              |
-| --------------------- | ----------------------------------------------------------- | ---------------------------- | ------------------------------------------------- |
-| Handler bug fix       | Regression fails before, passes after                       | Yes, if consumer-visible     | `CHANGELOG.md`                                    |
-| New webhook handler   | Happy path + dedup + multi-entitlement + audit log          | Fire payload via example app | README event table + `CHANGELOG.md`               |
-| New client SDK method | Invocation + return type + error paths                      | Consumer test                | README API table + usage example + `CHANGELOG.md` |
-| Schema field addition | Validator accepts new values + migration compatibility      | Yes, if exposed via queries  | README if public + `CHANGELOG.md`                 |
-| Lifecycle hook change | `_scheduled_functions` assertion + dedup + no-hook overhead | Yes                          | README lifecycle section + `CHANGELOG.md`         |
-| Sync / REST change    | Mock subscriber response + assert reconciliation            | `syncSubscriber` in example  | README sync section + `CHANGELOG.md`              |
+| Change                | Unit tests                                                  | Integration test             | Docs                                                      |
+| --------------------- | ----------------------------------------------------------- | ---------------------------- | --------------------------------------------------------- |
+| Handler bug fix       | Regression fails before, passes after                       | Yes, if consumer-visible     | `CHANGELOG.md`                                            |
+| New webhook handler   | Happy path + dedup + multi-entitlement + audit log          | Fire payload via example app | `docs/webhooks.md` event table + `CHANGELOG.md`           |
+| New client SDK method | Invocation + return type + error paths                      | Consumer test                | `docs/reference.md` table + README usage + `CHANGELOG.md` |
+| Schema field addition | Validator accepts new values + migration compatibility      | Yes, if exposed via queries  | `docs/` if public + `CHANGELOG.md`                        |
+| Lifecycle hook change | `_scheduled_functions` assertion + dedup + no-hook overhead | Yes                          | `docs/hooks.md` + `CHANGELOG.md`                          |
+| Sync / REST change    | Mock subscriber response + assert reconciliation            | `syncSubscriber` in example  | `docs/webhooks.md` sync section + `CHANGELOG.md`          |
 
 ## PR playbooks
 
@@ -270,8 +278,8 @@ For client SDK changes:
    for the pattern.
 2. New hook args require updating the `EntitlementActivatedArgs` /
    `EntitlementDeactivatedArgs` types in `transitions.ts`, the matching
-   `*HookArgs` and `LifecycleHooks` types in `client/index.ts`, and the README
-   lifecycle section.
+   `*HookArgs` and `LifecycleHooks` types in `client/index.ts`, and
+   [`docs/hooks.md`](docs/hooks.md).
 3. Every new hook has a "no hooks configured = zero scheduled jobs" test.
 
 ### Schema
@@ -291,7 +299,7 @@ For client SDK changes:
 3. Return types are concrete. No `any`, no `unknown` without justification.
 4. Test that mocks `components.revenuecat` and asserts the method calls the
    correct underlying mutation or query.
-5. README API table + usage example under `## Usage`.
+5. `docs/reference.md` API table + README usage example under `## Usage`.
 
 ### Sync / REST
 
@@ -361,12 +369,15 @@ No `Co-authored-by:` trailers. No AI attribution.
 - [ ] Tests added per the coverage table above.
 - [ ] Integration test in `example/convex/` if public surface changed.
 - [ ] `CHANGELOG.md` updated under `## [Unreleased]`.
-- [ ] `README.md` updated if public API, webhook handling, hook args, or
-      configuration options changed.
-- [ ] Version impact considered: pre-1.0, MINOR (`0.x`) for breaking API
-      changes, PATCH (`0.0.y`) for bug fixes and additive helpers. "Breaking"
-      means removed or renamed exports, changed method signatures, schema
-      changes, or semantic changes that produce less correct values than before.
+- [ ] `README.md` or `docs/` updated if public API, webhook handling, hook args,
+      or configuration options changed.
+- [ ] Version impact considered: pre-1.0, MINOR (`0.x`) for breaking changes to
+      the documented public surface, PATCH (`0.0.y`) for bug fixes, additive
+      helpers, and removing undocumented internal surface (unwrapped component
+      queries, their indexes, dead validator fields). "Breaking" means removed
+      or renamed documented exports, changed method signatures, a
+      consumer-visible schema or type change, or a semantic change that produces
+      less correct values than before.
 - [ ] No `console.log`, no commented-out code, no unused imports or exports.
 - [ ] No TODO without a linked issue (URL or `#123`).
 - [ ] No emojis in any file touched.

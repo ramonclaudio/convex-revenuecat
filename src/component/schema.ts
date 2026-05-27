@@ -5,7 +5,6 @@ export const storeValidator = v.union(
   v.literal("AMAZON"),
   v.literal("APP_STORE"),
   v.literal("MAC_APP_STORE"),
-  // Samsung Galaxy Store.
   v.literal("GALAXY"),
   v.literal("PADDLE"),
   v.literal("PLAY_STORE"),
@@ -14,9 +13,7 @@ export const storeValidator = v.union(
   v.literal("ROKU"),
   v.literal("STRIPE"),
   v.literal("TEST_STORE"),
-  // RC External Purchases API.
   v.literal("EXTERNAL"),
-  // Sentinel for unknown wire values. Future RC stores route here.
   v.literal("UNKNOWN_STORE"),
 );
 
@@ -33,7 +30,6 @@ export const periodTypeValidator = v.union(
   v.literal("PREPAID"),
 );
 
-// `UNKNOWN` is a real Android wire value (EntitlementInfo.kt enum).
 export const ownershipTypeValidator = v.union(
   v.literal("PURCHASED"),
   v.literal("FAMILY_SHARED"),
@@ -65,22 +61,14 @@ export default defineSchema({
     firstSeenAt: v.number(),
     lastSeenAt: v.optional(v.number()),
     attributes: v.optional(subscriberAttributesValidator),
-    /** ISO 3166-1 alpha-2 from the latest event carrying it. */
     countryCode: v.optional(v.string()),
-    /** Native-subscription-manager deep link from RC REST. Populated by
-     * `syncSubscriber` only. Webhooks don't carry it. */
     managementUrl: v.optional(v.string()),
     updatedAt: v.number(),
-  })
-    .index("by_app_user_id", ["appUserId"])
-    .index("by_original_app_user_id", ["originalAppUserId"]),
+  }).index("by_app_user_id", ["appUserId"]),
 
   subscriptions: defineTable({
     appUserId: v.string(),
     productId: v.string(),
-    /** "consumable" = NON_RENEWING_PURCHASE one-shot. Missing values on
-     * pre-0.3.0 rows are treated as "subscription" until backfilled by
-     * `subscriptions.backfillKind`. */
     kind: v.optional(
       v.union(v.literal("subscription"), v.literal("consumable")),
     ),
@@ -112,9 +100,7 @@ export default defineSchema({
     renewalNumber: v.optional(v.number()),
     newProductId: v.optional(v.string()),
     refundedAtMs: v.optional(v.number()),
-    /** First purchase in the subscription chain; stable across renewals. */
     originalPurchasedAtMs: v.optional(v.number()),
-    /** User-initiated unsubscribe within the paid period (distinct from refund). */
     unsubscribeDetectedAt: v.optional(v.number()),
     updatedAt: v.number(),
   })
@@ -133,8 +119,6 @@ export default defineSchema({
     isSandbox: v.boolean(),
     unsubscribeDetectedAt: v.optional(v.number()),
     billingIssueDetectedAt: v.optional(v.number()),
-    /** Mirrored from the linked subscription so consumers can filter
-     * family-shared access on single-seat products. */
     ownershipType: v.optional(ownershipTypeValidator),
     updatedAt: v.number(),
   })
@@ -159,8 +143,7 @@ export default defineSchema({
   })
     .index("by_event_id", ["eventId"])
     .index("by_type", ["eventType"])
-    .index("by_app_user", ["appUserId"])
-    .index("by_status", ["status"]),
+    .index("by_app_user", ["appUserId"]),
 
   experiments: defineTable({
     appUserId: v.string(),
@@ -171,8 +154,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_app_user", ["appUserId"])
-    .index("by_app_user_experiment", ["appUserId", "experimentId"])
-    .index("by_experiment", ["experimentId"]),
+    .index("by_app_user_experiment", ["appUserId", "experimentId"]),
 
   transfers: defineTable({
     eventId: v.string(),
@@ -184,9 +166,6 @@ export default defineSchema({
     .index("by_event_id", ["eventId"])
     .index("by_timestamp", ["timestamp"]),
 
-  // Per-user join rows for `transfers`. Convex can't index array members,
-  // so each TRANSFER writes one transfer row plus N+M participant rows.
-  // Drives O(per-user) GDPR purge.
   transferParticipants: defineTable({
     transferId: v.id("transfers"),
     appUserId: v.string(),
@@ -219,7 +198,6 @@ export default defineSchema({
     .index("by_app_user", ["appUserId"])
     .index("by_app_user_currency", ["appUserId", "currencyCode"]),
 
-  // VIRTUAL_CURRENCY_TRANSACTION individual adjustments
   virtualCurrencyTransactions: defineTable({
     transactionId: v.string(),
     appUserId: v.string(),

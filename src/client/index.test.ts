@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { RevenueCat, willRenew } from "./index.js";
 import type { Subscription } from "./index.js";
 import { components, initConvexTest } from "./setup.test.js";
+import { deriveWillRenew } from "../component/handlers.js";
 
 function createEventPayload(
   overrides: Partial<{
@@ -396,6 +397,27 @@ describe("RevenueCat client", () => {
       expect(willRenew(sub({ billingIssueDetectedAt: Date.now() }))).toBe(
         false,
       );
+    });
+
+    test("matches the component's deriveWillRenew across the signal matrix", () => {
+      const stores = ["APP_STORE", "PROMOTIONAL"] as const;
+      const periods = ["NORMAL", "PREPAID"] as const;
+      const expiries = [Date.now() + 86400000, undefined];
+      const flags = [undefined, Date.now()];
+      for (const store of stores)
+        for (const periodType of periods)
+          for (const expirationAtMs of expiries)
+            for (const unsubscribeDetectedAt of flags)
+              for (const billingIssueDetectedAt of flags) {
+                const signals = {
+                  store,
+                  periodType,
+                  expirationAtMs,
+                  unsubscribeDetectedAt,
+                  billingIssueDetectedAt,
+                };
+                expect(willRenew(sub(signals))).toBe(deriveWillRenew(signals));
+              }
     });
   });
 

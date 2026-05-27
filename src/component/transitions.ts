@@ -4,16 +4,6 @@ import type { DataModel, Doc } from "./_generated/dataModel.js";
 type MutationCtx = GenericMutationCtx<DataModel>;
 type EntitlementDoc = Doc<"entitlements">;
 
-/**
- * Arguments delivered to `onEntitlementActivated`. The hook fires once per
- * (appUserId, entitlementId) transition from not-active to active, regardless
- * of the triggering event type (INITIAL_PURCHASE, RENEWAL, REFUND_REVERSED,
- * TRANSFER onto a user, SUBSCRIBER_ALIAS, sync-driven activation, etc).
- *
- * `sourceEventType` is the RC webhook `event.type` that caused the
- * transition (e.g., `"INITIAL_PURCHASE"`), or `"SYNC"` when the transition
- * was detected by `syncSubscriber`.
- */
 export type EntitlementActivatedArgs = {
   appUserId: string;
   entitlementId: string;
@@ -26,14 +16,6 @@ export type EntitlementActivatedArgs = {
   sourceEventType: string;
 };
 
-/**
- * Arguments delivered to `onEntitlementDeactivated`. Fires once per
- * (appUserId, entitlementId) transition from active to not-active, whether
- * caused by EXPIRATION, refund CANCELLATION, TRANSFER off a user, or sync.
- *
- * Fields reflect the entitlement's state BEFORE deactivation so consumers
- * can log/attribute/notify with the product that the user just lost.
- */
 export type EntitlementDeactivatedArgs = {
   appUserId: string;
   entitlementId: string;
@@ -46,8 +28,6 @@ export type EntitlementDeactivatedArgs = {
   sourceEventType: string;
 };
 
-// Hooks cross the boundary as opaque `FunctionHandle` strings, symbol-keyed
-// markers on `FunctionReference` are stripped through mutation args.
 export type EntitlementActivatedHook = FunctionHandle<
   "mutation" | "action",
   EntitlementActivatedArgs,
@@ -71,8 +51,6 @@ function isEffectivelyActive(ent: EntitlementDoc, now: number): boolean {
   return ent.expiresAtMs > now;
 }
 
-/** Every appUserId the payload could affect: `app_user_id`,
- * `original_app_user_id`, `transferred_from/to`, plus `aliases`. */
 export function affectedUserIds(payload: Record<string, unknown>): string[] {
   const ids = new Set<string>();
   const add = (v: unknown) => {
@@ -91,8 +69,8 @@ export function affectedUserIds(payload: Record<string, unknown>): string[] {
   return [...ids];
 }
 
-/** Active entitlements per user, keyed by entitlementId. Diff before/after
- * drives hook scheduling. */
+const SNAPSHOT_ENTITLEMENT_CAP = 500;
+
 export async function snapshotEntitlements(
   ctx: MutationCtx,
   appUserIds: string[],
@@ -103,7 +81,7 @@ export async function snapshotEntitlements(
       ctx.db
         .query("entitlements")
         .withIndex("by_app_user", (q) => q.eq("appUserId", userId))
-        .collect(),
+        .take(SNAPSHOT_ENTITLEMENT_CAP),
     ),
   );
   const result = new Map<string, Map<string, EntitlementDoc>>();
@@ -119,8 +97,6 @@ export async function snapshotEntitlements(
   return result;
 }
 
-/** Schedule hooks for each before→after transition. Atomic with the
- * enclosing mutation. */
 export async function fireTransitionHooks(
   ctx: MutationCtx,
   hooks: LifecycleHooks | undefined,
@@ -175,7 +151,6 @@ export async function fireTransitionHooks(
   }
 }
 
-/** Hook arg shape on `webhooks.process` / `sync.ingest`. */
 export type HooksArg = {
   onEntitlementActivated?: string;
   onEntitlementDeactivated?: string;

@@ -12,14 +12,10 @@ import {
 
 type MutationCtx = GenericMutationCtx<DataModel>;
 
-// Per-user cap for transfer/alias collect-all reads. Stays well under
-// Convex's ~8K per-transaction write budget. Fail loud above this.
 const TRANSFER_SAFETY_CAP = 500;
 
-// Clamp future-stamped events at `now + 5min` to defeat poisoned timestamps.
 const EVENT_TIMESTAMP_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
-// Lag tolerance for the `countryCode` monotonic check. Matches RC delivery latency.
 const COUNTRY_CODE_LAG_TOLERANCE_MS = 30 * 1000;
 
 function assertUnderCap(
@@ -35,8 +31,6 @@ function assertUnderCap(
   }
 }
 
-// `$RCAnonymousID:` prefix is dead-after-merge per iOS/Android SDK
-// `DeviceCache.clearCaches`. Mirror that on TRANSFER / SUBSCRIBER_ALIAS.
 function isAnonymousAppUserId(id: string): boolean {
   return id.startsWith("$RCAnonymousID:");
 }
@@ -68,8 +62,6 @@ async function purgeAnonymousCustomerIfEmpty(
     .take(TRANSFER_SAFETY_CAP + 1);
   assertUnderCap(exps, "purgeAnonymousCustomerIfEmpty", userId);
 
-  // Include transferParticipants so the join table doesn't keep dead rows
-  // pointing at a deleted customer.
   const participants = await ctx.db
     .query("transferParticipants")
     .withIndex("by_app_user", (q) => q.eq("appUserId", userId))
@@ -97,8 +89,6 @@ async function purgeAnonymousCustomerIfEmpty(
   }
 }
 
-// Lifetime > finite. Among finites, later wins. Used by transfer/alias to
-// pick the surviving side when both users hold the same entitlementId.
 function isSourceMoreGenerous(
   sourceExpiresAtMs: number | undefined,
   destExpiresAtMs: number | undefined,
@@ -107,8 +97,6 @@ function isSourceMoreGenerous(
   return destExpiresAtMs !== undefined && sourceExpiresAtMs > destExpiresAtMs;
 }
 
-// iOS `EntitlementInfo.willRenew` / Android `getWillRenew`. Mirrored by
-// `willRenew` in `src/client/index.ts`. Keep both in sync.
 export function deriveWillRenew(sub: {
   periodType?: string;
   store?: string;
@@ -124,7 +112,6 @@ export function deriveWillRenew(sub: {
   return true;
 }
 
-// Type source only. Runtime uses `v.any()` so future RC fields don't drop.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const eventPayloadValidator = v.object({
   type: v.string(),
@@ -135,7 +122,6 @@ const eventPayloadValidator = v.object({
   aliases: v.optional(v.array(v.string())),
   event_timestamp_ms: v.number(),
   product_id: v.optional(v.string()),
-  // Deprecated: use entitlement_ids instead
   entitlement_id: v.optional(v.union(v.string(), v.null())),
   entitlement_ids: v.optional(v.array(v.string())),
   period_type: v.optional(periodTypeValidator),
@@ -152,7 +138,6 @@ const eventPayloadValidator = v.object({
   currency: v.optional(v.string()),
   country_code: v.optional(v.string()),
   tax_percentage: v.optional(v.number()),
-  takehome_percentage: v.optional(v.number()),
   commission_percentage: v.optional(v.number()),
   offer_code: v.optional(v.string()),
   presented_offering_id: v.optional(v.string()),
@@ -169,7 +154,6 @@ const eventPayloadValidator = v.object({
   experiment_variant: v.optional(v.string()),
   offering_id: v.optional(v.string()),
   enrolled_at_ms: v.optional(v.number()),
-  // Legacy alternative to enrolled_at_ms.
   experiment_enrolled_at_ms: v.optional(v.number()),
   adjustments: v.optional(
     v.array(
@@ -185,7 +169,6 @@ const eventPayloadValidator = v.object({
   ),
   virtual_currency_transaction_id: v.optional(v.string()),
   source: v.optional(v.string()),
-  // PURCHASE_REDEEMED (Web Billing code redemption).
   redeemed_from: v.optional(v.array(v.string())),
   redeemed_by: v.optional(v.array(v.string())),
   redemption_outcome: v.optional(v.string()),
@@ -208,7 +191,6 @@ const eventPayloadValidator = v.object({
 
 type EventPayload = Infer<typeof eventPayloadValidator>;
 
-// Normalize the legacy singular `entitlement_id` to the array form.
 function getEntitlementIds(event: EventPayload): string[] | undefined {
   if (event.entitlement_ids?.length) return event.entitlement_ids;
   if (
@@ -241,7 +223,6 @@ async function upsertCustomer(
   const originalAppUserId =
     event.original_app_user_id ?? existing?.originalAppUserId ?? appUserId;
 
-  // Keys arrive `__dollar__`-encoded. Decode on read via `decodeSubscriberAttributes`.
   const mergedAttributes = existing?.attributes ?? {};
   if (event.subscriber_attributes) {
     for (const [key, attr] of Object.entries(event.subscriber_attributes)) {
@@ -291,18 +272,6 @@ async function upsertCustomer(
   }
 }
 
-// Three-state contract for every key:
-//   key absent           → fall back to the event field, then `existing.field`
-//   key present, value T → write T verbatim (clears any prior value)
-//   key present, value undefined → explicitly CLEAR the field on the row,
-//     bypassing the `?? existing.field` fallback that protects against
-//     partial-event clobbering. `processRenewal` uses this to drop stale
-//     period markers (`billingIssueDetectedAt`, `gracePeriodExpirationAtMs`,
-//     etc.) without re-reading the existing row.
-//
-// The detection uses `"key" in overrides`, NOT a truthy check. Pass `{}` to
-// honor all event/existing fallbacks. Pass `{ field: undefined }` to
-// force-clear a field even when it's absent from the event.
 type SubscriptionOverrides = Partial<{
   cancelReason: string | undefined;
   expirationReason: string | undefined;
@@ -360,7 +329,6 @@ async function upsertSubscription(
     )
     .first();
 
-  // Fallback: match sync-created records by (appUserId, productId).
   if (!existing) {
     existing = await ctx.db
       .query("subscriptions")
@@ -370,8 +338,6 @@ async function upsertSubscription(
       .first();
   }
 
-  // Merge before deriving `autoRenewStatus` so `processRenewal`'s clears
-  // (billingIssueDetectedAt: undefined) reach the willRenew computation.
   const effectiveBillingIssue =
     overrides && "billingIssueDetectedAt" in overrides
       ? overrides.billingIssueDetectedAt
@@ -381,11 +347,6 @@ async function upsertSubscription(
       ? overrides.unsubscribeDetectedAt
       : existing?.unsubscribeDetectedAt;
 
-  // `patch({ field: undefined })` REMOVES the field, every event-sourced
-  // field below falls back to existing so partial events don't erase data.
-  // `getEntitlementIds` handles the empty-array case and the legacy singular
-  // `entitlement_id` form. A bare `event.entitlement_ids ?? ...` would let an
-  // empty array pass through since `[]` isn't nullish.
   const entitlementIds = getEntitlementIds(event) ?? existing?.entitlementIds;
   const ownershipType = event.ownership_type ?? existing?.ownershipType;
   const isFamilyShareDerived =
@@ -406,16 +367,12 @@ async function upsertSubscription(
     originalTransactionId,
     transactionId:
       event.transaction_id ?? existing?.transactionId ?? originalTransactionId,
-    // Derive from ownership_type when is_family_share is absent. Only fall
-    // back to existing when neither is set on the event.
     isFamilyShare:
       event.is_family_share !== undefined || event.ownership_type !== undefined
         ? isFamilyShareDerived
         : (existing?.isFamilyShare ?? false),
     ownershipType,
     isTrialConversion: event.is_trial_conversion ?? existing?.isTrialConversion,
-    // RC `price` is already USD-normalized ("The USD price of the transaction");
-    // `priceInPurchasedCurrency` holds the charged-currency amount.
     priceUsd: event.price ?? existing?.priceUsd,
     currency: event.currency ?? existing?.currency,
     priceInPurchasedCurrency:
@@ -434,8 +391,6 @@ async function upsertSubscription(
     updatedAt: now,
   };
 
-  // Re-derive after overrides land. Explicit `false` wins. Explicit `true`
-  // is AND-ed with the derived signal so PREPAID/PROMOTIONAL can't force it.
   const derivedWillRenew = deriveWillRenew({
     periodType,
     store,
@@ -515,8 +470,6 @@ async function revokeEntitlements(
 ): Promise<void> {
   const now = Date.now();
 
-  // Fast path: specific IDs → compound-index lookup per ID. Avoids a full
-  // `.collect()` scan that would hit the read budget on heavy users.
   if (entitlementIds?.length) {
     for (const entitlementId of entitlementIds) {
       const ent = await ctx.db
@@ -536,11 +489,11 @@ async function revokeEntitlements(
     return;
   }
 
-  // Defensive scan when entitlement_ids isn't provided, unreachable in practice.
   const entitlements = await ctx.db
     .query("entitlements")
     .withIndex("by_app_user", (q) => q.eq("appUserId", appUserId))
-    .collect();
+    .take(TRANSFER_SAFETY_CAP + 1);
+  assertUnderCap(entitlements, "revokeEntitlements", appUserId);
   for (const ent of entitlements) {
     if (ent.isActive) {
       await ctx.db.patch(ent._id, {
@@ -574,8 +527,6 @@ async function extendEntitlements(
     if (existing) {
       await ctx.db.patch(existing._id, {
         isActive: true,
-        // Fall back to existing when fields are absent, partial events
-        // mustn't erase access duration, productId, or ownership.
         expiresAtMs: event.expiration_at_ms ?? existing.expiresAtMs,
         productId: event.product_id ?? existing.productId,
         ownershipType: event.ownership_type ?? existing.ownershipType,
@@ -583,8 +534,6 @@ async function extendEntitlements(
         updatedAt: now,
       });
     } else {
-      // Entitlement missing (e.g. race condition, prior transfer), create it
-      // so the user isn't locked out after a successful renewal.
       await ctx.db.insert("entitlements", {
         appUserId: event.app_user_id,
         entitlementId,
@@ -629,17 +578,13 @@ async function transferEntitlements(
         )
         .first();
 
-      // Copy every transferrable field, drops here drift family-share /
-      // grace / unsubscribe state.
       if (destExisting) {
-        // Keep whichever side covers more time so an out-of-order TRANSFER
-        // can't regress fresh RENEWAL state on dest.
         const sourceIsNewer = isSourceMoreGenerous(
           ent.expiresAtMs,
           destExisting.expiresAtMs,
         );
         await ctx.db.patch(destExisting._id, {
-          isActive: true,
+          isActive: sourceIsNewer ? ent.isActive : destExisting.isActive,
           productId: sourceIsNewer ? ent.productId : destExisting.productId,
           expiresAtMs: sourceIsNewer
             ? ent.expiresAtMs
@@ -663,7 +608,7 @@ async function transferEntitlements(
           appUserId: toUserId,
           entitlementId: ent.entitlementId,
           productId: ent.productId,
-          isActive: true,
+          isActive: ent.isActive,
           expiresAtMs: ent.expiresAtMs,
           purchasedAtMs: ent.purchasedAtMs,
           store: ent.store,
@@ -748,8 +693,6 @@ export const processRenewal = internalMutation({
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
-      // Clear every stale period-specific marker. Explicit overrides beat
-      // the `?? existing` fallback `upsertSubscription` uses elsewhere.
       cancelReason: undefined,
       autoRenewStatus: true,
       billingIssueDetectedAt: undefined,
@@ -770,14 +713,10 @@ export const processCancellation = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
-    // Detect refunds via cancel_reason OR negative price, neither alone
-    // is sufficient. Free trials have price 0. Gate on the union.
     const isRefund =
       event.cancel_reason === "CUSTOMER_SUPPORT" ||
       (typeof event.price === "number" && event.price < 0);
 
-    // RC docs: refunds may leave autorenewal active. Only force
-    // autoRenewStatus=false for genuine cancellations.
     const overrides: SubscriptionOverrides = {
       cancelReason: event.cancel_reason,
     };
@@ -785,20 +724,11 @@ export const processCancellation = internalMutation({
       overrides.autoRenewStatus = false;
     }
     if (isRefund) {
-      // Record when the refund was detected for audit/reporting.
       overrides.refundedAtMs = event.event_timestamp_ms;
     }
-    // Track UNSUBSCRIBE separately from refunds for "access until X, won't renew" UI.
     if (event.cancel_reason === "UNSUBSCRIBE") {
       overrides.unsubscribeDetectedAt = event.event_timestamp_ms;
     }
-    // BILLING_ERROR cancel = retry exhaustion. Set the billing-issue marker so
-    // willRenew goes false. Grace EXTENSION (pushing entitlement expiry to
-    // grace-end) is deliberately NOT done here: grace_period_expiration_at_ms
-    // rides only on the companion BILLING_ISSUE event RC sends alongside this
-    // one. Until it arrives the entitlement keeps its original expiry, denying
-    // grace access rather than risking a leak (see entitlements.ts: never gate
-    // on a bare billingIssueDetectedAt). EXPIRATION revokes at true grace-end.
     if (event.cancel_reason === "BILLING_ERROR") {
       overrides.billingIssueDetectedAt = event.event_timestamp_ms;
     }
@@ -821,7 +751,6 @@ export const processUncancellation = internalMutation({
     await upsertSubscription(ctx, event, {
       cancelReason: undefined,
       autoRenewStatus: true,
-      // Clear the unsubscribe marker so derived willRenew flips back true.
       unsubscribeDetectedAt: undefined,
     });
     return null;
@@ -836,14 +765,10 @@ export const processExpiration = internalMutation({
     await recordEvent(ctx, event);
     await upsertSubscription(ctx, event, {
       expirationReason: event.expiration_reason,
-      // Clear intent-to-continue markers, the sub has hard-expired.
-      // `billingIssueDetectedAt` stays for forensic lookup.
       autoResumeAtMs: undefined,
       gracePeriodExpirationAtMs: undefined,
       autoRenewStatus: false,
     });
-    // Skip when entitlement_ids is absent, blanket-revoke would strip
-    // entitlements from other active subs on the account.
     const entitlementIds = getEntitlementIds(event);
     if (event.app_user_id && entitlementIds?.length) {
       await revokeEntitlements(ctx, event.app_user_id, entitlementIds);
@@ -861,8 +786,6 @@ export const processBillingIssue = internalMutation({
     await upsertSubscription(ctx, event, {
       billingIssueDetectedAt: event.event_timestamp_ms,
       gracePeriodExpirationAtMs: event.grace_period_expiration_at_ms,
-      // willRenew is false during billing issues. Explicit override
-      // documents intent (the re-derive would set it false anyway).
       autoRenewStatus: false,
     });
 
@@ -880,7 +803,6 @@ export const processBillingIssue = internalMutation({
           )
           .first();
         if (ent) {
-          // Extend finite expiries to grace-end. Lifetime entitlements untouched.
           const extendedExpiry =
             graceEnd !== undefined &&
             ent.expiresAtMs !== undefined &&
@@ -931,9 +853,6 @@ export const processProductChange = internalMutation({
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
     await upsertSubscription(ctx, event);
-    // Propagate new productId/expiry so queries don't return stale data
-    // between PRODUCT_CHANGE and the next RENEWAL. `extendEntitlements`
-    // no-ops when entitlement_ids or app_user_id are missing.
     await extendEntitlements(ctx, event);
     return null;
   },
@@ -973,8 +892,6 @@ async function aliasEntitlements(
       .first();
 
     if (existing) {
-      // Both IDs are the same person, keep whichever record is strictly more
-      // generous. Lifetime beats any finite. Among finites, later wins.
       const sourceIsNewer = isSourceMoreGenerous(
         ent.expiresAtMs,
         existing.expiresAtMs,
@@ -987,8 +904,6 @@ async function aliasEntitlements(
           purchasedAtMs: ent.purchasedAtMs,
           store: ent.store,
           isSandbox: ent.isSandbox,
-          // Preserve status flags from source if set. Leave destination's
-          // value alone if only the destination has one.
           ...(ent.billingIssueDetectedAt !== undefined
             ? { billingIssueDetectedAt: ent.billingIssueDetectedAt }
             : {}),
@@ -1019,8 +934,6 @@ async function transferSubscriptions(
   assertUnderCap(subscriptions, "transferSubscriptions", fromUserId);
 
   for (const sub of subscriptions) {
-    // Dedup on `originalTransactionId` so retried TRANSFERs or concurrent
-    // ingests don't violate the single-sub-per-transaction invariant.
     const destExisting = await ctx.db
       .query("subscriptions")
       .withIndex("by_original_transaction", (q) =>
@@ -1070,8 +983,6 @@ async function aliasExperiments(
       .first();
 
     if (existing) {
-      // Same user, different aliases. Keep whichever enrollment is newer so
-      // A/B conversion attribution stays correct across login.
       if (exp.enrolledAtMs > existing.enrolledAtMs) {
         await ctx.db.patch(existing._id, {
           variant: exp.variant,
@@ -1087,6 +998,43 @@ async function aliasExperiments(
   }
 }
 
+async function recordTransfer(
+  ctx: MutationCtx,
+  eventId: string,
+  from: string[],
+  to: string[],
+  entitlementIds: string[] | undefined,
+  timestampMs: number,
+): Promise<void> {
+  if (from.length === 0 && to.length === 0) return;
+  const existing = await ctx.db
+    .query("transfers")
+    .withIndex("by_event_id", (q) => q.eq("eventId", eventId))
+    .first();
+  if (existing) return;
+  const transferId = await ctx.db.insert("transfers", {
+    eventId,
+    transferredFrom: from,
+    transferredTo: to,
+    entitlementIds,
+    timestamp: timestampMs,
+  });
+  for (const userId of from) {
+    await ctx.db.insert("transferParticipants", {
+      transferId,
+      appUserId: userId,
+      role: "from",
+    });
+  }
+  for (const userId of to) {
+    await ctx.db.insert("transferParticipants", {
+      transferId,
+      appUserId: userId,
+      role: "to",
+    });
+  }
+}
+
 export const processTransfer = internalMutation({
   args: { event: v.any() },
   returns: v.null(),
@@ -1097,8 +1045,6 @@ export const processTransfer = internalMutation({
     const sourceUsers = event.transferred_from ?? [];
     const destUsers = event.transferred_to ?? [];
 
-    // Strip event.aliases per-user, it describes the transferring subscriber,
-    // not the source users.
     for (const userId of [...sourceUsers, ...destUsers]) {
       await upsertCustomer(ctx, {
         ...event,
@@ -1107,7 +1053,6 @@ export const processTransfer = internalMutation({
       });
     }
 
-    // Transfer entitlements and subscriptions
     for (const sourceUserId of sourceUsers) {
       for (const destUserId of destUsers) {
         await transferEntitlements(
@@ -1120,40 +1065,15 @@ export const processTransfer = internalMutation({
       }
     }
 
-    // Insert before the anonymous-purge, the purge cleans up participants
-    // for anonymous sources. Dedup by event.id for direct re-invocation.
-    if (sourceUsers.length > 0 || destUsers.length > 0) {
-      const existing = await ctx.db
-        .query("transfers")
-        .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
-        .first();
-      if (!existing) {
-        const transferId = await ctx.db.insert("transfers", {
-          eventId: event.id,
-          transferredFrom: sourceUsers,
-          transferredTo: destUsers,
-          entitlementIds,
-          timestamp: event.event_timestamp_ms,
-        });
-        for (const userId of sourceUsers) {
-          await ctx.db.insert("transferParticipants", {
-            transferId,
-            appUserId: userId,
-            role: "from",
-          });
-        }
-        for (const userId of destUsers) {
-          await ctx.db.insert("transferParticipants", {
-            transferId,
-            appUserId: userId,
-            role: "to",
-          });
-        }
-      }
-    }
+    await recordTransfer(
+      ctx,
+      event.id,
+      sourceUsers,
+      destUsers,
+      entitlementIds,
+      event.event_timestamp_ms,
+    );
 
-    // Mirror iOS/Android `DeviceCache.clearCaches`: anonymous IDs are dead
-    // after merge. No-ops on partial-data transfers.
     for (const sourceUserId of sourceUsers) {
       await purgeAnonymousCustomerIfEmpty(ctx, sourceUserId);
     }
@@ -1196,10 +1116,6 @@ export const processRefundReversed = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
-    // Reversal supersedes the refund: clear refund markers, re-enable
-    // auto-renew. The `true` is AND-ed with the derived signal in
-    // upsertSubscription, so a prior unsubscribe or billing issue still wins;
-    // only an explicit `false` could force renewal off.
     await upsertSubscription(ctx, event, {
       refundedAtMs: undefined,
       cancelReason: undefined,
@@ -1216,9 +1132,6 @@ export const processPurchaseRedeemed = internalMutation({
   handler: async (ctx, args) => {
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
-    // PURCHASE_REDEEMED (Web Billing code redemption) carries NO top-level
-    // app_user_id: the redeemer is in `redeemed_by`, the original purchaser in
-    // `redeemed_from`. Ensure the redeemer customers exist.
     const redeemers = event.redeemed_by ?? [];
     for (const redeemerId of redeemers) {
       await upsertCustomer(ctx, {
@@ -1227,14 +1140,7 @@ export const processPurchaseRedeemed = internalMutation({
         aliases: undefined,
       });
     }
-    // `transfer`: a companion TRANSFER moves the purchase to the redeemer with
-    // the real product/expiry, so let that handler own the movement.
     if (event.redemption_outcome === "transfer") return null;
-    // `alias`: the redeemer now resolves to the same RC customer as the original
-    // purchaser, so merge the original's entitlements/subscriptions onto the
-    // redeemer (the original purchase carries the correct expiry). The event has
-    // no expiration_at_ms, so a blanket grant here would mint lifetime access.
-    // `redeemer_owns` and unknown outcomes need no movement.
     if (event.redemption_outcome === "alias") {
       for (const fromUserId of event.redeemed_from ?? []) {
         for (const toUserId of redeemers) {
@@ -1245,6 +1151,14 @@ export const processPurchaseRedeemed = internalMutation({
           await purgeAnonymousCustomerIfEmpty(ctx, fromUserId);
         }
       }
+      await recordTransfer(
+        ctx,
+        event.id,
+        event.redeemed_from ?? [],
+        redeemers,
+        getEntitlementIds(event),
+        event.event_timestamp_ms,
+      );
     }
     return null;
   },
@@ -1265,7 +1179,6 @@ export const processInvoiceIssuance = internalMutation({
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
 
-    // RC INVOICE_ISSUANCE has no separate `invoice_id` field. Use `event.id`.
     if (event.id && event.app_user_id && event.environment) {
       const existing = await ctx.db
         .query("invoices")
@@ -1279,8 +1192,6 @@ export const processInvoiceIssuance = internalMutation({
           productId: event.product_id,
           store: event.store,
           environment: event.environment,
-          // RC `price` is already USD-normalized; `priceInPurchasedCurrency`
-          // carries the charged-currency amount.
           priceUsd: event.price,
           currency: event.currency,
           priceInPurchasedCurrency: event.price_in_purchased_currency,
@@ -1304,8 +1215,6 @@ export const processVirtualCurrencyTransaction = internalMutation({
     const event = args.event as EventPayload;
     await recordEvent(ctx, event);
 
-    // VC events carry `purchase_environment` in real RC payloads. The top-level
-    // `environment` field is not always present. Accept either.
     const environment = event.environment ?? event.purchase_environment;
     if (!event.adjustments?.length || !event.app_user_id || !environment) {
       return null;
@@ -1314,8 +1223,6 @@ export const processVirtualCurrencyTransaction = internalMutation({
     const transactionId = event.virtual_currency_transaction_id ?? event.id;
     const now = Date.now();
 
-    // Parallel reads, sequential writes, avoid OCC conflict on duplicate
-    // currencyCodes within one event.
     const lookups = await Promise.all(
       event.adjustments.map(async (adjustment) => {
         const currencyCode = adjustment.currency.code;
@@ -1345,12 +1252,6 @@ export const processVirtualCurrencyTransaction = internalMutation({
       const currencyName = adjustment.currency.name;
       const amount = adjustment.amount;
 
-      // Dedup by (transactionId, currencyCode): one event can carry many
-      // adjustments under one transactionId. Apply the delta only when the
-      // transaction is new, so a replay (same tx id under a different event id,
-      // or a direct re-invoke) can't double-count it. Clamp at 0 to mirror RC,
-      // whose ledger caps balances at 0 and never goes negative. The mirror is
-      // advisory; RC is the source of truth.
       if (existingTx) continue;
       await ctx.db.insert("virtualCurrencyTransactions", {
         transactionId,
@@ -1421,10 +1322,7 @@ export const processSubscriberAlias = internalMutation({
     if (fromUserId && toUserId && fromUserId !== toUserId) {
       await aliasEntitlements(ctx, fromUserId, toUserId);
       await transferSubscriptions(ctx, fromUserId, toUserId);
-      // Preserve A/B test enrollment across login. Without this, conversion
-      // attribution resets when an anonymous user logs in.
       await aliasExperiments(ctx, fromUserId, toUserId);
-      // Match iOS/Android SDK behavior: anonymous IDs are dead after merge.
       await purgeAnonymousCustomerIfEmpty(ctx, fromUserId);
     }
 

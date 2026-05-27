@@ -11,7 +11,6 @@ describe("PURCHASE_REDEEMED", () => {
     const redeemer = "user_redeemer";
     const future = Date.now() + MONTH_MS;
 
-    // Seed the original Web Billing purchase under the anonymous purchaser.
     await t.mutation(api.webhooks.process, {
       event: {
         id: "evt_redeem_seed",
@@ -36,8 +35,6 @@ describe("PURCHASE_REDEEMED", () => {
       },
     });
 
-    // Redeem: the redeemer is aliased to the anonymous purchaser. No top-level
-    // app_user_id; redeemer in redeemed_by, original in redeemed_from.
     await t.mutation(api.webhooks.process, {
       event: {
         id: "evt_redeem_alias",
@@ -56,8 +53,6 @@ describe("PURCHASE_REDEEMED", () => {
       },
     });
 
-    // Access moved to the redeemer carrying the original expiry, and the
-    // anonymous source no longer holds it. (No lifetime grant was minted.)
     expect(
       await t.query(api.entitlements.check, {
         appUserId: redeemer,
@@ -94,14 +89,71 @@ describe("PURCHASE_REDEEMED", () => {
       },
     });
 
-    // PURCHASE_REDEEMED alone grants nothing on a transfer outcome; the
-    // companion TRANSFER (not sent here) carries the real movement.
     expect(
       await t.query(api.entitlements.check, {
         appUserId: redeemer,
         entitlementId: "premium",
       }),
     ).toBe(false);
+  });
+
+  test("alias redemption audit row is purged with the redeemer (no orphaned PII)", async () => {
+    const t = initConvexTest();
+    const anon = "$RCAnonymousID:redeem_purge_anon";
+    const redeemer = "user_redeem_purge";
+    const future = Date.now() + MONTH_MS;
+
+    await t.mutation(api.webhooks.process, {
+      event: {
+        id: "evt_rp_seed",
+        type: "INITIAL_PURCHASE",
+        app_user_id: anon,
+        environment: "PRODUCTION" as const,
+        store: "RC_BILLING" as const,
+      },
+      payload: {
+        id: "evt_rp_seed",
+        type: "INITIAL_PURCHASE",
+        app_user_id: anon,
+        event_timestamp_ms: Date.now(),
+        product_id: "premium_monthly",
+        entitlement_ids: ["premium"],
+        period_type: "NORMAL",
+        store: "RC_BILLING",
+        environment: "PRODUCTION",
+        original_transaction_id: "txn_rp",
+        transaction_id: "txn_rp",
+        expiration_at_ms: future,
+      },
+    });
+
+    await t.mutation(api.webhooks.process, {
+      event: {
+        id: "evt_rp_alias",
+        type: "PURCHASE_REDEEMED",
+        environment: "PRODUCTION" as const,
+      },
+      payload: {
+        id: "evt_rp_alias",
+        type: "PURCHASE_REDEEMED",
+        event_timestamp_ms: Date.now(),
+        environment: "PRODUCTION",
+        redeemed_from: [anon],
+        redeemed_by: [redeemer],
+        redemption_outcome: "alias",
+        entitlement_ids: ["premium"],
+      },
+    });
+
+    await t.mutation(api.customers.purge, { appUserId: redeemer });
+
+    const orphan = await t.run(async (ctx) =>
+      ctx.db
+        .query("webhookEvents")
+        .withIndex("by_event_id", (q) => q.eq("eventId", "evt_rp_alias"))
+        .first(),
+    );
+    expect(orphan).toBeNull();
   });
 });
 
@@ -120,7 +172,6 @@ describe("virtual currency", () => {
       ],
     };
 
-    // Same tx id, two distinct event ids (RC at-least-once delivery edge).
     for (const eventId of ["evt_vc_replay_a", "evt_vc_replay_b"]) {
       await t.mutation(api.webhooks.process, {
         event: {
@@ -173,7 +224,7 @@ describe("virtual currency", () => {
       appUserId: userId,
       currencyCode: "COINS",
     });
-    expect(balance?.balance).toBe(0); // not -30
+    expect(balance?.balance).toBe(0);
   });
 });
 
@@ -194,7 +245,7 @@ describe("invoice price fields", () => {
         app_user_id: "user_inv_eur",
         environment: "PRODUCTION",
         event_timestamp_ms: Date.now(),
-        price: 10.5, // RC `price` is the USD price of the transaction
+        price: 10.5,
         currency: "EUR",
         price_in_purchased_currency: 9.99,
       },
@@ -254,7 +305,7 @@ describe("grace period sub/entitlement consistency", () => {
     const t = initConvexTest();
     const userId = "user_grace_consistency";
     const now = Date.now();
-    const past = now - 60_000; // original period just ended
+    const past = now - 60_000;
     const graceEnd = now + 7 * 24 * 60 * 60 * 1000;
     const base = {
       app_id: "app_123",
@@ -291,9 +342,6 @@ describe("grace period sub/entitlement consistency", () => {
       },
     });
 
-    // The entitlement gate (expiry pushed to grace-end at write time) and the
-    // subscription grace-fold (Math.max(expiry, graceEnd) live) must agree:
-    // both active through grace even though the original period has ended.
     expect(
       await t.query(api.entitlements.check, {
         appUserId: userId,

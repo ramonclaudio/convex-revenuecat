@@ -2,6 +2,55 @@
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-27
+
+A correctness and hardening release from a full line-by-line audit. Two real
+bugs fixed (a transfer could re-grant refunded access, a redemption could leave
+PII after a GDPR purge), the purge no longer caps at 500 rows, and dead surface
+trimmed.
+
+### Fixed
+
+- `TRANSFER` no longer reactivates a refunded or expired entitlement on the
+  destination. A revoked lifetime entitlement riding a transfer came out active
+  with no expiry, re-granting paid access for free. `transferEntitlements` now
+  carries the source's active state, matching `aliasEntitlements`.
+- `deleteCustomer` now erases the `PURCHASE_REDEEMED` "alias" audit row. The
+  redemption row lands with no `app_user_id`, so it was orphaned from the purge
+  and the redeemer's PII survived until the 30-day retention cron. The alias
+  outcome now records a transfer-participant join the purge correlates.
+- The webhook body-size cap measures the actual request bytes, so a chunked or
+  `Content-Length`-less body can't slip past it into an unbounded read.
+
+### Changed
+
+- `deleteCustomer` purges in bounded batches across transactions instead of
+  throwing past 500 rows in a table, so a user with a large ledger (e.g. heavy
+  virtual-currency history) is now fully erased. Call it from an action.
+- `RevenueCatSubscriber` widened to match what `syncSubscriber` reads: adds
+  `price` and `management_url` and relaxes fields RC REST omits. The old type
+  rejected valid payloads.
+- Bounded the defensive `revokeEntitlements` fallback and the
+  `snapshotEntitlements` hook read so a pathological account can't blow the read
+  budget.
+- Slimmed the README and split the reference docs into `docs/`.
+
+### Removed
+
+- Dead public component queries (`webhookEvents.getByEventId`/`listByType`/
+  `listFailed`, `subscriptions.getByOriginalTransaction`,
+  `customers.getByOriginalId`, `experiments.listByExperiment`), their three
+  now-orphaned indexes (`by_status`, `by_original_app_user_id`,
+  `by_experiment`), and the unused `WebhookEvent`/`WebhookEventStatus` types.
+  All were unwrapped and undocumented. `webhookEvents.listByUser` stays.
+- The dead `takehome_percentage` validator field.
+
+### Added
+
+- Regression tests for both fixes and the batched purge, plus hardening tests
+  (cross-user IDOR, PII redaction, `willRenew` drift, safety caps).
+- `publish.yml` runs the full `validate`, and PR CI runs on Node 20 and 24.
+
 ## [0.3.1] - 2026-05-27
 
 `0.3.0` shipped `webhooks.recordFailure` as an `internalMutation`, which Convex

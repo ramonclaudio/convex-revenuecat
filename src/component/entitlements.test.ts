@@ -3,11 +3,6 @@ import { api, internal } from "./_generated/api.js";
 import type { Id } from "./_generated/dataModel.js";
 import { initConvexTest } from "./setup.test.js";
 
-// Fixture: insert-or-patch an entitlement directly. Lives here because the
-// public `entitlements.grant` / `entitlements.revoke` mutations were removed
-// in 0.3.0 (dead production code, reachable by consumers, bypassed the
-// webhook-driven flow). Tests should never rely on a callable shortcut that
-// production never uses.
 async function grantEnt(
   t: ReturnType<typeof initConvexTest>,
   args: {
@@ -201,8 +196,6 @@ describe("entitlements", () => {
     const t = initConvexTest();
     const graceEnd = Date.now() + 7 * 24 * 60 * 60 * 1000;
 
-    // BILLING_ISSUE handler extends expiresAtMs to the grace period end, so
-    // downstream queries treat it like any other active entitlement.
     const entId = await grantEnt(t, {
       appUserId: "user_billing_active",
       entitlementId: "premium",
@@ -228,11 +221,6 @@ describe("entitlements", () => {
   test("billingIssueDetectedAt alone does NOT keep access past expiresAtMs", async () => {
     const t = initConvexTest();
 
-    // Simulate a state where billingIssueDetectedAt is set but expiresAtMs
-    // has passed without extension. This is what leaks access if we rely on
-    // the flag alone (e.g. EXPIRATION dropped, grace already elapsed).
-    // Correct behavior: no access. BILLING_ISSUE handler is responsible for
-    // extending expiresAtMs to the grace period end during processing.
     const entId = await grantEnt(t, {
       appUserId: "user_billing",
       entitlementId: "premium",

@@ -98,7 +98,6 @@ describe("transfers", () => {
     test("TRANSFER event moves subscriptions to destination user", async () => {
       const t = initConvexTest();
 
-      // Create subscription for source user
       await t.mutation(internal.handlers.processInitialPurchase, {
         event: {
           type: "INITIAL_PURCHASE",
@@ -121,13 +120,11 @@ describe("transfers", () => {
         },
       });
 
-      // Verify source user has subscription
       const sourceSubs = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_source_sub",
       });
       expect(sourceSubs).toHaveLength(1);
 
-      // Process TRANSFER event
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_transfer_sub",
@@ -145,14 +142,12 @@ describe("transfers", () => {
         },
       });
 
-      // Verify subscription moved to destination user
       const destSubs = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_dest_sub",
       });
       expect(destSubs).toHaveLength(1);
       expect(destSubs[0].productId).toBe("premium_monthly");
 
-      // Verify source user no longer has subscription
       const sourceSubsAfter = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_source_sub",
       });

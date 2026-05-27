@@ -83,34 +83,6 @@ describe("customers", () => {
     expect(customer?.aliases).toHaveLength(3);
   });
 
-  test("getByOriginalId finds customer", async () => {
-    const t = initConvexTest();
-
-    await t.mutation(internal.handlers.processInitialPurchase, {
-      event: makeEventPayload({
-        app_user_id: "user_789",
-        original_app_user_id: "original_789",
-      }),
-    });
-
-    const customer = await t.query(api.customers.getByOriginalId, {
-      originalAppUserId: "original_789",
-    });
-
-    expect(customer).not.toBeNull();
-    expect(customer?.appUserId).toBe("user_789");
-  });
-
-  test("getByOriginalId returns null when not found", async () => {
-    const t = initConvexTest();
-
-    const customer = await t.query(api.customers.getByOriginalId, {
-      originalAppUserId: "nonexistent",
-    });
-
-    expect(customer).toBeNull();
-  });
-
   test("firstSeenAt preserved on subsequent events", async () => {
     const t = initConvexTest();
 
@@ -143,7 +115,6 @@ describe("customers", () => {
       const t = initConvexTest();
       const userId = "user_to_purge";
 
-      // Seed every table the purge mutation targets.
       await t.mutation(internal.handlers.processInitialPurchase, {
         event: makeEventPayload({
           app_user_id: userId,
@@ -193,7 +164,7 @@ describe("customers", () => {
       expect(result.invoices).toBe(1);
       expect(result.virtualCurrencyBalances).toBe(1);
       expect(result.virtualCurrencyTransactions).toBe(1);
-      expect(result.webhookEvents).toBe(0); // appUserId not set on the webhook event row for this handler path
+      expect(result.webhookEvents).toBe(0);
 
       expect(
         await t.query(api.customers.get, { appUserId: userId }),
@@ -252,7 +223,52 @@ describe("customers", () => {
         virtualCurrencyTransactions: 0,
         webhookEvents: 0,
         transfers: 0,
+        done: true,
       });
+    });
+
+    test("drains a table larger than the batch across passes", async () => {
+      const t = initConvexTest();
+      const userId = "user_heavy_vc";
+      await t.run(async (ctx) => {
+        for (let i = 0; i < 12; i++) {
+          await ctx.db.insert("virtualCurrencyTransactions", {
+            transactionId: `vct_${i}`,
+            appUserId: userId,
+            currencyCode: "GLD",
+            amount: 1,
+            environment: "PRODUCTION",
+            timestamp: Date.now(),
+          });
+        }
+        await ctx.db.insert("customers", {
+          appUserId: userId,
+          originalAppUserId: userId,
+          aliases: [],
+          firstSeenAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      });
+
+      let drained = 0;
+      let passes = 0;
+      let done = false;
+      while (!done) {
+        const result = await t.mutation(api.customers.purge, {
+          appUserId: userId,
+          batchSize: 5,
+        });
+        drained += result.virtualCurrencyTransactions;
+        done = result.done;
+        passes++;
+        if (passes > 20) throw new Error("purge did not converge");
+      }
+
+      expect(passes).toBeGreaterThan(1);
+      expect(drained).toBe(12);
+      expect(
+        await t.query(api.customers.get, { appUserId: userId }),
+      ).toBeNull();
     });
   });
 
