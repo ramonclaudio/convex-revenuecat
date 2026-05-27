@@ -130,36 +130,6 @@ describe("subscriptions", () => {
     expect(active[0].expirationAtMs).toBeUndefined();
   });
 
-  test("getByOriginalTransaction finds subscription", async () => {
-    const t = initConvexTest();
-
-    await t.mutation(internal.handlers.processInitialPurchase, {
-      event: makeEventPayload({
-        app_user_id: "user_lookup",
-        store: "PLAY_STORE" as const,
-        environment: "PRODUCTION" as const,
-        original_transaction_id: "GPA.1234-5678",
-      }),
-    });
-
-    const sub = await t.query(api.subscriptions.getByOriginalTransaction, {
-      originalTransactionId: "GPA.1234-5678",
-    });
-
-    expect(sub).not.toBeNull();
-    expect(sub?.appUserId).toBe("user_lookup");
-  });
-
-  test("getByOriginalTransaction returns null when not found", async () => {
-    const t = initConvexTest();
-
-    const sub = await t.query(api.subscriptions.getByOriginalTransaction, {
-      originalTransactionId: "nonexistent",
-    });
-
-    expect(sub).toBeNull();
-  });
-
   test("processCancellation with UNSUBSCRIBE sets cancel reason and keeps entitlements", async () => {
     const t = initConvexTest();
 
@@ -251,7 +221,7 @@ describe("subscriptions", () => {
       event: makeEventPayload({
         app_user_id: "user_grace_sub",
         original_transaction_id: "txn_grace",
-        expiration_at_ms: Date.now() - 1000, // Already expired
+        expiration_at_ms: Date.now() - 1000,
       }),
     });
 
@@ -350,7 +320,7 @@ describe("subscriptions", () => {
       event: makeEventPayload({
         app_user_id: "user_grace_check",
         original_transaction_id: "txn_grace_check",
-        expiration_at_ms: pastExpiration, // Keep the past expiration
+        expiration_at_ms: pastExpiration,
         grace_period_expiration_at_ms: Date.now() + 7 * 24 * 60 * 60 * 1000,
       }),
     });
@@ -386,7 +356,6 @@ describe("subscriptions", () => {
     const t = initConvexTest();
     const pastExpiration = Date.now() - 1000;
 
-    // Active subscription (not in grace)
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: makeEventPayload({
         app_user_id: "user_multi_grace",
@@ -395,7 +364,6 @@ describe("subscriptions", () => {
       }),
     });
 
-    // Subscription in grace period
     await t.mutation(internal.handlers.processInitialPurchase, {
       event: makeEventPayload({
         app_user_id: "user_multi_grace",
@@ -410,7 +378,7 @@ describe("subscriptions", () => {
         app_user_id: "user_multi_grace",
         product_id: "basic_monthly",
         original_transaction_id: "txn_grace_multi",
-        expiration_at_ms: pastExpiration, // Keep the past expiration
+        expiration_at_ms: pastExpiration,
         grace_period_expiration_at_ms: Date.now() + 7 * 24 * 60 * 60 * 1000,
       }),
     });

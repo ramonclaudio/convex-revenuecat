@@ -35,18 +35,3 @@ export const get = query({
       .first();
   },
 });
-
-export const listByExperiment = query({
-  args: {
-    experimentId: v.string(),
-  },
-  returns: v.array(experimentDoc),
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("experiments")
-      .withIndex("by_experiment", (q) =>
-        q.eq("experimentId", args.experimentId),
-      )
-      .collect();
-  },
-});
