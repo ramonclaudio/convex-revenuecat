@@ -46,19 +46,19 @@ export type {
   VirtualCurrencyTransaction,
 } from "../component/types.js";
 
-/** Shape of the `subscriber` object from RevenueCat's GET /v1/subscribers/{id}. */
 export type RevenueCatSubscriber = {
   entitlements?: Record<
     string,
     {
-      expires_date: string | null;
+      product_identifier?: string;
+      expires_date?: string | null;
       grace_period_expires_date?: string | null;
-      product_identifier: string;
-      purchase_date: string;
+      purchase_date?: string;
     }
   >;
-  first_seen: string;
+  first_seen?: string;
   last_seen?: string;
+  management_url?: string | null;
   original_app_user_id?: string;
   subscriber_attributes?: Record<
     string,
@@ -67,28 +67,32 @@ export type RevenueCatSubscriber = {
   subscriptions?: Record<
     string,
     {
-      auto_resume_date?: string | null;
-      billing_issues_detected_at?: string | null;
-      expires_date: string | null;
-      grace_period_expires_date?: string | null;
-      is_sandbox: boolean;
-      original_purchase_date: string;
-      period_type: string;
-      purchase_date: string;
-      refunded_at?: string | null;
       store: string;
+      is_sandbox: boolean;
+      period_type: string;
+      expires_date?: string | null;
+      purchase_date?: string;
+      original_purchase_date?: string;
       store_transaction_id?: string;
-      unsubscribe_detected_at?: string | null;
       ownership_type?: string;
+      billing_issues_detected_at?: string | null;
+      grace_period_expires_date?: string | null;
+      auto_resume_date?: string | null;
+      unsubscribe_detected_at?: string | null;
+      refunded_at?: string | null;
+      price?: { amount: number | string; currency: string } | null;
     }
   >;
   non_subscriptions?: Record<
     string,
     Array<{
       id: string;
-      is_sandbox: boolean;
-      purchase_date: string;
-      store: string;
+      is_sandbox?: boolean;
+      purchase_date?: string;
+      original_purchase_date?: string;
+      store?: string;
+      store_transaction_id?: string;
+      price?: { amount: number | string; currency: string };
     }>
   >;
 };
@@ -111,10 +115,6 @@ export type DeleteCustomerResult = {
   transfers: number;
 };
 
-/** Re-derive iOS `EntitlementInfo.willRenew` / Android equivalent from a
- * `Subscription` doc. Returns false for lifetime, prepaid, promotional,
- * unsubscribed, or billing-issue subs. Mirrors `deriveWillRenew` in
- * `src/component/handlers.ts`. Keep both in sync. */
 export function willRenew(
   sub: Pick<
     Subscription,
@@ -133,9 +133,6 @@ export function willRenew(
   return true;
 }
 
-/** Decode `__dollar__email`-encoded subscriber attribute keys back to RC's
- * native `$email` form. Convex rejects `$` keys at every nesting level, so
- * the component stores the encoded form and decodes on read. */
 export function decodeSubscriberAttributes<T>(
   attrs: Record<string, T> | undefined,
 ): Record<string, T> | undefined {
@@ -148,11 +145,6 @@ export function decodeSubscriberAttributes<T>(
   return result;
 }
 
-// Cross-checked against iOS `ReservedSubscriberAttributes.swift` and Android
-// `SpecialSubscriberAttributes.kt`. Campaign-attribution keys (`$mediaSource`,
-// `$campaign`, etc.) are intentionally excluded as acquisition metadata, not
-// identity. Override with a custom `redactPayload` if your jurisdiction
-// classifies them as PII.
 const DEFAULT_PII_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set([
   "$email",
   "$phoneNumber",
@@ -205,8 +197,6 @@ export type EntitlementActivatedHookArgs = {
   store?: Store;
   ownershipType?: OwnershipType;
   isSandbox: boolean;
-  // RC webhook `event.type` (e.g., "INITIAL_PURCHASE", "RENEWAL") or "SYNC"
-  // when the transition was detected by `syncSubscriber`.
   sourceEventType: string;
 };
 
@@ -248,42 +238,17 @@ export type CustomerDeletedHook = FunctionReference<
 >;
 
 export type LifecycleHooks = {
-  /**
-   * Fires when an entitlement transitions from not-active to active for a
-   * user. Triggered by webhook (INITIAL_PURCHASE, RENEWAL, REFUND_REVERSED,
-   * TRANSFER onto a user, SUBSCRIBER_ALIAS) and by `syncSubscriber`.
-   */
   onEntitlementActivated?: EntitlementActivatedHook;
-  /**
-   * Fires when an entitlement transitions from active to not-active.
-   * Triggered by EXPIRATION, refund CANCELLATION, TRANSFER off a user, and
-   * sync reconciliation that detects a previously-unseen revocation.
-   */
   onEntitlementDeactivated?: EntitlementDeactivatedHook;
-  /**
-   * Fires after `deleteCustomer` purges component-local rows for a user.
-   */
   onCustomerDeleted?: CustomerDeletedHook;
 };
 
 export interface RevenueCatOptions {
-  /** Shared secret. Required by `httpHandler()`. Optional for query-only use. */
   REVENUECAT_WEBHOOK_AUTH?: string;
-  /**
-   * Lifecycle hooks invoked when entitlement state transitions or a customer
-   * is deleted. Every hook is optional. Hooks are scheduled from inside the
-   * component mutation that made the change, so scheduling is atomic with
-   * the state write. A rolled-back mutation never fires its hooks.
-   */
   hooks?: LifecycleHooks;
-  /** Custom redactor run before persisting events to `webhookEvents`. Default
-   * strips RC-reserved PII keys. Pass `"off"` to disable (not recommended). */
   redactPayload?:
     | ((payload: Record<string, unknown>) => Record<string, unknown>)
     | "off";
-  /** Resolver for `appUserId` used by `revenuecat.api()` queries. Defaults
-   * to `ctx.auth.getUserIdentity().subject`. Override when your auth
-   * identity and RC app-user-id are different strings. */
   getAppUserId?: (ctx: AuthCtx) => Promise<string> | string;
 }
 
@@ -297,7 +262,6 @@ function defaultRedactPayload(
   const redacted: Record<string, unknown> = { ...payload };
   const filteredAttrs: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(attrs)) {
-    // Keys are `__dollar__`-encoded at this layer. Decode for the lookup.
     const decoded = key.startsWith("__dollar__") ? `$${key.slice(10)}` : key;
     if (DEFAULT_PII_ATTRIBUTE_KEYS.has(decoded)) continue;
     filteredAttrs[key] = value;
@@ -306,10 +270,6 @@ function defaultRedactPayload(
   return redacted;
 }
 
-// Length-mismatch returns early. The leak is a single boolean (lengths match
-// or not), bounded above by header parsing limits. The 32-char floor is
-// independent: it ensures the secret has enough entropy, not that attackers
-// can't probe length. Body runs in constant time once lengths match.
 function secureCompare(a: string, b: string): boolean {
   if (a.length !== b.length) {
     return false;
@@ -329,10 +289,9 @@ function extractAuthToken(header: string): string {
   return header;
 }
 
-// NIST SP 800-63B 128-bit secure-token floor. Matches Stripe's `whsec_` minimum.
 const MIN_AUTH_SECRET_LENGTH = 32;
-// 1MB leaves headroom for future RC fields without inviting storage DoS.
 const MAX_WEBHOOK_BODY_BYTES = 1_048_576;
+const PURGE_MAX_PASSES = 10_000;
 
 function validateAuthSecret(value: string): void {
   const stripped = extractAuthToken(value).trim();
@@ -369,8 +328,6 @@ const KNOWN_STORES: ReadonlySet<string> = new Set([
   "UNKNOWN_STORE",
 ]);
 
-// `unknown` (Android wire value) → UNKNOWN_STORE. Case-normalize. Future
-// values fall back rather than failing the outer validator.
 function normalizeStore(store: unknown): string | undefined {
   if (typeof store !== "string") return undefined;
   const upper = store.toUpperCase();
@@ -378,9 +335,6 @@ function normalizeStore(store: unknown): string | undefined {
   return KNOWN_STORES.has(candidate) ? candidate : "UNKNOWN_STORE";
 }
 
-// Resolve hooks to opaque `FunctionHandle` strings before sending them as
-// mutation args. `FunctionReference` objects lose their symbol-keyed markers
-// crossing the boundary, so the strings are the only stable form.
 async function buildHooksArg(hooks: LifecycleHooks | undefined): Promise<
   | {
       onEntitlementActivated?: string;
@@ -409,8 +363,6 @@ async function buildHooksArg(hooks: LifecycleHooks | undefined): Promise<
   return result;
 }
 
-// Strip null keys (Convex's v.optional expects absence) and `__dollar__`-encode
-// `$` keys (Convex rejects them at every nesting level).
 function transformPayload(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
   if (typeof obj !== "object") return obj;
@@ -430,8 +382,6 @@ export class RevenueCat {
     public component: ComponentApi,
     public options: RevenueCatOptions = {},
   ) {
-    // `undefined` is allowed here for query-only consumers. `httpHandler()`
-    // enforces presence at mount time.
     if (options.REVENUECAT_WEBHOOK_AUTH !== undefined) {
       validateAuthSecret(options.REVENUECAT_WEBHOOK_AUTH);
     }
@@ -472,10 +422,6 @@ export class RevenueCat {
     ) as Promise<Subscription[]>;
   }
 
-  /** Every `NON_RENEWING_PURCHASE` row for the user, regardless of when it
-   * happened. Consumables don't expire by time. Your app tracks consumption.
-   * `getActiveSubscriptions` filters these out so callers don't conflate
-   * one-shots with recurring subs. */
   async getConsumables(
     ctx: QueryCtx,
     args: { appUserId: string },
@@ -506,13 +452,6 @@ export class RevenueCat {
     ) as Promise<Customer | null>;
   }
 
-  /** Purge all component-local data for a user. Returns per-table counts.
-   * Does NOT call RC's REST API. Wrap a Convex action around
-   * `DELETE /v1/subscribers/{id}` if you need that too.
-   *
-   * Destructive and unauthenticated: it purges whatever `appUserId` you pass.
-   * Never expose it in a public mutation that takes `appUserId` from the
-   * client. Gate it behind your own auth/role check (e.g. an internal action). */
   async deleteCustomer(
     ctx: MutCtx,
     args: { appUserId: string },
@@ -520,10 +459,30 @@ export class RevenueCat {
     const onCustomerDeleted = this.options.hooks?.onCustomerDeleted
       ? await createFunctionHandle(this.options.hooks.onCustomerDeleted)
       : undefined;
-    return ctx.runMutation(this.component.customers.purge, {
-      appUserId: args.appUserId,
-      onCustomerDeleted,
-    }) as Promise<DeleteCustomerResult>;
+    const total: DeleteCustomerResult = {
+      customer: 0,
+      subscriptions: 0,
+      entitlements: 0,
+      experiments: 0,
+      invoices: 0,
+      virtualCurrencyBalances: 0,
+      virtualCurrencyTransactions: 0,
+      webhookEvents: 0,
+      transfers: 0,
+    };
+    for (let pass = 0; pass < PURGE_MAX_PASSES; pass++) {
+      const { done, ...counts } = (await ctx.runMutation(
+        this.component.customers.purge,
+        { appUserId: args.appUserId, onCustomerDeleted },
+      )) as DeleteCustomerResult & { done: boolean };
+      for (const key of Object.keys(total) as (keyof DeleteCustomerResult)[]) {
+        total[key] += counts[key];
+      }
+      if (done) return total;
+    }
+    throw new Error(
+      "[convex-revenuecat] deleteCustomer exceeded max purge passes",
+    );
   }
 
   async getExperiment(
@@ -633,7 +592,6 @@ export class RevenueCat {
     ) as Promise<Subscription[]>;
   }
 
-  /** Idempotent reconcile from `GET /v1/subscribers/{app_user_id}`. */
   async syncSubscriber(
     ctx: MutCtx,
     args: { appUserId: string; subscriber: RevenueCatSubscriber },
@@ -646,7 +604,6 @@ export class RevenueCat {
     }) as Promise<SyncResult>;
   }
 
-  /** The user's active entitlement matching `entitlementId`, or null. */
   async getEntitlement(
     ctx: QueryCtx,
     args: { appUserId: string; entitlementId: string },
@@ -660,7 +617,6 @@ export class RevenueCat {
     );
   }
 
-  /** True when the user has any active entitlement. */
   async hasAnyEntitlement(
     ctx: QueryCtx,
     args: { appUserId: string },
@@ -672,7 +628,6 @@ export class RevenueCat {
     return entitlements.length > 0;
   }
 
-  /** True when the user has any active subscription. */
   async isSubscriber(
     ctx: QueryCtx,
     args: { appUserId: string },
@@ -683,9 +638,6 @@ export class RevenueCat {
     return subs.length > 0;
   }
 
-  /** True when any active subscription is in a TRIAL (free) or INTRO (paid
-   * introductory) period. For free-trial-only semantics, check
-   * `periodType === "TRIAL"` directly. */
   async isInTrial(
     ctx: QueryCtx,
     args: { appUserId: string },
@@ -698,7 +650,6 @@ export class RevenueCat {
     );
   }
 
-  /** True when the user has ever been in a TRIAL or INTRO period. */
   async wasInTrialEver(
     ctx: QueryCtx,
     args: { appUserId: string },
@@ -714,7 +665,6 @@ export class RevenueCat {
     );
   }
 
-  /** Returns expiry only when the matching sub will auto-renew. */
   async getRenewsAtMs(
     ctx: QueryCtx,
     args: { appUserId: string; entitlementId: string },
@@ -733,7 +683,6 @@ export class RevenueCat {
     return entitlement.expiresAtMs;
   }
 
-  /** `expirationAtMs` for the active entitlement, ignoring renewal state. */
   async getExpiresAtMs(
     ctx: QueryCtx,
     args: { appUserId: string; entitlementId: string },
@@ -742,7 +691,6 @@ export class RevenueCat {
     return entitlement?.expiresAtMs ?? null;
   }
 
-  /** Most-recently-purchased subscription (active or not). */
   async getLatestSubscription(
     ctx: QueryCtx,
     args: { appUserId: string },
@@ -770,14 +718,6 @@ export class RevenueCat {
     return identity.subject;
   }
 
-  /** Identity-aware query handlers covering every user-scoped query the
-   * client exposes. Spread directly into your Convex file:
-   * `export const { isSubscriber, getActiveSubscriptions, ... } = revenuecat.api();`.
-   * Each handler resolves `appUserId` via `getAppUserId` (default:
-   * `ctx.auth.getUserIdentity().subject`), closing the IDOR class at the
-   * SDK layer. Cross-user lookups (`isInGracePeriod` by transaction id,
-   * `getTransfer` by event id) are intentionally omitted, they belong in
-   * a role-gated `internalQuery`. See README. */
   api() {
     return {
       getActiveEntitlements: queryGeneric({
@@ -975,12 +915,6 @@ export class RevenueCat {
         : (this.options.redactPayload ?? defaultRedactPayload);
 
     return httpActionGeneric(async (ctx, request) => {
-      // Validate the secret at request time, not at handler-build time. A
-      // throw during module evaluation fails Convex push analysis, which
-      // blocks component codegen: the consumer's `components.revenuecat`
-      // never leaves the `AnyComponents` stub and their app stops
-      // typechecking. Reading env at request time is the supported pattern.
-      // An unset secret rejects every webhook, so it still can't be bypassed.
       if (!expectedAuth) {
         console.error(
           "[convex-revenuecat] REVENUECAT_WEBHOOK_AUTH is not set; rejecting webhook. " +
@@ -1010,7 +944,6 @@ export class RevenueCat {
         });
       }
 
-      // Cap before parsing. RC's documented payloads are <100KB.
       const contentLength = request.headers.get("Content-Length");
       if (contentLength && Number(contentLength) > MAX_WEBHOOK_BODY_BYTES) {
         return new Response(JSON.stringify({ error: "Payload too large" }), {
@@ -1021,7 +954,14 @@ export class RevenueCat {
 
       let body: unknown;
       try {
-        body = await request.json();
+        const raw = await request.arrayBuffer();
+        if (raw.byteLength > MAX_WEBHOOK_BODY_BYTES) {
+          return new Response(JSON.stringify({ error: "Payload too large" }), {
+            status: 413,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        body = JSON.parse(new TextDecoder().decode(raw));
       } catch {
         return new Response(JSON.stringify({ error: "Invalid JSON" }), {
           status: 400,
@@ -1049,8 +989,6 @@ export class RevenueCat {
         );
       }
 
-      // Validate the union. The mutation-side cast is type-only, so a
-      // misspelled environment would otherwise land tagged PRODUCTION.
       const inboundEnv = event.environment;
       if (
         inboundEnv !== undefined &&
@@ -1063,8 +1001,6 @@ export class RevenueCat {
         });
       }
 
-      // Reject malformed IDs and types here so an attacker can't flood
-      // `recordFailure` with whitespace-only values that pass `v.string()`.
       if (event.id.trim().length === 0 || event.id.length > 128) {
         return new Response(JSON.stringify({ error: "Invalid event id" }), {
           status: 400,
@@ -1086,8 +1022,6 @@ export class RevenueCat {
           ? (transformed as Record<string, unknown>)
           : (event as Record<string, unknown>);
       if (redactPayload) {
-        // Don't let a buggy consumer redactor 500 the request. RC drops the
-        // event after 5 retries. Fall back to unredacted on throw or non-object.
         try {
           const result = redactPayload(sanitizedEvent);
           if (result && typeof result === "object" && !Array.isArray(result)) {
@@ -1159,9 +1093,6 @@ export class RevenueCat {
             );
           }
           if (convexError.data?.code === "INVALID_ARGUMENT") {
-            // Record in a fresh transaction so the audit row survives the
-            // rollback. Swallow recordFailure errors, losing the audit row
-            // beats RC retrying a permanent 400.
             const failureMessage =
               convexError.data?.message ??
               convexError.message ??
@@ -1181,8 +1112,6 @@ export class RevenueCat {
                 error: failureMessage,
               });
             } catch (recordErr) {
-              // Audit-row drop is operationally significant, surface as
-              // error so observability tools page on it.
               console.error(
                 "[convex-revenuecat] recordFailure threw; audit row skipped",
                 recordErr,
@@ -1202,7 +1131,6 @@ export class RevenueCat {
     });
   }
 
-  /** Mount the webhook handler at `path` (default `/webhooks/revenuecat`). */
   registerRoutes(http: HttpRouter, opts: { path?: string } = {}): void {
     http.route({
       path: opts.path ?? "/webhooks/revenuecat",
