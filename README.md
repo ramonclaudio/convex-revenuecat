@@ -18,6 +18,10 @@ This is not a replacement for the
 [RevenueCat SDK](https://www.revenuecat.com/docs/getting-started/installation).
 Use their SDK client-side for purchases. This handles the server-side state.
 
+There's a runnable demo in [`example/`](example/): real Test Store purchases
+through the RevenueCat Web SDK plus a simulator for every webhook, rendered live
+with `npm run example`.
+
 ## Install
 
 ```bash
@@ -308,7 +312,7 @@ RC-native `$`-prefixed names (`$email`, `$phoneNumber`, etc.). See
 
 ## Webhook Events
 
-RevenueCat emits 17 canonical event types. The component handles all of them
+RevenueCat emits 18 canonical event types. The component handles all of them
 plus two legacy events (`REFUND`, `SUBSCRIBER_ALIAS`) that older projects still
 receive:
 
@@ -331,6 +335,7 @@ receive:
 | `INVOICE_ISSUANCE`             | Invoice created (Web Billing)                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `VIRTUAL_CURRENCY_TRANSACTION` | Currency adjustment                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `EXPERIMENT_ENROLLMENT`        | A/B test enrollment tracked                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `PURCHASE_REDEEMED`            | Web Billing code redemption. Grants entitlements to `redeemed_by`; an `alias` outcome merges the original purchaser onto the redeemer, a `transfer` outcome defers to the companion `TRANSFER`                                                                                                                                                                                                                                                               |
 | `REFUND` _(legacy)_            | Revokes entitlements. As of 2026 RC emits refunds as `CANCELLATION` with `cancel_reason: "CUSTOMER_SUPPORT"`. Handler retained for legacy projects                                                                                                                                                                                                                                                                                                           |
 | `SUBSCRIBER_ALIAS` _(legacy)_  | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. Drops the anonymous source customer row after merge. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291). New projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
 
