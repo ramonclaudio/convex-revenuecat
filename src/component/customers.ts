@@ -97,7 +97,9 @@ export const purge = mutation({
       experiments: await purgeTable("experiments"),
       invoices: await purgeTable("invoices"),
       virtualCurrencyBalances: await purgeTable("virtualCurrencyBalances"),
-      virtualCurrencyTransactions: await purgeTable("virtualCurrencyTransactions"),
+      virtualCurrencyTransactions: await purgeTable(
+        "virtualCurrencyTransactions",
+      ),
       webhookEvents: await purgeTable("webhookEvents"),
       transfers: 0,
     };
@@ -198,7 +200,8 @@ export const purge = mutation({
     if (args.onCustomerDeleted) {
       await ctx.scheduler.runAfter(
         0,
-        args.onCustomerDeleted as FunctionHandle<"mutation" | "action",
+        args.onCustomerDeleted as FunctionHandle<
+          "mutation" | "action",
           { appUserId: string },
           unknown
         >,

@@ -44,7 +44,9 @@ export const listByExperiment = query({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("experiments")
-      .withIndex("by_experiment", (q) => q.eq("experimentId", args.experimentId))
+      .withIndex("by_experiment", (q) =>
+        q.eq("experimentId", args.experimentId),
+      )
       .collect();
   },
 });

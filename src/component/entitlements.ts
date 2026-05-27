@@ -45,7 +45,9 @@ export const check = query({
     const entitlement = await ctx.db
       .query("entitlements")
       .withIndex("by_app_user_entitlement", (q) =>
-        q.eq("appUserId", args.appUserId).eq("entitlementId", args.entitlementId),
+        q
+          .eq("appUserId", args.appUserId)
+          .eq("entitlementId", args.entitlementId),
       )
       .first();
 
@@ -85,4 +87,3 @@ export const getActive = query({
     );
   },
 });
-

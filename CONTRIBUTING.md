@@ -27,17 +27,23 @@
 ## Accepted
 
 - Bug fixes with a regression test that fails before the fix and passes after.
-- New webhook handlers or behaviour changes backed by a link to the official RevenueCat docs page.
+- New webhook handlers or behaviour changes backed by a link to the official
+  RevenueCat docs page.
 - Additions to the client SDK with tests, types, and README updates.
-- Dependency updates that close a CVE or unblock a feature. Include `npm audit --audit-level=high` output in the PR.
+- Dependency updates that close a CVE or unblock a feature. Include
+  `npm audit --audit-level=high` output in the PR.
 - Documentation fixes verified against the code.
 
 ## Rejected
 
 - PRs without tests for a behaviour change or new public method.
-- Speculative handling of undocumented RC wire values (no docs citation, no captured payload, no SDK source).
+- Speculative handling of undocumented RC wire values (no docs citation, no
+  captured payload, no SDK source).
 - Emojis in source, docs, comments, commits, `CHANGELOG.md`, or PR bodies.
-- Breaking API changes without a MINOR version bump. Pre-1.0: MINOR (`0.x`) for breaking changes (removed or renamed exports, changed method signatures, schema changes, semantic changes that produce less correct values). PATCH (`0.0.y`) for bug fixes and additive helpers.
+- Breaking API changes without a MINOR version bump. Pre-1.0: MINOR (`0.x`) for
+  breaking changes (removed or renamed exports, changed method signatures,
+  schema changes, semantic changes that produce less correct values). PATCH
+  (`0.0.y`) for bug fixes and additive helpers.
 - `console.log` or commented-out code in the diff.
 - TODOs without a linked GitHub issue.
 - Commit messages that don't follow the convention below.
@@ -75,7 +81,8 @@ example/
 └── convex/              # Consumer-style integration target with its own test suite
 ```
 
-Tests sit next to the module under test (`handlers.test.ts` next to `handlers.ts`).
+Tests sit next to the module under test (`handlers.test.ts` next to
+`handlers.ts`).
 
 ## Development setup
 
@@ -99,7 +106,8 @@ Tests sit next to the module under test (`handlers.test.ts` next to `handlers.ts
    npm install
    ```
 
-   The repo commits `package-lock.json` and CI runs `npm ci`. Use npm locally so your install matches CI exactly.
+   The repo commits `package-lock.json` and CI runs `npm ci`. Use npm locally so
+   your install matches CI exactly.
 
 5. Confirm baseline passes:
 
@@ -121,24 +129,50 @@ npm install
 npx convex dev
 ```
 
-Sample payloads for every RC event type live in `src/component/handlers.test.ts` and `src/component/audit-fixes.test.ts`. Copy one into a `curl` call against the local HTTP endpoint to exercise manually.
+Sample payloads for every RC event type live in `src/component/handlers.test.ts`
+and `src/component/audit-fixes.test.ts`. Copy one into a `curl` call against the
+local HTTP endpoint to exercise manually.
 
 ## Code style
 
-- TypeScript `strict: true`. No implicit `any`. No `@ts-ignore` without a linked issue.
+- TypeScript `strict: true`. No implicit `any`. No `@ts-ignore` without a linked
+  issue.
 - Every Convex function has `args` and `returns` validators.
-- Webhook handler `args` use `v.any()`, not `v.object`. Cast to `EventPayload` inside the handler. RC adds fields without versioning.
-- Query return validators use `schema.tables.X.validator.extend({ _id: v.id("X"), _creationTime: v.number() })`. No re-declared field lists.
-- `hasEntitlement` and `getActive` stay pure expiry: `isActive && (expiresAtMs === undefined || expiresAtMs > now)`. No short-circuits on `billingIssueDetectedAt` or any auxiliary flag. Grace is folded into `expiresAtMs` by `processBillingIssue` and `syncSubscriber`.
-- `upsertSubscription` and `grantEntitlements` patches use `?? existing.field` for every field that comes from event. `patch({ field: undefined })` removes the field. Partial events (UNCANCELLATION, BILLING_ISSUE) would otherwise erase data.
-- Period-specific markers that should clear on RENEWAL (`newProductId`, `expirationReason`, etc.) live in the explicit `overrides` interface so callers can pass `undefined` past the `?? existing` fallback.
-- Single-user webhook handlers begin with `await recordEvent(ctx, event)`. Do not call `upsertCustomer` or `upsertExperiments` directly. Two handlers skip `recordEvent` for structural reasons: `processTransfer` calls `upsertCustomer` per participant in `transferred_from` and `transferred_to`, and `processTest` is a no-op.
-- `processTransfer` writes the `transfers` row plus per-user `transferParticipants` rows BEFORE calling `purgeAnonymousCustomerIfEmpty`. The purge cleans up an anonymous source's participant rows. Reversing the order would orphan them.
-- New entitlement state transitions flow through `snapshotEntitlements` + `fireTransitionHooks` in `webhooks.ts`. Do not schedule hooks from inside a handler.
+- Webhook handler `args` use `v.any()`, not `v.object`. Cast to `EventPayload`
+  inside the handler. RC adds fields without versioning.
+- Query return validators use
+  `schema.tables.X.validator.extend({ _id: v.id("X"), _creationTime: v.number() })`.
+  No re-declared field lists.
+- `hasEntitlement` and `getActive` stay pure expiry:
+  `isActive && (expiresAtMs === undefined || expiresAtMs > now)`. No
+  short-circuits on `billingIssueDetectedAt` or any auxiliary flag. Grace is
+  folded into `expiresAtMs` by `processBillingIssue` and `syncSubscriber`.
+- `upsertSubscription` and `grantEntitlements` patches use `?? existing.field`
+  for every field that comes from event. `patch({ field: undefined })` removes
+  the field. Partial events (UNCANCELLATION, BILLING_ISSUE) would otherwise
+  erase data.
+- Period-specific markers that should clear on RENEWAL (`newProductId`,
+  `expirationReason`, etc.) live in the explicit `overrides` interface so
+  callers can pass `undefined` past the `?? existing` fallback.
+- Single-user webhook handlers begin with `await recordEvent(ctx, event)`. Do
+  not call `upsertCustomer` or `upsertExperiments` directly. Two handlers skip
+  `recordEvent` for structural reasons: `processTransfer` calls `upsertCustomer`
+  per participant in `transferred_from` and `transferred_to`, and `processTest`
+  is a no-op.
+- `processTransfer` writes the `transfers` row plus per-user
+  `transferParticipants` rows BEFORE calling `purgeAnonymousCustomerIfEmpty`.
+  The purge cleans up an anonymous source's participant rows. Reversing the
+  order would orphan them.
+- New entitlement state transitions flow through `snapshotEntitlements` +
+  `fireTransitionHooks` in `webhooks.ts`. Do not schedule hooks from inside a
+  handler.
 - Internal writes use `internalMutation`. Public mutations require review.
-- HTTP boundary checks (auth, body size, environment, event.id shape) come BEFORE the inner mutation runs so `recordFailure` can't be flooded by malformed inputs.
+- HTTP boundary checks (auth, body size, environment, event.id shape) come
+  BEFORE the inner mutation runs so `recordFailure` can't be flooded by
+  malformed inputs.
 - Small functions. One concern per function. Early returns.
-- Default to zero comments. Comment only when the WHY is non-obvious. Never narrate what identifiers already say.
+- Default to zero comments. Comment only when the WHY is non-obvious. Never
+  narrate what identifiers already say.
 - Delete unused code. No dead exports, dead branches, or commented blocks.
 - No emojis in any file you touch.
 
@@ -152,18 +186,22 @@ npm run lint              # ESLint
 npm run validate          # all three (CI runs this)
 ```
 
-Behaviour changes and new features land with tests. Refactors don't add tests but don't remove coverage.
+Behaviour changes and new features land with tests. Refactors don't add tests
+but don't remove coverage.
 
 ### Unit tests
 
-Colocated next to the module (`handlers.ts` tested by `handlers.test.ts`). Use `convex-test` with `setup.test.ts` as the harness.
+Colocated next to the module (`handlers.ts` tested by `handlers.test.ts`). Use
+`convex-test` with `setup.test.ts` as the harness.
 
 Cover for every change:
 
 1. Happy path: the call produces the expected state mutation.
 2. Idempotency: running it twice yields the same result.
-3. Edge cases: missing optional fields, unknown enum values (fall back, do not throw), empty arrays, `null` vs absent keys.
-4. Error handling: invalid auth, missing required fields, payload size overflows.
+3. Edge cases: missing optional fields, unknown enum values (fall back, do not
+   throw), empty arrays, `null` vs absent keys.
+4. Error handling: invalid auth, missing required fields, payload size
+   overflows.
 
 Cover for every new webhook handler:
 
@@ -174,13 +212,19 @@ Cover for every new webhook handler:
 
 ### Integration tests
 
-`example/convex/` runs the component as a consumer. Add integration tests there when the change affects the client SDK, the HTTP handler, or any public query.
+`example/convex/` runs the component as a consumer. Add integration tests there
+when the change affects the client SDK, the HTTP handler, or any public query.
 
 For webhook-processing changes:
 
-1. Call `t.mutation(api.webhooks.process, { event, payload, hooks? })` with a captured payload. This is the pattern every existing handler test uses. To also exercise the HTTP layer (auth, malformed body handling), use `t.fetch("/webhooks/revenuecat", { method: "POST", body })`.
-2. Assert state via public query methods (`hasEntitlement`, `getActiveSubscriptions`).
-3. Assert side effects: `_scheduled_functions` rows for hooks, `webhookEvents` rows for the audit log.
+1. Call `t.mutation(api.webhooks.process, { event, payload, hooks? })` with a
+   captured payload. This is the pattern every existing handler test uses. To
+   also exercise the HTTP layer (auth, malformed body handling), use
+   `t.fetch("/webhooks/revenuecat", { method: "POST", body })`.
+2. Assert state via public query methods (`hasEntitlement`,
+   `getActiveSubscriptions`).
+3. Assert side effects: `_scheduled_functions` rows for hooks, `webhookEvents`
+   rows for the audit log.
 
 For client SDK changes:
 
@@ -190,59 +234,79 @@ For client SDK changes:
 
 ### Coverage by change type
 
-| Change | Unit tests | Integration test | Docs |
-| --- | --- | --- | --- |
-| Handler bug fix | Regression fails before, passes after | Yes, if consumer-visible | `CHANGELOG.md` |
-| New webhook handler | Happy path + dedup + multi-entitlement + audit log | Fire payload via example app | README event table + `CHANGELOG.md` |
-| New client SDK method | Invocation + return type + error paths | Consumer test | README API table + usage example + `CHANGELOG.md` |
-| Schema field addition | Validator accepts new values + migration compatibility | Yes, if exposed via queries | README if public + `CHANGELOG.md` |
-| Lifecycle hook change | `_scheduled_functions` assertion + dedup + no-hook overhead | Yes | README lifecycle section + `CHANGELOG.md` |
-| Sync / REST change | Mock subscriber response + assert reconciliation | `syncSubscriber` in example | README sync section + `CHANGELOG.md` |
+| Change                | Unit tests                                                  | Integration test             | Docs                                              |
+| --------------------- | ----------------------------------------------------------- | ---------------------------- | ------------------------------------------------- |
+| Handler bug fix       | Regression fails before, passes after                       | Yes, if consumer-visible     | `CHANGELOG.md`                                    |
+| New webhook handler   | Happy path + dedup + multi-entitlement + audit log          | Fire payload via example app | README event table + `CHANGELOG.md`               |
+| New client SDK method | Invocation + return type + error paths                      | Consumer test                | README API table + usage example + `CHANGELOG.md` |
+| Schema field addition | Validator accepts new values + migration compatibility      | Yes, if exposed via queries  | README if public + `CHANGELOG.md`                 |
+| Lifecycle hook change | `_scheduled_functions` assertion + dedup + no-hook overhead | Yes                          | README lifecycle section + `CHANGELOG.md`         |
+| Sync / REST change    | Mock subscriber response + assert reconciliation            | `syncSubscriber` in example  | README sync section + `CHANGELOG.md`              |
 
 ## PR playbooks
 
 ### Webhook handler
 
-1. Link the RevenueCat docs page for the event or field. If docs don't cover it, open an issue first.
-2. Capture a real payload (from your own `webhookEvents` table, redacted, or from the sample events page). Add it as a fixture.
+1. Link the RevenueCat docs page for the event or field. If docs don't cover it,
+   open an issue first.
+2. Capture a real payload (from your own `webhookEvents` table, redacted, or
+   from the sample events page). Add it as a fixture.
 3. Test posting the payload and asserting resulting state.
-4. Test dedup: same `event.id`, different `event_timestamp_ms`, handler runs once.
-5. If the event affects entitlement state, test the correct lifecycle hook fires with documented args.
-6. If the event affects multiple entitlements, assert one handler invocation per entitlement.
+4. Test dedup: same `event.id`, different `event_timestamp_ms`, handler runs
+   once.
+5. If the event affects entitlement state, test the correct lifecycle hook fires
+   with documented args.
+6. If the event affects multiple entitlements, assert one handler invocation per
+   entitlement.
 
 ### Lifecycle hook
 
-1. New transitions require `_scheduled_functions` assertions via `ctx.db.system.query("_scheduled_functions").collect()`. See `hooks.test.ts` for the pattern.
-2. New hook args require updates to the `LifecycleHooks` type in `transitions.ts`, the `RevenueCatOptions.hooks` type in `client/index.ts`, and the README lifecycle section.
+1. New transitions require `_scheduled_functions` assertions via
+   `ctx.db.system.query("_scheduled_functions").collect()`. See `hooks.test.ts`
+   for the pattern.
+2. New hook args require updates to the `LifecycleHooks` type in
+   `transitions.ts`, the `RevenueCatOptions.hooks` type in `client/index.ts`,
+   and the README lifecycle section.
 3. Every new hook has a "no hooks configured = zero scheduled jobs" test.
 
 ### Schema
 
 1. New fields on existing tables must be `v.optional()`.
 2. New indexes require a sentence in the PR naming the query that reads them.
-3. New enum validators go in `schema.ts` as named exports and are referenced from handler args and query returns.
+3. New enum validators go in `schema.ts` as named exports and are referenced
+   from handler args and query returns.
 4. Public-facing fields require README and `CHANGELOG.md` updates.
 
 ### Client SDK
 
 1. New methods go on the `RevenueCat` class in `src/client/index.ts`.
-2. Matching `ClientComponentApi` surface uses `FunctionReference` with `AnyVisibility`.
+2. Matching `ClientComponentApi` surface uses `FunctionReference` with
+   `AnyVisibility`.
 3. Return types are concrete. No `any`, no `unknown` without justification.
-4. Test that mocks `components.revenuecat` and asserts the method calls the correct underlying mutation or query.
+4. Test that mocks `components.revenuecat` and asserts the method calls the
+   correct underlying mutation or query.
 5. README API table + usage example under `## Usage`.
 
 ### Sync / REST
 
-1. Capture a real `/v1/subscribers/{id}` response. Add as a fixture in `sync.test.ts`.
-2. New fields from the REST response propagate through `upsertSubscription` to the component's internal shape.
+1. Capture a real `/v1/subscribers/{id}` response. Add as a fixture in
+   `sync.test.ts`.
+2. New fields from the REST response propagate through `upsertSubscription` to
+   the component's internal shape.
 3. Every field that arrives via webhook also arrives via sync, and vice versa.
 
 ### Documentation
 
 1. Every code snippet runs. Verify by copy-pasting into a fresh project.
-2. Every claim cross-checks against the code. Open the referenced file and confirm.
-3. No em-dashes. No banned words (`comprehensive`, `robust`, `seamless`, `leverage`, `utilize`, `facilitate`, `enhance`, `streamline`, `Additionally`, `Furthermore`, `Moreover`, `testament`, `showcase`, `delve`, `crucial`, `pivotal`, `serves as`, `stands as`, `boasts`). No bold-prefixed bullets. No emojis.
-4. Public API changes touch README, `CHANGELOG.md`, and the example app in the same PR.
+2. Every claim cross-checks against the code. Open the referenced file and
+   confirm.
+3. No em-dashes. No banned words (`comprehensive`, `robust`, `seamless`,
+   `leverage`, `utilize`, `facilitate`, `enhance`, `streamline`, `Additionally`,
+   `Furthermore`, `Moreover`, `testament`, `showcase`, `delve`, `crucial`,
+   `pivotal`, `serves as`, `stands as`, `boasts`). No bold-prefixed bullets. No
+   emojis.
+4. Public API changes touch README, `CHANGELOG.md`, and the example app in the
+   same PR.
 
 ## Commit convention
 
@@ -252,11 +316,14 @@ Format:
 type(scope): lowercase description under 72 chars, no trailing period
 ```
 
-**Types**: `feat`, `fix`, `docs`, `refactor`, `perf`, `chore`, `test`, `ci`, `build`.
+**Types**: `feat`, `fix`, `docs`, `refactor`, `perf`, `chore`, `test`, `ci`,
+`build`.
 
-**Preferred verbs**: add, fix, extract, drop, rename, move, split, wire, swap. Avoid `implement`, `utilize`, `leverage`, `enhance`, `streamline`.
+**Preferred verbs**: add, fix, extract, drop, rename, move, split, wire, swap.
+Avoid `implement`, `utilize`, `leverage`, `enhance`, `streamline`.
 
-**Scopes**: `handlers`, `sync`, `webhooks`, `schema`, `client`, `hooks`, `docs`, `readme`, `changelog`, `example`, `test`, `deps`, `build`, `audit`.
+**Scopes**: `handlers`, `sync`, `webhooks`, `schema`, `client`, `hooks`, `docs`,
+`readme`, `changelog`, `example`, `test`, `deps`, `build`, `audit`.
 
 One logical change per commit.
 
@@ -288,8 +355,12 @@ No `Co-authored-by:` trailers. No AI attribution.
 - [ ] Tests added per the coverage table above.
 - [ ] Integration test in `example/convex/` if public surface changed.
 - [ ] `CHANGELOG.md` updated under `## [Unreleased]`.
-- [ ] `README.md` updated if public API, webhook handling, hook args, or configuration options changed.
-- [ ] Version impact considered: pre-1.0, MINOR (`0.x`) for breaking API changes, PATCH (`0.0.y`) for bug fixes and additive helpers. "Breaking" means removed or renamed exports, changed method signatures, schema changes, or semantic changes that produce less correct values than before.
+- [ ] `README.md` updated if public API, webhook handling, hook args, or
+      configuration options changed.
+- [ ] Version impact considered: pre-1.0, MINOR (`0.x`) for breaking API
+      changes, PATCH (`0.0.y`) for bug fixes and additive helpers. "Breaking"
+      means removed or renamed exports, changed method signatures, schema
+      changes, or semantic changes that produce less correct values than before.
 - [ ] No `console.log`, no commented-out code, no unused imports or exports.
 - [ ] No TODO without a linked issue (URL or `#123`).
 - [ ] No emojis in any file touched.
@@ -302,34 +373,45 @@ No `Co-authored-by:` trailers. No AI attribution.
 ```markdown
 <one-line summary starting with a verb>
 
-<one-to-three sentences: what changed, why, and any consumer-observable behaviour change>
+<one-to-three sentences: what changed, why, and any consumer-observable
+behaviour change>
 
 <optional: link to the RC docs page or SDK source>
 
 Changes:
+
 - `src/component/handlers.ts`: <what was done>
 - `src/component/handlers.test.ts`: <coverage added>
 - `README.md`: <doc updates>
 - `CHANGELOG.md`: <entry added>
 
 Test plan:
+
 - `npm run validate` passes locally
-- Regression test at `src/component/handlers.test.ts:<line>` fails on main, passes on this branch
-- Integration test at `example/convex/example.test.ts:<line>` covers the consumer path
-- Manual: posted captured payload to the dev deployment's `https://<deployment>.convex.site/webhooks/revenuecat`, verified entitlement revokes via `hasEntitlement`
+- Regression test at `src/component/handlers.test.ts:<line>` fails on main,
+  passes on this branch
+- Integration test at `example/convex/example.test.ts:<line>` covers the
+  consumer path
+- Manual: posted captured payload to the dev deployment's
+  `https://<deployment>.convex.site/webhooks/revenuecat`, verified entitlement
+  revokes via `hasEntitlement`
 
 Breaking change: <only if applicable, describe consumer impact>
 ```
 
-Test plan is required on every PR. List the exact steps that verified the change.
+Test plan is required on every PR. List the exact steps that verified the
+change.
 
 ## Security
 
-Do not open a public issue or PR for vulnerabilities. See [`SECURITY.md`](SECURITY.md) for the full policy, including scope, good-faith research norms, and disclosure timeline.
+Do not open a public issue or PR for vulnerabilities. See
+[`SECURITY.md`](SECURITY.md) for the full policy, including scope, good-faith
+research norms, and disclosure timeline.
 
 Two private channels, either works:
 
 1. [GitHub Private Vulnerability Reporting](https://github.com/ramonclaudio/convex-revenuecat/security/advisories/new).
 2. Email `security@ramonclaudio.com`.
 
-If you need to discuss a fix in code, open the PR against a private fork and loop me in on the advisory rather than pushing to a public branch.
+If you need to discuss a fix in code, open the PR against a private fork and
+loop me in on the advisory rather than pushing to a public branch.

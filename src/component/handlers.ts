@@ -22,7 +22,11 @@ const EVENT_TIMESTAMP_FUTURE_SKEW_MS = 5 * 60 * 1000;
 // Lag tolerance for the `countryCode` monotonic check. Matches RC delivery latency.
 const COUNTRY_CODE_LAG_TOLERANCE_MS = 30 * 1000;
 
-function assertUnderCap(collected: { length: number }, op: string, userId: string): void {
+function assertUnderCap(
+  collected: { length: number },
+  op: string,
+  userId: string,
+): void {
   if (collected.length > TRANSFER_SAFETY_CAP) {
     throw new ConvexError({
       code: "TRANSFER_SAFETY_CAP_EXCEEDED",
@@ -207,13 +211,19 @@ type EventPayload = Infer<typeof eventPayloadValidator>;
 // Normalize the legacy singular `entitlement_id` to the array form.
 function getEntitlementIds(event: EventPayload): string[] | undefined {
   if (event.entitlement_ids?.length) return event.entitlement_ids;
-  if (typeof event.entitlement_id === "string" && event.entitlement_id.length > 0) {
+  if (
+    typeof event.entitlement_id === "string" &&
+    event.entitlement_id.length > 0
+  ) {
     return [event.entitlement_id];
   }
   return undefined;
 }
 
-async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<void> {
+async function upsertCustomer(
+  ctx: MutationCtx,
+  event: EventPayload,
+): Promise<void> {
   if (!event.app_user_id) return;
 
   const appUserId = event.app_user_id;
@@ -236,7 +246,10 @@ async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<vo
   if (event.subscriber_attributes) {
     for (const [key, attr] of Object.entries(event.subscriber_attributes)) {
       const existingAttr = mergedAttributes[key];
-      if (!existingAttr || attr.updated_at_ms > (existingAttr.updated_at_ms ?? 0)) {
+      if (
+        !existingAttr ||
+        attr.updated_at_ms > (existingAttr.updated_at_ms ?? 0)
+      ) {
         mergedAttributes[key] = attr;
       }
     }
@@ -247,9 +260,8 @@ async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<vo
   const stampedNewer =
     !existing?.lastSeenAt ||
     eventTimestamp >= referenceLastSeen - COUNTRY_CODE_LAG_TOLERANCE_MS;
-  const countryCode = inboundCountry && stampedNewer
-    ? inboundCountry
-    : existing?.countryCode;
+  const countryCode =
+    inboundCountry && stampedNewer ? inboundCountry : existing?.countryCode;
 
   if (existing) {
     const mergedAliases = [...new Set([...existing.aliases, ...aliases])];
@@ -258,7 +270,8 @@ async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<vo
     await ctx.db.patch(existing._id, {
       originalAppUserId,
       aliases: mergedAliases,
-      attributes: Object.keys(mergedAttributes).length > 0 ? mergedAttributes : undefined,
+      attributes:
+        Object.keys(mergedAttributes).length > 0 ? mergedAttributes : undefined,
       countryCode,
       lastSeenAt,
       updatedAt: now,
@@ -268,7 +281,8 @@ async function upsertCustomer(ctx: MutationCtx, event: EventPayload): Promise<vo
       appUserId,
       originalAppUserId,
       aliases,
-      attributes: Object.keys(mergedAttributes).length > 0 ? mergedAttributes : undefined,
+      attributes:
+        Object.keys(mergedAttributes).length > 0 ? mergedAttributes : undefined,
       countryCode,
       firstSeenAt: eventTimestamp,
       lastSeenAt: eventTimestamp,
@@ -316,7 +330,14 @@ async function upsertSubscription(
     period_type: periodType,
   } = event;
 
-  if (!appUserId || !originalTransactionId || !productId || !store || !environment || !periodType) {
+  if (
+    !appUserId ||
+    !originalTransactionId ||
+    !productId ||
+    !store ||
+    !environment ||
+    !periodType
+  ) {
     const missing = [
       !appUserId && "app_user_id",
       !originalTransactionId && "original_transaction_id",
@@ -379,10 +400,12 @@ async function upsertSubscription(
     store,
     environment,
     periodType,
-    purchasedAtMs: event.purchased_at_ms ?? existing?.purchasedAtMs ?? Date.now(),
+    purchasedAtMs:
+      event.purchased_at_ms ?? existing?.purchasedAtMs ?? Date.now(),
     expirationAtMs: event.expiration_at_ms ?? existing?.expirationAtMs,
     originalTransactionId,
-    transactionId: event.transaction_id ?? existing?.transactionId ?? originalTransactionId,
+    transactionId:
+      event.transaction_id ?? existing?.transactionId ?? originalTransactionId,
     // Derive from ownership_type when is_family_share is absent. Only fall
     // back to existing when neither is set on the event.
     isFamilyShare:
@@ -399,9 +422,11 @@ async function upsertSubscription(
       event.price_in_purchased_currency ?? existing?.priceInPurchasedCurrency,
     countryCode: event.country_code ?? existing?.countryCode,
     taxPercentage: event.tax_percentage ?? existing?.taxPercentage,
-    commissionPercentage: event.commission_percentage ?? existing?.commissionPercentage,
+    commissionPercentage:
+      event.commission_percentage ?? existing?.commissionPercentage,
     offerCode: event.offer_code ?? existing?.offerCode,
-    presentedOfferingId: event.presented_offering_id ?? existing?.presentedOfferingId,
+    presentedOfferingId:
+      event.presented_offering_id ?? existing?.presentedOfferingId,
     renewalNumber: event.renewal_number ?? existing?.renewalNumber,
     newProductId: event.new_product_id ?? existing?.newProductId,
     originalPurchasedAtMs: existing?.originalPurchasedAtMs,
@@ -419,7 +444,9 @@ async function upsertSubscription(
     billingIssueDetectedAt: effectiveBillingIssue,
   });
   const explicitOverride =
-    overrides && "autoRenewStatus" in overrides ? overrides.autoRenewStatus : undefined;
+    overrides && "autoRenewStatus" in overrides
+      ? overrides.autoRenewStatus
+      : undefined;
   subscriptionData.autoRenewStatus =
     explicitOverride === false ? false : derivedWillRenew;
 
@@ -431,7 +458,10 @@ async function upsertSubscription(
   return true;
 }
 
-async function grantEntitlements(ctx: MutationCtx, event: EventPayload): Promise<void> {
+async function grantEntitlements(
+  ctx: MutationCtx,
+  event: EventPayload,
+): Promise<void> {
   const entitlementIds = getEntitlementIds(event);
   if (!entitlementIds?.length || !event.app_user_id) return;
 
@@ -442,7 +472,9 @@ async function grantEntitlements(ctx: MutationCtx, event: EventPayload): Promise
     const existing = await ctx.db
       .query("entitlements")
       .withIndex("by_app_user_entitlement", (q) =>
-        q.eq("appUserId", event.app_user_id!).eq("entitlementId", entitlementId),
+        q
+          .eq("appUserId", event.app_user_id!)
+          .eq("entitlementId", entitlementId),
       )
       .first();
 
@@ -520,7 +552,10 @@ async function revokeEntitlements(
   }
 }
 
-async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promise<void> {
+async function extendEntitlements(
+  ctx: MutationCtx,
+  event: EventPayload,
+): Promise<void> {
   const entitlementIds = getEntitlementIds(event);
   if (!entitlementIds?.length || !event.app_user_id) return;
 
@@ -530,7 +565,9 @@ async function extendEntitlements(ctx: MutationCtx, event: EventPayload): Promis
     const existing = await ctx.db
       .query("entitlements")
       .withIndex("by_app_user_entitlement", (q) =>
-        q.eq("appUserId", event.app_user_id!).eq("entitlementId", entitlementId),
+        q
+          .eq("appUserId", event.app_user_id!)
+          .eq("entitlementId", entitlementId),
       )
       .first();
 
@@ -604,8 +641,12 @@ async function transferEntitlements(
         await ctx.db.patch(destExisting._id, {
           isActive: true,
           productId: sourceIsNewer ? ent.productId : destExisting.productId,
-          expiresAtMs: sourceIsNewer ? ent.expiresAtMs : destExisting.expiresAtMs,
-          purchasedAtMs: sourceIsNewer ? ent.purchasedAtMs : destExisting.purchasedAtMs,
+          expiresAtMs: sourceIsNewer
+            ? ent.expiresAtMs
+            : destExisting.expiresAtMs,
+          purchasedAtMs: sourceIsNewer
+            ? ent.purchasedAtMs
+            : destExisting.purchasedAtMs,
           store: sourceIsNewer ? ent.store : destExisting.store,
           isSandbox: sourceIsNewer ? ent.isSandbox : destExisting.isSandbox,
           ownershipType: ent.ownershipType ?? destExisting.ownershipType,
@@ -637,12 +678,18 @@ async function transferEntitlements(
   }
 }
 
-async function recordEvent(ctx: MutationCtx, event: EventPayload): Promise<void> {
+async function recordEvent(
+  ctx: MutationCtx,
+  event: EventPayload,
+): Promise<void> {
   await upsertCustomer(ctx, event);
   await upsertExperiments(ctx, event);
 }
 
-async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise<void> {
+async function upsertExperiments(
+  ctx: MutationCtx,
+  event: EventPayload,
+): Promise<void> {
   if (!event.experiments?.length || !event.app_user_id) return;
 
   const now = Date.now();
@@ -651,7 +698,9 @@ async function upsertExperiments(ctx: MutationCtx, event: EventPayload): Promise
     const existing = await ctx.db
       .query("experiments")
       .withIndex("by_app_user_experiment", (q) =>
-        q.eq("appUserId", event.app_user_id!).eq("experimentId", exp.experiment_id),
+        q
+          .eq("appUserId", event.app_user_id!)
+          .eq("experimentId", exp.experiment_id),
       )
       .first();
 
@@ -825,7 +874,9 @@ export const processBillingIssue = internalMutation({
         const ent = await ctx.db
           .query("entitlements")
           .withIndex("by_app_user_entitlement", (q) =>
-            q.eq("appUserId", event.app_user_id!).eq("entitlementId", entitlementId),
+            q
+              .eq("appUserId", event.app_user_id!)
+              .eq("entitlementId", entitlementId),
           )
           .first();
         if (ent) {
@@ -924,7 +975,10 @@ async function aliasEntitlements(
     if (existing) {
       // Both IDs are the same person, keep whichever record is strictly more
       // generous. Lifetime beats any finite. Among finites, later wins.
-      const sourceIsNewer = isSourceMoreGenerous(ent.expiresAtMs, existing.expiresAtMs);
+      const sourceIsNewer = isSourceMoreGenerous(
+        ent.expiresAtMs,
+        existing.expiresAtMs,
+      );
       if (sourceIsNewer) {
         await ctx.db.patch(existing._id, {
           isActive: ent.isActive,
@@ -1046,13 +1100,22 @@ export const processTransfer = internalMutation({
     // Strip event.aliases per-user, it describes the transferring subscriber,
     // not the source users.
     for (const userId of [...sourceUsers, ...destUsers]) {
-      await upsertCustomer(ctx, { ...event, app_user_id: userId, aliases: undefined });
+      await upsertCustomer(ctx, {
+        ...event,
+        app_user_id: userId,
+        aliases: undefined,
+      });
     }
 
     // Transfer entitlements and subscriptions
     for (const sourceUserId of sourceUsers) {
       for (const destUserId of destUsers) {
-        await transferEntitlements(ctx, sourceUserId, destUserId, entitlementIds);
+        await transferEntitlements(
+          ctx,
+          sourceUserId,
+          destUserId,
+          entitlementIds,
+        );
         await transferSubscriptions(ctx, sourceUserId, destUserId);
       }
     }
@@ -1158,7 +1221,11 @@ export const processPurchaseRedeemed = internalMutation({
     // `redeemed_from`. Ensure the redeemer customers exist.
     const redeemers = event.redeemed_by ?? [];
     for (const redeemerId of redeemers) {
-      await upsertCustomer(ctx, { ...event, app_user_id: redeemerId, aliases: undefined });
+      await upsertCustomer(ctx, {
+        ...event,
+        app_user_id: redeemerId,
+        aliases: undefined,
+      });
     }
     // `transfer`: a companion TRANSFER moves the purchase to the redeemer with
     // the real product/expiry, so let that handler own the movement.
@@ -1263,7 +1330,9 @@ export const processVirtualCurrencyTransaction = internalMutation({
           ctx.db
             .query("virtualCurrencyBalances")
             .withIndex("by_app_user_currency", (q) =>
-              q.eq("appUserId", event.app_user_id!).eq("currencyCode", currencyCode),
+              q
+                .eq("appUserId", event.app_user_id!)
+                .eq("currencyCode", currencyCode),
             )
             .first(),
         ]);

@@ -14,12 +14,21 @@ describe("cleanup", () => {
       const recentTimestamp = now - 30000;
 
       await t.run(async (ctx) => {
-        await ctx.db.insert("rateLimits", { key: "old1", timestamp: oldTimestamp });
-        await ctx.db.insert("rateLimits", { key: "old2", timestamp: oldTimestamp - 60000 });
+        await ctx.db.insert("rateLimits", {
+          key: "old1",
+          timestamp: oldTimestamp,
+        });
+        await ctx.db.insert("rateLimits", {
+          key: "old2",
+          timestamp: oldTimestamp - 60000,
+        });
       });
 
       await t.run(async (ctx) => {
-        await ctx.db.insert("rateLimits", { key: "recent1", timestamp: recentTimestamp });
+        await ctx.db.insert("rateLimits", {
+          key: "recent1",
+          timestamp: recentTimestamp,
+        });
         await ctx.db.insert("rateLimits", { key: "recent2", timestamp: now });
       });
 
@@ -32,7 +41,10 @@ describe("cleanup", () => {
       });
 
       expect(remaining).toHaveLength(2);
-      expect(remaining.map((r) => r.key).sort()).toEqual(["recent1", "recent2"]);
+      expect(remaining.map((r) => r.key).sort()).toEqual([
+        "recent1",
+        "recent2",
+      ]);
     });
 
     test("should return 0 when no old entries exist", async () => {

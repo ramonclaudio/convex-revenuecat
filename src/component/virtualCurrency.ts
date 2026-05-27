@@ -7,10 +7,11 @@ const balanceDoc = schema.tables.virtualCurrencyBalances.validator.extend({
   _creationTime: v.number(),
 });
 
-const transactionDoc = schema.tables.virtualCurrencyTransactions.validator.extend({
-  _id: v.id("virtualCurrencyTransactions"),
-  _creationTime: v.number(),
-});
+const transactionDoc =
+  schema.tables.virtualCurrencyTransactions.validator.extend({
+    _id: v.id("virtualCurrencyTransactions"),
+    _creationTime: v.number(),
+  });
 
 export const getBalance = query({
   args: { appUserId: v.string(), currencyCode: v.string() },
@@ -44,7 +45,9 @@ export const listTransactions = query({
       return await ctx.db
         .query("virtualCurrencyTransactions")
         .withIndex("by_app_user_currency", (q) =>
-          q.eq("appUserId", args.appUserId).eq("currencyCode", args.currencyCode!),
+          q
+            .eq("appUserId", args.appUserId)
+            .eq("currencyCode", args.currencyCode!),
         )
         .collect();
     }

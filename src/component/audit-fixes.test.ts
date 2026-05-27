@@ -202,29 +202,32 @@ describe("audit fixes", () => {
 
     test("RevenueCat class rejects empty auth secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      expect(() => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "" })).toThrow(
-        /is empty after stripping/,
-      );
+      expect(
+        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "" }),
+      ).toThrow(/is empty after stripping/);
     });
 
     test("RevenueCat class rejects 'Bearer ' (paste error: header label only)", async () => {
       const { RevenueCat } = await import("../client/index.js");
       expect(
-        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "Bearer " }),
+        () =>
+          new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "Bearer " }),
       ).toThrow(/is empty after stripping/);
     });
 
     test("RevenueCat class rejects whitespace-only secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
       expect(
-        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "    " }),
+        () =>
+          new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "    " }),
       ).toThrow(/is empty after stripping/);
     });
 
     test("RevenueCat class rejects sub-32-char secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
       expect(
-        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "s3cret" }),
+        () =>
+          new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "s3cret" }),
       ).toThrow(/is 6 chars after stripping \(minimum 32\)/);
     });
 
@@ -232,14 +235,18 @@ describe("audit fixes", () => {
       const { RevenueCat } = await import("../client/index.js");
       const justUnder = "a".repeat(31);
       expect(
-        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: justUnder }),
+        () =>
+          new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: justUnder }),
       ).toThrow(/is 31 chars after stripping \(minimum 32\)/);
     });
 
     test("RevenueCat class rejects short secret hidden behind 'Bearer ' prefix", async () => {
       const { RevenueCat } = await import("../client/index.js");
       expect(
-        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: "Bearer s3cret" }),
+        () =>
+          new RevenueCat(stubComponent, {
+            REVENUECAT_WEBHOOK_AUTH: "Bearer s3cret",
+          }),
       ).toThrow(/is 6 chars after stripping \(minimum 32\)/);
     });
 
@@ -252,14 +259,18 @@ describe("audit fixes", () => {
       const { RevenueCat } = await import("../client/index.js");
       const atFloor = "a".repeat(32);
       expect(
-        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: atFloor }),
+        () =>
+          new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: atFloor }),
       ).not.toThrow();
     });
 
     test("RevenueCat class accepts a real openssl-style secret", async () => {
       const { RevenueCat } = await import("../client/index.js");
       expect(
-        () => new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: VALID_SECRET }),
+        () =>
+          new RevenueCat(stubComponent, {
+            REVENUECAT_WEBHOOK_AUTH: VALID_SECRET,
+          }),
       ).not.toThrow();
     });
 
@@ -267,9 +278,9 @@ describe("audit fixes", () => {
       const { RevenueCat } = await import("../client/index.js");
       expect(
         () =>
-          new RevenueCat(stubComponent,
-            { REVENUECAT_WEBHOOK_AUTH: `Bearer ${VALID_SECRET}` },
-          ),
+          new RevenueCat(stubComponent, {
+            REVENUECAT_WEBHOOK_AUTH: `Bearer ${VALID_SECRET}`,
+          }),
       ).not.toThrow();
     });
 
@@ -306,7 +317,9 @@ describe("audit fixes", () => {
 
     test("httpHandler() succeeds when a real secret is configured", async () => {
       const { RevenueCat } = await import("../client/index.js");
-      const rc = new RevenueCat(stubComponent, { REVENUECAT_WEBHOOK_AUTH: VALID_SECRET });
+      const rc = new RevenueCat(stubComponent, {
+        REVENUECAT_WEBHOOK_AUTH: VALID_SECRET,
+      });
       expect(() => rc.httpHandler()).not.toThrow();
     });
   });

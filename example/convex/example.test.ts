@@ -27,9 +27,11 @@ function createEventPayload(
     entitlement_ids: overrides.entitlement_ids ?? ["premium"],
     period_type: "NORMAL" as const,
     purchased_at_ms: now,
-    expiration_at_ms: overrides.expiration_at_ms ?? now + 30 * 24 * 60 * 60 * 1000,
+    expiration_at_ms:
+      overrides.expiration_at_ms ?? now + 30 * 24 * 60 * 60 * 1000,
     transaction_id: overrides.transaction_id ?? `txn_${now}`,
-    original_transaction_id: overrides.original_transaction_id ?? `txn_original_${now}`,
+    original_transaction_id:
+      overrides.original_transaction_id ?? `txn_original_${now}`,
     store: "APP_STORE" as const,
     environment: "SANDBOX" as const,
     is_family_share: false,
@@ -90,7 +92,10 @@ describe("subscriptions", () => {
         }),
       );
 
-      const result = await asUser(t, subject).query(api.subscriptions.checkPremium, {});
+      const result = await asUser(t, subject).query(
+        api.subscriptions.checkPremium,
+        {},
+      );
       expect(result).toBe(true);
     });
   });
@@ -146,7 +151,10 @@ describe("subscriptions", () => {
         }),
       );
 
-      const all = await asUser(t, subject).query(api.subscriptions.getAllEntitlements, {});
+      const all = await asUser(t, subject).query(
+        api.subscriptions.getAllEntitlements,
+        {},
+      );
       const active = await asUser(t, subject).query(
         api.subscriptions.getActiveEntitlements,
         {},
@@ -204,7 +212,10 @@ describe("subscriptions", () => {
         }),
       );
 
-      const result = await asUser(t, subject).query(api.subscriptions.getCustomer, {});
+      const result = await asUser(t, subject).query(
+        api.subscriptions.getCustomer,
+        {},
+      );
 
       expect(result).not.toBeNull();
       expect(result?.appUserId).toBe(subject);
@@ -247,9 +258,12 @@ describe("subscriptions", () => {
         },
       });
 
-      const result = await asUser(t, subject).query(api.subscriptions.getExperiment, {
-        experimentId,
-      });
+      const result = await asUser(t, subject).query(
+        api.subscriptions.getExperiment,
+        {
+          experimentId,
+        },
+      );
 
       expect(result).not.toBeNull();
       expect(result?.variant).toBe("variant_b");
@@ -292,7 +306,10 @@ describe("subscriptions", () => {
         });
       }
 
-      const result = await asUser(t, subject).query(api.subscriptions.getExperiments, {});
+      const result = await asUser(t, subject).query(
+        api.subscriptions.getExperiments,
+        {},
+      );
       expect(result.length).toBe(2);
     });
   });
