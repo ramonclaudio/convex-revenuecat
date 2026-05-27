@@ -1,13 +1,11 @@
 /// <reference types="vite/client" />
 
-// Set BEFORE http.ts loads. A present-but-short or malformed secret throws
-// at construction. A missing secret is rejected per-request at runtime. The
-// auth tests below need a valid configured secret.
 const TEST_SECRET = "kZ9tQ1xH8mF3vR7yL2nP5sJ6cW0bD4gE8aT1iU4oY3w=";
 process.env.REVENUECAT_WEBHOOK_AUTH = TEST_SECRET;
 
 import { describe, expect, test } from "vitest";
 import { initConvexTest } from "./setup.test.js";
+import { components } from "./_generated/api";
 
 const WEBHOOK_PATH = "/webhooks/revenuecat";
 
@@ -155,7 +153,6 @@ describe("httpHandler: payload validation", () => {
 describe("httpHandler: body size cap", () => {
   test("rejects 413 when Content-Length exceeds 1MB", async () => {
     const t = initConvexTest();
-    // Claim 2MB via Content-Length without actually sending the body.
     const res = await t.fetch(WEBHOOK_PATH, {
       method: "POST",
       headers: {
@@ -193,5 +190,35 @@ describe("httpHandler: happy path response shape", () => {
     const json = (await res.json()) as { processed: boolean; eventId: string };
     expect(json.processed).toBe(false);
     expect(json.eventId).toBe("evt_dup");
+  });
+});
+
+describe("httpHandler: PII redaction", () => {
+  test("strips reserved PII attributes from the stored audit payload", async () => {
+    const t = initConvexTest();
+    await postJson(
+      t,
+      eventBody({
+        id: "evt_pii",
+        app_user_id: "user_pii",
+        subscriber_attributes: {
+          $email: { value: "leak@example.com", updated_at_ms: Date.now() },
+          custom_tier: { value: "gold", updated_at_ms: Date.now() },
+        },
+      }),
+      { Authorization: TEST_SECRET },
+    );
+
+    const events = await t.query(
+      components.revenuecat.webhookEvents.listByUser,
+      { appUserId: "user_pii" },
+    );
+    const stored = events.find((e) => e.eventId === "evt_pii");
+    const attrs = JSON.stringify(
+      (stored?.payload as { subscriber_attributes?: unknown })
+        ?.subscriber_attributes ?? {},
+    );
+    expect(attrs).not.toContain("leak@example.com");
+    expect(attrs).toContain("gold");
   });
 });

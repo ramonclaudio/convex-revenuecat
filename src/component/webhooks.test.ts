@@ -92,9 +92,6 @@ describe("webhook rate limiting", () => {
 
 describe("future-proofing", () => {
   test("handler accepts payload with fields not declared in the validator", async () => {
-    // RevenueCat explicitly reserves the right to add fields within an API
-    // version. If our handler validator is strict, new fields cause retries
-    // then drops. This test guards against regression.
     const t = initConvexTest();
     const payload = {
       ...createEventPayload({
@@ -209,5 +206,38 @@ describe("webhooks", () => {
     });
 
     expect(secondResult.processed).toBe(false);
+  });
+});
+
+describe("recordFailure", () => {
+  test("writes a failed audit row and dedups on event id", async () => {
+    const t = initConvexTest();
+    const event = {
+      id: "evt_fail_1",
+      type: "INITIAL_PURCHASE",
+      app_user_id: "user_fail",
+      environment: "PRODUCTION" as const,
+    };
+
+    await t.mutation(api.webhooks.recordFailure, {
+      event,
+      payload: { id: "evt_fail_1", foo: "bar" },
+      error: "boom",
+    });
+    await t.mutation(api.webhooks.recordFailure, {
+      event,
+      payload: { id: "evt_fail_1", foo: "bar" },
+      error: "boom again",
+    });
+
+    const rows = await t.run(async (ctx) =>
+      ctx.db
+        .query("webhookEvents")
+        .withIndex("by_event_id", (q) => q.eq("eventId", "evt_fail_1"))
+        .collect(),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe("failed");
+    expect(rows[0].error).toBe("boom");
   });
 });
