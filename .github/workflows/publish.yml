@@ -29,11 +29,8 @@ jobs:
           npm ci
           npm run build
 
-      - name: Test
-        run: |
-          npm run test
-          npm run typecheck
-          npm run lint
+      - name: Validate
+        run: npm run validate
 
       - name: Audit dependencies
         run: npm audit --audit-level=high
