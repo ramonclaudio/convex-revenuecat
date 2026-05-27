@@ -89,7 +89,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // RENEWAL with missing expiration_at_ms (malformed/partial payload)
       const partial = basePayload({
         id: "evt_p1_partial_renewal",
         type: "RENEWAL",
@@ -153,7 +152,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // BILLING_ISSUE sets billingIssueDetectedAt + grace
       await dispatch(
         t,
         basePayload({
@@ -168,7 +166,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // CANCELLATION with UNSUBSCRIBE sets unsubscribeDetectedAt
       await dispatch(
         t,
         basePayload({
@@ -182,7 +179,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // PRODUCT_CHANGE sets newProductId
       await dispatch(
         t,
         basePayload({
@@ -204,7 +200,6 @@ describe("parity fixes", () => {
       expect(subs[0].unsubscribeDetectedAt).toBeDefined();
       expect(subs[0].newProductId).toBe("pro_yearly");
 
-      // RENEWAL should clear every stale marker
       const nextExpiry = initialExpiry + 30 * 24 * 60 * 60 * 1000;
       await dispatch(
         t,
@@ -249,7 +244,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // Pause marker
       await dispatch(
         t,
         basePayload({
@@ -263,7 +257,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // Billing issue (grace)
       await dispatch(
         t,
         basePayload({
@@ -459,7 +452,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // BILLING_ISSUE fires BEFORE expiration_at_ms (Google Play pattern)
       await dispatch(
         t,
         basePayload({
@@ -492,7 +484,6 @@ describe("parity fixes", () => {
       const oldExpiry = Date.now() + 10 * 24 * 60 * 60 * 1000;
       const newExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      // Source has an older-expiry entitlement
       await dispatch(
         t,
         basePayload({
@@ -505,7 +496,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // Destination already has a fresh RENEWAL with newer expiry on the same entitlement
       await dispatch(
         t,
         basePayload({
@@ -589,6 +579,72 @@ describe("parity fixes", () => {
       const premium = ents.find((e) => e.entitlementId === "premium")!;
       expect(premium.expiresAtMs).toBe(newExpiry);
     });
+
+    test("TRANSFER does not resurrect a refunded (inactive) lifetime entitlement", async () => {
+      const t = initConvexTest();
+      await t.run(async (ctx) => {
+        await ctx.db.insert("entitlements", {
+          appUserId: "user_refund_src",
+          entitlementId: "premium",
+          isActive: false,
+          isSandbox: true,
+          updatedAt: Date.now(),
+        });
+      });
+
+      await t.mutation(internal.handlers.processTransfer, {
+        event: {
+          type: "TRANSFER",
+          id: "evt_refund_transfer",
+          app_id: "app_parity",
+          app_user_id: "user_refund_dst",
+          aliases: [],
+          event_timestamp_ms: Date.now(),
+          environment: "SANDBOX",
+          transferred_from: ["user_refund_src"],
+          transferred_to: ["user_refund_dst"],
+          entitlement_ids: ["premium"],
+        },
+      });
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: "user_refund_dst",
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+    });
+
+    test("TRANSFER aborts past the per-user safety cap instead of corrupting", async () => {
+      const t = initConvexTest();
+      await t.run(async (ctx) => {
+        for (let i = 0; i < 501; i++) {
+          await ctx.db.insert("entitlements", {
+            appUserId: "user_cap_src",
+            entitlementId: `ent_${i}`,
+            isActive: true,
+            isSandbox: true,
+            updatedAt: Date.now(),
+          });
+        }
+      });
+
+      await expect(
+        t.mutation(internal.handlers.processTransfer, {
+          event: {
+            type: "TRANSFER",
+            id: "evt_cap_transfer",
+            app_id: "app_parity",
+            app_user_id: "user_cap_dst",
+            aliases: [],
+            event_timestamp_ms: Date.now(),
+            environment: "SANDBOX",
+            transferred_from: ["user_cap_src"],
+            transferred_to: ["user_cap_dst"],
+          },
+        }),
+      ).rejects.toThrow(/TRANSFER_SAFETY_CAP_EXCEEDED/);
+    });
   });
 
   describe("anonymous customer cleanup", () => {
@@ -633,7 +689,6 @@ describe("parity fixes", () => {
       });
       expect(afterCustomer).toBeNull();
 
-      // Destination retains the data
       const destEnts = await t.query(api.entitlements.list, {
         appUserId: "user_p9_real",
       });
@@ -716,7 +771,6 @@ describe("parity fixes", () => {
       const sharedTxn = "otxn_p10_shared";
       const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      // Source has a sub with `sharedTxn`
       await dispatch(
         t,
         basePayload({
@@ -729,8 +783,6 @@ describe("parity fixes", () => {
         }),
       );
 
-      // Simulate a race: destination already has a sub with the same original_transaction_id
-      // (e.g. a concurrent webhook ingest fired on the destination)
       await dispatch(
         t,
         basePayload({
@@ -1074,7 +1126,6 @@ describe("parity fixes", () => {
       const anonId = "$RCAnonymousID:partial_src";
       const futureExpiry = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      // Source owns TWO entitlements on ONE subscription
       const initPayload = basePayload({
         id: "evt_partial_init",
         type: "INITIAL_PURCHASE",
@@ -1086,7 +1137,6 @@ describe("parity fixes", () => {
       });
       await dispatch(t, initPayload);
 
-      // Transfer ONLY the premium entitlement. Bonus stays on source
       await t.mutation(internal.handlers.processTransfer, {
         event: {
           type: "TRANSFER",
@@ -1102,13 +1152,11 @@ describe("parity fixes", () => {
         },
       });
 
-      // Source customer row MUST still exist: bonus entitlement is still active on it
       const sourceCustomer = await t.query(api.customers.get, {
         appUserId: anonId,
       });
       expect(sourceCustomer).not.toBeNull();
 
-      // And the un-transferred entitlement is still there and active
       const sourceEnts = await t.query(api.entitlements.list, {
         appUserId: anonId,
       });
