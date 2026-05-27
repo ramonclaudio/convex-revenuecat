@@ -1,9 +1,3 @@
-// DEMO ONLY. Fires synthetic RevenueCat webhook events so the showcase UI can
-// exercise every event type the component handles and you can watch the live
-// state react. It calls the component's `process` directly (the same mutation
-// the auth-gated HTTP handler calls), so no secret is needed from the browser.
-// Production receives these from RevenueCat over the webhook; this is purely a
-// test harness for the example.
 import { v } from "convex/values";
 import { mutation } from "./_generated/server.js";
 import { components } from "./_generated/api.js";
@@ -13,8 +7,6 @@ type Json = Record<string, unknown>;
 const rid = (p: string) =>
   `sim-${p}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-// Build a realistic RC event payload for a named scenario. `original_transaction_id`
-// is stable per user so renew/cancel/expire act on the same subscription.
 function buildEvent(
   appUserId: string,
   scenario: string,

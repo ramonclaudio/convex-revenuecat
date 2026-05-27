@@ -129,8 +129,6 @@ describe("cleanup", () => {
       const now = Date.now();
       const thirtyOneDaysAgo = now - 31 * 24 * 60 * 60 * 1000;
 
-      // Seed more than the old 500-cap worth of stale events to prove the
-      // cron no longer stalls under high inflow.
       await t.run(async (ctx) => {
         for (let i = 0; i < 1200; i++) {
           await ctx.db.insert("webhookEvents", {
@@ -160,7 +158,6 @@ describe("cleanup", () => {
       const thirtyOneDaysAgo = now - 31 * 24 * 60 * 60 * 1000;
       const twentyNineDaysAgo = now - 29 * 24 * 60 * 60 * 1000;
 
-      // Two old, one recent interleaved. Ascending scan stops at the recent one.
       await t.run(async (ctx) => {
         await ctx.db.insert("webhookEvents", {
           eventId: "old_1",

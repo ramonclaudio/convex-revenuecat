@@ -15,7 +15,6 @@ describe("invoices", () => {
     test("returns invoice after INVOICE_ISSUANCE event", async () => {
       const t = initConvexTest();
 
-      // INVOICE_ISSUANCE uses event.id as the invoice identifier (no separate invoice_id field)
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_invoice_1",
@@ -39,7 +38,7 @@ describe("invoices", () => {
       });
 
       const result = await t.query(api.invoices.get, {
-        invoiceId: "evt_invoice_1", // Uses event id as invoice id
+        invoiceId: "evt_invoice_1",
       });
 
       expect(result).not.toBeNull();

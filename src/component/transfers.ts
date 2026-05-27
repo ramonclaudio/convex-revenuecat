@@ -38,8 +38,6 @@ export const list = query({
   },
 });
 
-/** Backfill `transferParticipants` for pre-0.3.0 `transfers` rows. Run once
- * after upgrading. Idempotent. Loop until `nextCursor` is null. */
 export const backfillTransferParticipants = mutation({
   args: {
     cursor: v.optional(v.string()),

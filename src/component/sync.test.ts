@@ -108,13 +108,11 @@ describe("sync.ingest", () => {
   test("updates existing records on re-sync", async () => {
     const t = initConvexTest();
 
-    // First sync
     await t.mutation(api.sync.ingest, {
       appUserId: "user_resync",
       subscriber: createSubscriber(),
     });
 
-    // Re-sync with updated expiration
     const newExpiry = new Date(Date.now() + 60 * 86400000).toISOString();
     await t.mutation(api.sync.ingest, {
       appUserId: "user_resync",
@@ -141,7 +139,6 @@ describe("sync.ingest", () => {
       }),
     });
 
-    // Should still have exactly 1 subscription and 1 entitlement (not duplicated)
     const subs = await t.query(api.subscriptions.getByUser, {
       appUserId: "user_resync",
     });
@@ -214,8 +211,6 @@ describe("sync.ingest", () => {
   test("subscriber attributes are stored correctly", async () => {
     const t = initConvexTest();
 
-    // Client SDK encodes $ keys via transformPayload before calling the mutation.
-    // Tests call the mutation directly, so use pre-encoded keys.
     await t.mutation(api.sync.ingest, {
       appUserId: "user_attrs",
       subscriber: createSubscriber({
@@ -362,21 +357,18 @@ describe("sync.ingest", () => {
     });
     expect(subs).toHaveLength(3);
 
-    // Lifetime purchase should link to the pro_cat entitlement.
     const lifetime = subs.find((s) => s.productId === "lifetime_pro");
     expect(lifetime).toBeDefined();
     expect(lifetime?.expirationAtMs).toBeUndefined();
     expect(lifetime?.entitlementIds).toEqual(["pro_cat"]);
     expect(lifetime?.priceInPurchasedCurrency).toBe(99.99);
 
-    // Lifetime entitlement is active (no expiry).
     const hasPro = await t.query(api.entitlements.check, {
       appUserId: "user_nonsub",
       entitlementId: "pro_cat",
     });
     expect(hasPro).toBe(true);
 
-    // Two coin_pack_100 purchases each get their own row (deduped by txn id).
     const coinBuys = subs.filter((s) => s.productId === "coin_pack_100");
     expect(coinBuys).toHaveLength(2);
     const txnIds = coinBuys.map((s) => s.originalTransactionId).sort();
@@ -465,8 +457,6 @@ describe("sync.ingest", () => {
   test("unknown store value falls back to UNKNOWN_STORE", async () => {
     const t = initConvexTest();
 
-    // Simulate RC adding a new store (or REST returning something SDK-unknown).
-    // Our schema validator would otherwise reject an unknown uppercase value.
     await t.mutation(api.sync.ingest, {
       appUserId: "user_unknown_store",
       subscriber: {

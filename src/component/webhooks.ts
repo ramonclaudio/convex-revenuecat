@@ -20,7 +20,6 @@ const RATE_LIMIT_MAX_REQUESTS = 100;
 const RATE_LIMIT_WINDOW_MS = 60000;
 const RATE_LIMIT_KEY_PREFIX = "webhook";
 
-// RC event IDs are UUID-shaped (~36 chars). Cap to defeat index bloat.
 const MAX_EVENT_ID_LENGTH = 128;
 
 const EVENT_HANDLERS = {
@@ -45,8 +44,6 @@ const EVENT_HANDLERS = {
   VIRTUAL_CURRENCY_TRANSACTION:
     internal.handlers.processVirtualCurrencyTransaction,
   EXPERIMENT_ENROLLMENT: internal.handlers.processExperimentEnrollment,
-  // Legacy/non-primary event: modern RC reflects aliasing through the customer
-  // fields on every event. Kept for back-compat; harmless if it never fires.
   SUBSCRIBER_ALIAS: internal.handlers.processSubscriberAlias,
 } as const;
 
@@ -62,14 +59,6 @@ export const checkRateLimit = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
 
-    // Bound the read to the limit: we only need to know whether the window is
-    // at capacity and the oldest row (for `resetAt`), not the exact overage.
-    // This caps read amplification when one key is flooded. The key is derived
-    // from caller-supplied `app_id`/`app_user_id` (see `process`), so the
-    // bucket is best-effort tenant fairness, not a security boundary. Concurrent
-    // webhooks for the same key overlap this read range and the insert below,
-    // so they can OCC-conflict and retry; correctness holds, and at RC webhook
-    // volumes the contention is negligible.
     const currentRequests = await ctx.db
       .query("rateLimits")
       .withIndex("by_key_and_time", (q) =>
@@ -96,11 +85,6 @@ export const checkRateLimit = internalMutation({
   },
 });
 
-// Public so the parent app's HTTP handler can call it via
-// `components.revenuecat.webhooks.process`. A component's internalMutation is
-// NOT exposed in the generated ComponentApi, so the parent couldn't reach it.
-// It's parent-callable only (never internet-addressable); the HTTP layer auth
-// is the security boundary.
 export const process = mutation({
   args: {
     event: v.object({
@@ -142,7 +126,6 @@ export const process = mutation({
       });
     }
 
-    // Dedup before rate-limit so replays don't burn the bucket.
     const existing = await ctx.db
       .query("webhookEvents")
       .withIndex("by_event_id", (q) => q.eq("eventId", event.id))
@@ -152,10 +135,6 @@ export const process = mutation({
       return { processed: false, eventId: event.id };
     }
 
-    // Prefer `app_id` (RC v2 webhooks always carry it). Fall back to
-    // `app_user_id` so a misconfigured project that omits app_id doesn't
-    // share one global bucket across every tenant. Last-resort `"global"`
-    // catches the test-event case where neither is present.
     const rateLimitKey = `${RATE_LIMIT_KEY_PREFIX}:${event.app_id ?? event.app_user_id ?? "global"}`;
     const rateCheck = await ctx.runMutation(internal.webhooks.checkRateLimit, {
       key: rateLimitKey,
@@ -174,7 +153,6 @@ export const process = mutation({
     let status: "processed" | "failed" | "ignored" = "ignored";
 
     if (handler) {
-      // Snapshot only when hooks are registered (twice-per-webhook reads).
       const affected = hooks ? affectedUserIds(payload) : [];
       const beforeSnap = hooks
         ? await snapshotEntitlements(ctx, affected)
@@ -184,8 +162,6 @@ export const process = mutation({
         await ctx.runMutation(handler, { event: payload });
         status = "processed";
       } catch (e) {
-        // Don't insert into webhookEvents here, throwing rolls back any
-        // write in the catch, and we want RC's retry to hit a clean dedup.
         if (e instanceof ConvexError) {
           throw e;
         }
@@ -224,10 +200,6 @@ export const process = mutation({
   },
 });
 
-/** Records a permanent (`INVALID_ARGUMENT`) webhook failure in a separate
- * transaction so the row survives the inner mutation's rollback. Called
- * from the HTTP boundary. Transient failures still roll back without an
- * audit row so RC retries cleanly. */
 export const recordFailure = mutation({
   args: {
     event: v.object({

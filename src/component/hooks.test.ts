@@ -5,19 +5,12 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 
-// Resolve a FunctionReference to a FunctionHandle string inside a Convex
-// context. The client SDK does this for consumers. Tests call the mutations
-// directly, so we need the equivalent here.
 async function handleFor(
   t: ReturnType<typeof initConvexTest>,
   ref: Parameters<typeof createFunctionHandle>[0],
 ): Promise<string> {
   return await t.run(async () => createFunctionHandle(ref));
 }
-
-// Hooks are FunctionReferences. Consumers pass any valid internal or public
-// mutation/action. These tests use `internal.lib.noop` as the hook target and
-// assert that the scheduler queued a call by peeking at `_scheduled_functions`.
 
 type ScheduledJob = {
   name: string;
@@ -120,7 +113,6 @@ describe("lifecycle hooks", () => {
       const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_hook_already_active";
 
-      // First purchase activates.
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_hook_a1",
@@ -135,8 +127,6 @@ describe("lifecycle hooks", () => {
         }),
       });
 
-      // Second event with the same entitlement but NEW transaction id shouldn't
-      // double-fire the hook (state is already active).
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_hook_a2",
@@ -168,7 +158,6 @@ describe("lifecycle hooks", () => {
         app_user_id: "user_hook_dedup",
       });
 
-      // First delivery activates + fires hook.
       await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
@@ -181,8 +170,6 @@ describe("lifecycle hooks", () => {
         hooks: { onEntitlementActivated: handle },
       });
 
-      // RC retries, same event.id. The outer mutation short-circuits via
-      // the webhookEvents dedup check. No snapshot or hook fires on retry.
       await t.mutation(api.webhooks.process, {
         event: {
           id: payload.id,
@@ -388,7 +375,6 @@ describe("lifecycle hooks", () => {
       const handle = await handleFor(t, internal.lib.noop);
       const userId = "user_sync_expire";
 
-      // First sync activates.
       await t.mutation(api.sync.ingest, {
         appUserId: userId,
         subscriber: {
@@ -414,7 +400,6 @@ describe("lifecycle hooks", () => {
         },
       });
 
-      // Second sync shows entitlement expired.
       await t.mutation(api.sync.ingest, {
         appUserId: userId,
         subscriber: {
@@ -633,9 +618,6 @@ describe("lifecycle hooks", () => {
       const t = initConvexTest();
       const handle = await handleFor(t, internal.lib.noop);
 
-      // No handler matches a UNKNOWN event type, so the dispatch table
-      // short-circuits to status="ignored" and never reads entitlements or
-      // fires hooks.
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_unknown_rollback",
@@ -691,7 +673,6 @@ describe("lifecycle hooks", () => {
       const anon = "$RCAnonymousID:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
       const real = "user_real";
 
-      // Seed an anonymous user with an active entitlement.
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_alias_seed",
@@ -706,10 +687,6 @@ describe("lifecycle hooks", () => {
         }),
       });
 
-      // SUBSCRIBER_ALIAS fires with anon as original and real as current.
-      // aliases array carries both IDs. AffectedUserIds must pick up both so
-      // the migration's deactivation from anon and activation on real are
-      // detected.
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_alias_migrate",
@@ -738,7 +715,6 @@ describe("lifecycle hooks", () => {
       const users = jobs
         .map((j) => (j.args as { appUserId: string }).appUserId)
         .sort();
-      // Anonymous user loses the entitlement, real user gains it.
       expect(users).toEqual([anon, real].sort());
     });
   });

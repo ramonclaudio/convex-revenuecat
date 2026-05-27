@@ -31,8 +31,6 @@ const KNOWN_STORES = new Set<Store>([
   "UNKNOWN_STORE",
 ]);
 
-// REST returns lowercase store values (`app_store`, `unknown`, etc.). Webhooks
-// and our schema use uppercase. Unknown values fall back to UNKNOWN_STORE.
 const mapStore = (s: string): Store => {
   const upper = s.toUpperCase();
   const candidate = upper === "UNKNOWN" ? "UNKNOWN_STORE" : upper;
@@ -51,13 +49,11 @@ const KNOWN_PERIOD_TYPES = new Set<PeriodType>([
   "PROMOTIONAL",
   "PREPAID",
 ]);
-// Unknown period_type defaults to NORMAL. Matches Android SDK's `optPeriodType`.
 const mapPeriodType = (s: string): PeriodType => {
   const upper = s.toUpperCase() as PeriodType;
   return KNOWN_PERIOD_TYPES.has(upper) ? upper : "NORMAL";
 };
 
-// Android emits `UNKNOWN` as a real wire value. Unknown future values → undefined.
 const KNOWN_OWNERSHIP_TYPES = new Set<OwnershipType>([
   "PURCHASED",
   "FAMILY_SHARED",
@@ -75,8 +71,6 @@ function parseDate(d: string | null | undefined): number | undefined {
   return isNaN(ms) ? undefined : ms;
 }
 
-/** Ingest a RevenueCat v1 subscriber snapshot. Idempotent upsert of
- * customer, subscriptions, and entitlements. */
 export const ingest = mutation({
   args: {
     appUserId: v.string(),
@@ -175,7 +169,6 @@ export const ingest = mutation({
 
         const expiresAtMs = parseDate(ent.expires_date);
         const gracePeriodExpiresAtMs = parseDate(ent.grace_period_expires_date);
-        // Fold grace into effective expiry, matches BILLING_ISSUE handler.
         const effectiveExpiresAtMs =
           gracePeriodExpiresAtMs &&
           (!expiresAtMs || gracePeriodExpiresAtMs > expiresAtMs)
@@ -221,8 +214,6 @@ export const ingest = mutation({
         const entIds = productEntitlements.get(productId) ?? [];
         const ownershipType = mapOwnership(s.ownership_type);
 
-        // Coerce, Android types `amount` as Double but the wire format
-        // has been observed as a string in fixtures.
         const priceAmount =
           typeof s.price?.amount === "string"
             ? Number(s.price.amount)
@@ -239,8 +230,6 @@ export const ingest = mutation({
         const billingIssueDetectedAt = parseDate(s.billing_issues_detected_at);
         const unsubscribeDetectedAt = parseDate(s.unsubscribe_detected_at);
         const expirationAtMs = parseDate(s.expires_date);
-        // RC v1 REST has no explicit auto-renew field. Derive from primitives
-        // so sync and webhook paths converge on the same stored value.
         const autoRenewStatus = deriveWillRenew({
           periodType,
           store,
@@ -267,7 +256,6 @@ export const ingest = mutation({
           autoResumeAtMs: parseDate(s.auto_resume_date),
           unsubscribeDetectedAt,
           refundedAtMs: parseDate(s.refunded_at),
-          // REST is authoritative. Clear stale cancelReason from prior webhooks.
           cancelReason: undefined,
           autoRenewStatus,
           priceUsd: priceCurrency === "USD" ? priceAmount : undefined,
@@ -298,7 +286,6 @@ export const ingest = mutation({
       }
     }
 
-    // One-shot purchases, one row per transaction, deduped by id, no expiry.
     if (subscriber.non_subscriptions) {
       for (const [productId, rawPurchases] of Object.entries(
         subscriber.non_subscriptions as Record<string, any>,
@@ -317,7 +304,6 @@ export const ingest = mutation({
         for (const p of purchases) {
           const transactionId = p.store_transaction_id ?? p.id;
           const isSandbox = p.is_sandbox ?? false;
-          // Unknown store → UNKNOWN_STORE. Never silently default to APP_STORE.
           const store = p.store
             ? mapStore(p.store)
             : ("UNKNOWN_STORE" as const);
@@ -346,7 +332,6 @@ export const ingest = mutation({
             originalPurchasedAtMs: parseDate(p.original_purchase_date),
             expirationAtMs: undefined,
             isFamilyShare: false,
-            // RC REST doesn't carry ownership_type on non_subscriptions.
             ownershipType: "PURCHASED" as const,
             priceUsd: priceCurrency === "USD" ? priceAmount : undefined,
             currency: priceCurrency,
@@ -415,8 +400,6 @@ export const ingest = mutation({
 
     if (hooks && beforeSnap) {
       const afterSnap = await snapshotEntitlements(ctx, [appUserId]);
-      // Sync-initiated transitions report a synthetic `"SYNC"` event type so
-      // consumers can distinguish webhook-driven from REST-driven flips.
       await fireTransitionHooks(ctx, hooks, beforeSnap, afterSnap, "SYNC");
     }
 

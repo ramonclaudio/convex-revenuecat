@@ -1,31 +1,3 @@
-/**
- * Access-gate invariant: `expiresAtMs` is the single source of truth for when
- * access ends. Every code path that affects whether an entitlement is active
- * must honor `isActive && (expiresAtMs === undefined || expiresAtMs > now)`.
- *
- * Contracts that maintain it:
- *   - `handlers.ts:processBillingIssue` extends `expiresAtMs` to the grace
- *     period end so grace is folded into the expiry check. Lifetime
- *     entitlements (expiresAtMs === undefined) stay lifetime.
- *   - `sync.ts:ingest` folds `grace_period_expires_date` into the effective
- *     expiry for the same reason.
- *   - `handlers.ts:extendEntitlements` and `grantEntitlements` push
- *     `expiresAtMs` forward on RENEWAL / INITIAL_PURCHASE / REFUND_REVERSED.
- *   - `handlers.ts:revokeEntitlements` sets `isActive: false` on EXPIRATION
- *     and refund-CANCELLATION. The expiry check is the second line of defense.
- *
- * Do NOT short-circuit `hasEntitlement` on auxiliary flags (e.g. a bare
- * `billingIssueDetectedAt` check). That historically leaked access
- * indefinitely if EXPIRATION was delayed or dropped. Mirror the iOS SDK's
- * `EntitlementInfo.isActive`: pure expiry-date comparison.
- *
- * `Date.now()` in these queries is deliberate: it keeps the expiry gate
- * reactive in the window between true expiry and the EXPIRATION webhook that
- * flips `isActive`. Convex re-runs time-dependent queries so they don't go
- * stale (a query-cache cost, not a correctness bug); the per-user tables are
- * tiny, so the cost is negligible. Do not replace it with a cron-maintained
- * boolean, that trades correctness for cache hits.
- */
 import { v } from "convex/values";
 import { query } from "./_generated/server.js";
 import schema from "./schema.js";

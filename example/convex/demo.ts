@@ -1,8 +1,3 @@
-// DEMO ONLY. These queries take an explicit `appUserId` so the example UI can
-// inspect any user the webhooks populate, without standing up auth. Production
-// code must NOT accept `appUserId` from the client, that's an IDOR. Use the
-// identity-aware `revenuecat.api()` in `subscriptions.ts` (see the README
-// "Authorize every query"). This file exists purely to drive the showcase UI.
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server.js";
 import { components } from "./_generated/api.js";
@@ -12,7 +7,6 @@ const revenuecat = new RevenueCat(components.revenuecat, {
   REVENUECAT_WEBHOOK_AUTH: process.env.REVENUECAT_WEBHOOK_AUTH,
 });
 
-/** Everything the showcase panels render, in one reactive read. */
 export const status = query({
   args: { appUserId: v.string() },
   handler: async (ctx, { appUserId }) => {
@@ -48,8 +42,6 @@ export const status = query({
   },
 });
 
-/** Recent webhook events for the user, newest first, so the UI can show events
- * landing live. (TRANSFER events carry no app_user_id and won't appear here.) */
 export const recentEvents = query({
   args: { appUserId: v.string() },
   handler: async (ctx, { appUserId }) => {
@@ -60,9 +52,6 @@ export const recentEvents = query({
   },
 });
 
-/** DEMO ONLY. Purge every component-local row for the user so the showcase can
- * start from a clean slate. Same path as the GDPR delete; returns per-table
- * counts. Never expose an appUserId-taking purge like this in real code. */
 export const reset = mutation({
   args: { appUserId: v.string() },
   handler: async (ctx, { appUserId }) => {

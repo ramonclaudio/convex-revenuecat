@@ -4,7 +4,6 @@ import { internal } from "./_generated/api.js";
 
 const RATE_LIMIT_WINDOW_MS = 60000;
 const WEBHOOK_EVENTS_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-// Stay under Convex's per-transaction write cap. Schedule continuation if more.
 const RATE_LIMITS_MAX_DELETES = 4000;
 const RATE_LIMITS_BATCH_SIZE = 500;
 const WEBHOOK_EVENTS_MAX_DELETES = 4000;

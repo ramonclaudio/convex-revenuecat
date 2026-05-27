@@ -3,8 +3,6 @@ import { useQuery, useMutation } from "convex/react";
 import { Purchases, type Package } from "@revenuecat/purchases-js";
 import { api } from "../convex/_generated/api";
 
-// Fixed demo identity, no sign-in or manual entry. The Web SDK purchases as
-// this user, RevenueCat fires a webhook for it, and the panels below read it.
 const APP_USER_ID = "demo-user";
 const PARTNER = "demo-user-alt";
 const rcKey = import.meta.env.VITE_REVENUECAT_API_KEY as string;
@@ -20,8 +18,6 @@ function rc(): Purchases {
   return Purchases.getSharedInstance();
 }
 
-// Events RevenueCat won't emit on demand (billing issues, expiration, refunds,
-// transfers, currency...) so they're simulated through the real webhook path.
 const GROUPS: { group: string; items: [string, string][] }[] = [
   {
     group: "Subscription lifecycle",

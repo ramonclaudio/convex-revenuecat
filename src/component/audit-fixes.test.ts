@@ -6,9 +6,6 @@ import { api, internal } from "./_generated/api.js";
 import { initConvexTest } from "./setup.test.js";
 import type { ComponentApi } from "./_generated/component.js";
 
-// The secret-validation tests below probe the RevenueCat constructor, not the
-// component, so the component shape is irrelevant. A typed stub keeps them
-// prettier-proof (no @ts-expect-error directive to misalign).
 const stubComponent = {} as unknown as ComponentApi;
 
 function basePayload(overrides: Record<string, unknown> = {}) {
@@ -287,8 +284,6 @@ describe("audit fixes", () => {
     test("httpHandler() does not throw at build time when auth is undefined", async () => {
       const { RevenueCat } = await import("../client/index.js");
       const rc = new RevenueCat(stubComponent, {});
-      // A build-time throw would fail Convex push analysis and block
-      // component codegen for consumers. Validation moved to request time.
       expect(() => rc.httpHandler()).not.toThrow();
     });
 
@@ -333,7 +328,6 @@ describe("audit fixes", () => {
         app_user_id: "user_dedup_rate",
       });
       await postEvent(t, payload);
-      // 150 replays > 100/min rate limit. Dedup must run first.
       for (let i = 0; i < 150; i++) {
         const result = await postEvent(t, payload);
         expect(result.processed).toBe(false);
@@ -668,7 +662,6 @@ describe("audit fixes", () => {
           first_seen: "2024-01-01T00:00:00Z",
           entitlements: {},
           subscriptions: {},
-          // Fields RC returns that we don't consume. Must not crash ingest.
           management_url: "https://example.com/manage",
           last_purchase_date: "2024-06-01T00:00:00Z",
           other_purchases: {},
@@ -756,7 +749,6 @@ describe("audit fixes", () => {
   describe("revokeEntitlements uses indexed lookup", () => {
     test("EXPIRATION with specific entitlement_ids revokes only those", async () => {
       const t = initConvexTest();
-      // Grant two entitlements for one user.
       await postEvent(
         t,
         basePayload({
@@ -923,8 +915,6 @@ describe("audit fixes", () => {
           transaction_id: "txn_partial",
         }),
       );
-      // Patch in revenue fields the helper doesn't carry. Partial follow-up
-      // event then arrives without them.
       const sub = (
         await t.query(api.subscriptions.getByUser, { appUserId: subject })
       )[0];
@@ -970,7 +960,6 @@ describe("audit fixes", () => {
         transferred_to: ["user_to"],
       });
       await postEvent(t, payload);
-      // Direct re-invocation simulating an admin replay. Should be a no-op.
       await t.mutation(internal.handlers.processTransfer, { event: payload });
 
       const transfers = await t.query(api.transfers.list, {});
@@ -995,7 +984,6 @@ describe("audit fixes", () => {
         }),
       );
 
-      // 100 unrelated transfers. The index-path read sees only the user's 1.
       await t.run(async (ctx) => {
         for (let i = 0; i < 100; i++) {
           await ctx.db.insert("transfers", {
@@ -1156,7 +1144,7 @@ describe("audit fixes", () => {
     test("event_timestamp_ms far in the future is clamped on insert", async () => {
       const t = initConvexTest();
       const subject = "user_future_ts";
-      const farFuture = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000; // 10 years
+      const farFuture = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
       await postEvent(
         t,
         basePayload({
@@ -1244,8 +1232,6 @@ describe("audit fixes", () => {
 
   describe("recordFailure is dedup-safe and capped", () => {
     test("malformed event.id is rejected at HTTP boundary, not via recordFailure", async () => {
-      // The HTTP boundary rejects whitespace event.ids before the mutation.
-      // Direct invocation (unreachable from the wire) still throws.
       const t = initConvexTest();
       await expect(
         t.mutation(api.webhooks.process, {
@@ -1299,8 +1285,6 @@ describe("audit fixes", () => {
       const txnA = "otxn_consumable_pre_kind";
       const txnB = "otxn_recurring_pre_kind";
 
-      // Pre-0.3.0 state: process the events with `kind` blanked out so the
-      // rows mimic legacy data that landed before the discriminator existed.
       await postEvent(
         t,
         basePayload({
@@ -1347,7 +1331,6 @@ describe("audit fixes", () => {
       expect(consumable?.kind).toBe("consumable");
       expect(recurring?.kind).toBeUndefined();
 
-      // Idempotent: a second run finds nothing to do.
       const second = await t.mutation(api.subscriptions.backfillKind, {});
       expect(second.written).toBe(0);
     });
@@ -1367,7 +1350,6 @@ describe("audit fixes", () => {
           transaction_id: txn,
         }),
       );
-      // Strip kind to simulate legacy data. Pre-backfill it leaks into getActive.
       await t.run(async (ctx) => {
         const sub = await ctx.db
           .query("subscriptions")
@@ -1401,7 +1383,6 @@ describe("audit fixes", () => {
       const subject = "user_country_unblock";
       const farFuture = Date.now() + 10 * 365 * 24 * 60 * 60 * 1000;
 
-      // First event poisons lastSeenAt at `now + 5min` (after clamp).
       await postEvent(t, {
         ...basePayload({
           id: "evt_country_poison",
@@ -1411,8 +1392,6 @@ describe("audit fixes", () => {
         country_code: "US",
       });
 
-      // Real-time event 30s after wall-clock. Its event_timestamp lands well
-      // before the clamped lastSeenAt, but still passes the lag-tolerance gate.
       const realtime = Date.now() + 30_000;
       await postEvent(t, {
         ...basePayload({
@@ -1431,9 +1410,6 @@ describe("audit fixes", () => {
   describe("rate-limit key falls back to app_user_id", () => {
     test("events without app_id share a per-user bucket, not a global one", async () => {
       const t = initConvexTest();
-      // Two distinct users posting events without app_id should not contend
-      // for the same global bucket. Send 50 each, neither reaches the
-      // 100/min cap on its own bucket.
       const userA = "user_rl_a";
       const userB = "user_rl_b";
       for (let i = 0; i < 50; i++) {
@@ -1458,7 +1434,6 @@ describe("audit fixes", () => {
           }),
         );
       }
-      // Both users still under cap. An additional event for each succeeds.
       const a = await postEvent(
         t,
         basePayload({

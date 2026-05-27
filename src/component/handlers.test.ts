@@ -293,8 +293,6 @@ describe("handlers", () => {
         }),
       ).toBe(true);
 
-      // RC emits refunds as CANCELLATION with cancel_reason CUSTOMER_SUPPORT
-      // (no distinct REFUND event for new projects as of 2026).
       const refundPayload = createEventPayload({
         id: "evt_cancel_refund_cancel",
         type: "CANCELLATION",
@@ -491,8 +489,6 @@ describe("handlers", () => {
         payload: initialPayload,
       });
 
-      // Google Play self-serve refund: cancel_reason may not flip to
-      // CUSTOMER_SUPPORT, but price goes negative. Must revoke.
       const refundPayload = {
         ...createEventPayload({
           id: "evt_cancel_negprice_cancel",
@@ -633,7 +629,6 @@ describe("handlers", () => {
     test("does NOT revoke unrelated entitlements when entitlement_ids is absent", async () => {
       const t = initConvexTest();
 
-      // User has two active subscriptions: premium and pro
       const premiumPayload = createEventPayload({
         id: "evt_expire_guard_premium",
         type: "INITIAL_PURCHASE",
@@ -663,7 +658,6 @@ describe("handlers", () => {
         });
       }
 
-      // EXPIRATION fires for a product NOT mapped to any entitlement (entitlement_ids absent)
       const expirePayload = {
         ...createEventPayload({
           id: "evt_expire_guard_expire",
@@ -686,7 +680,6 @@ describe("handlers", () => {
         payload: expirePayload,
       });
 
-      // Both entitlements should still be active, neither was targeted
       expect(
         await t.query(api.entitlements.check, {
           appUserId: "user_expire_guard",
@@ -977,7 +970,6 @@ describe("handlers", () => {
     test("does NOT touch a lifetime entitlement's undefined expiresAtMs", async () => {
       const t = initConvexTest();
 
-      // Seed a lifetime entitlement directly.
       const entId = await t.run(async (ctx) =>
         ctx.db.insert("entitlements", {
           appUserId: "user_lifetime_billing",
@@ -1010,20 +1002,19 @@ describe("handlers", () => {
       });
 
       const after = await t.run(async (ctx) => ctx.db.get(entId));
-      // Lifetime entitlement must stay lifetime, never coerce to finite expiry.
       expect(after?.expiresAtMs).toBeUndefined();
     });
 
     test("extends entitlement expiresAtMs to grace period end (hard ceiling)", async () => {
       const t = initConvexTest();
-      const pastExpiration = Date.now() - 1000; // already expired
+      const pastExpiration = Date.now() - 1000;
       const gracePeriodEnd = Date.now() + 7 * 24 * 60 * 60 * 1000;
 
       const initialPayload = createEventPayload({
         id: "evt_billing_ceiling_initial",
         type: "INITIAL_PURCHASE",
         app_user_id: "user_billing_ceiling",
-        expiration_at_ms: Date.now() + 1000, // soon-to-expire
+        expiration_at_ms: Date.now() + 1000,
       });
       await t.mutation(api.webhooks.process, {
         event: {
@@ -1060,9 +1051,7 @@ describe("handlers", () => {
         appUserId: "user_billing_ceiling",
       });
       expect(ents).toHaveLength(1);
-      // expiresAtMs must be at least the grace end so user keeps access.
       expect(ents[0].expiresAtMs).toBeGreaterThanOrEqual(gracePeriodEnd);
-      // User still has access during grace.
       expect(
         await t.query(api.entitlements.check, {
           appUserId: "user_billing_ceiling",
@@ -1135,7 +1124,6 @@ describe("handlers", () => {
       const t = initConvexTest();
       const renewedExpiration = Date.now() + 60 * 24 * 60 * 60 * 1000;
 
-      // RENEWAL fires but no prior INITIAL_PURCHASE entitlement record exists
       const renewPayload = createEventPayload({
         id: "evt_renew_missing_ent",
         type: "RENEWAL",
@@ -1435,7 +1423,7 @@ describe("handlers", () => {
   describe("TEMPORARY_ENTITLEMENT_GRANT", () => {
     test("grants temporary entitlements during store outage", async () => {
       const t = initConvexTest();
-      const tempExpiration = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+      const tempExpiration = Date.now() + 24 * 60 * 60 * 1000;
 
       const payload = createEventPayload({
         id: "evt_temp_1",
@@ -1578,7 +1566,6 @@ describe("handlers", () => {
     test("processes invoice issuance event", async () => {
       const t = initConvexTest();
 
-      // INVOICE_ISSUANCE uses event.id as the invoice identifier (no separate invoice_id field)
       const payload = {
         id: "evt_invoice_1",
         type: "INVOICE_ISSUANCE",
@@ -1680,7 +1667,6 @@ describe("handlers", () => {
         appUserId: "user_vcurrency_multi",
       });
 
-      // Both currency adjustments must have their own transaction record
       expect(transactions.length).toBe(2);
       expect(transactions.map((tx) => tx.currencyCode).sort()).toEqual([
         "coins",
@@ -1913,7 +1899,7 @@ describe("handlers", () => {
             updated_at_ms: newTime,
           },
           plan: {
-            value: "free", // older timestamp, should not overwrite
+            value: "free",
             updated_at_ms: oldTime - 5000,
           },
         },
@@ -1937,8 +1923,8 @@ describe("handlers", () => {
 
       expect(customer?.attributes?.__dollar__email?.value).toBe(
         "new@example.com",
-      ); // newer
-      expect(customer?.attributes?.plan?.value).toBe("starter"); // older kept
+      );
+      expect(customer?.attributes?.plan?.value).toBe("starter");
     });
   });
 
@@ -2080,7 +2066,6 @@ describe("handlers", () => {
       const anonymousId = "$RCAnonymousID:abc123";
       const realUserId = "user_real_1";
 
-      // Purchase happens under anonymous ID
       const purchasePayload = createEventPayload({
         id: "evt_anon_purchase",
         type: "INITIAL_PURCHASE",
@@ -2099,7 +2084,6 @@ describe("handlers", () => {
         payload: purchasePayload,
       });
 
-      // Confirm real user has no entitlement before alias
       expect(
         await t.query(api.entitlements.check, {
           appUserId: realUserId,
@@ -2107,8 +2091,6 @@ describe("handlers", () => {
         }),
       ).toBe(false);
 
-      // logIn() fires, RC sends SUBSCRIBER_ALIAS
-      // app_user_id = real user, original_app_user_id = anonymous
       const aliasPayload = {
         id: "evt_alias_migrate",
         type: "SUBSCRIBER_ALIAS",
@@ -2129,7 +2111,6 @@ describe("handlers", () => {
         payload: aliasPayload,
       });
 
-      // Real user should now have the entitlement
       expect(
         await t.query(api.entitlements.check, {
           appUserId: realUserId,
@@ -2137,7 +2118,6 @@ describe("handlers", () => {
         }),
       ).toBe(true);
 
-      // Anonymous ID should no longer have the entitlement
       expect(
         await t.query(api.entitlements.check, {
           appUserId: anonymousId,
@@ -2145,7 +2125,6 @@ describe("handlers", () => {
         }),
       ).toBe(false);
 
-      // Subscription should be under real user
       const subs = await t.query(api.subscriptions.getActive, {
         appUserId: realUserId,
       });
@@ -2153,21 +2132,17 @@ describe("handlers", () => {
     });
 
     test("preserves billingIssueDetectedAt from source when both users have the same entitlement and source is newer", async () => {
-      // Exercises the `if (existing)` + `sourceIsNewer` branch in aliasEntitlements.
-      // Bug: patch omitted billingIssueDetectedAt, so a billing-issue flag on the
-      // anonymous (source, newer) record was silently dropped onto the real user.
       const t = initConvexTest();
       const anonymousId = "$RCAnonymousID:billing_alias";
       const realUserId = "user_billing_alias_real";
       const now = Date.now();
 
-      // Real user purchases first, shorter expiry (older record)
       const realPurchase = createEventPayload({
         id: "evt_billing_alias_real_purchase",
         type: "INITIAL_PURCHASE",
         app_user_id: realUserId,
         original_app_user_id: realUserId,
-        expiration_at_ms: now + 10 * 24 * 60 * 60 * 1000, // +10 days
+        expiration_at_ms: now + 10 * 24 * 60 * 60 * 1000,
       });
       await t.mutation(api.webhooks.process, {
         event: {
@@ -2180,13 +2155,12 @@ describe("handlers", () => {
         payload: realPurchase,
       });
 
-      // Anonymous user purchases same entitlement, longer expiry (newer record)
       const anonPurchase = createEventPayload({
         id: "evt_billing_alias_anon_purchase",
         type: "INITIAL_PURCHASE",
         app_user_id: anonymousId,
         original_app_user_id: anonymousId,
-        expiration_at_ms: now + 30 * 24 * 60 * 60 * 1000, // +30 days (newer)
+        expiration_at_ms: now + 30 * 24 * 60 * 60 * 1000,
       });
       await t.mutation(api.webhooks.process, {
         event: {
@@ -2199,7 +2173,6 @@ describe("handlers", () => {
         payload: anonPurchase,
       });
 
-      // Billing issue on anonymous, stamps billingIssueDetectedAt
       const billingPayload = createEventPayload({
         id: "evt_billing_alias_issue",
         type: "BILLING_ISSUE",
@@ -2218,19 +2191,15 @@ describe("handlers", () => {
         payload: billingPayload,
       });
 
-      // Confirm the anonymous entitlement has billingIssueDetectedAt set
       const anonEnts = await t.query(api.entitlements.list, {
         appUserId: anonymousId,
       });
       expect(anonEnts[0].billingIssueDetectedAt).toBeDefined();
-      // And the real user's entitlement does NOT yet have it
       const realEntsBefore = await t.query(api.entitlements.list, {
         appUserId: realUserId,
       });
       expect(realEntsBefore[0].billingIssueDetectedAt).toBeUndefined();
 
-      // User logs in, SUBSCRIBER_ALIAS merges anonymous (newer) → real (existing, older)
-      // This hits the `if (existing) { if (sourceIsNewer) { patch(...) } }` branch.
       const aliasPayload = {
         id: "evt_billing_alias_merge",
         type: "SUBSCRIBER_ALIAS",
@@ -2250,8 +2219,6 @@ describe("handlers", () => {
         payload: aliasPayload,
       });
 
-      // billingIssueDetectedAt from the anonymous (source) record must be carried
-      // over to the real user's entitlement, without it they'd lose grace-period access.
       const realEnts = await t.query(api.entitlements.list, {
         appUserId: realUserId,
       });
@@ -2260,14 +2227,11 @@ describe("handlers", () => {
     });
 
     test("preserves unsubscribeDetectedAt from source when both users have the same entitlement and source is newer", async () => {
-      // No handler currently populates unsubscribeDetectedAt, so we seed it
-      // directly via t.run to verify the aliasEntitlements patch carries it over.
       const t = initConvexTest();
       const anonymousId = "$RCAnonymousID:unsub_alias";
       const realUserId = "user_unsub_alias_real";
       const now = Date.now();
 
-      // Real user: shorter expiry (older record).
       await t.run(async (ctx) =>
         ctx.db.insert("entitlements", {
           appUserId: realUserId,
@@ -2279,7 +2243,6 @@ describe("handlers", () => {
         }),
       );
 
-      // Anonymous user: longer expiry (newer record).
       const anonEntId = await t.run(async (ctx) =>
         ctx.db.insert("entitlements", {
           appUserId: anonymousId,
@@ -2291,13 +2254,11 @@ describe("handlers", () => {
         }),
       );
 
-      // Seed unsubscribeDetectedAt directly, no handler sets this yet
       const unsubscribeTs = now - 500;
       await t.run(async (ctx) => {
         await ctx.db.patch(anonEntId, { unsubscribeDetectedAt: unsubscribeTs });
       });
 
-      // Confirm state before alias: anon has it, real doesn't
       const anonEnts = await t.query(api.entitlements.list, {
         appUserId: anonymousId,
       });
@@ -2307,7 +2268,6 @@ describe("handlers", () => {
       });
       expect(realEntsBefore[0].unsubscribeDetectedAt).toBeUndefined();
 
-      // SUBSCRIBER_ALIAS: anon (newer) → real (existing, older)
       const aliasPayload = {
         id: "evt_unsub_alias_merge",
         type: "SUBSCRIBER_ALIAS",
@@ -2327,7 +2287,6 @@ describe("handlers", () => {
         payload: aliasPayload,
       });
 
-      // unsubscribeDetectedAt from source must survive the merge
       const realEnts = await t.query(api.entitlements.list, {
         appUserId: realUserId,
       });
@@ -2341,7 +2300,6 @@ describe("handlers", () => {
       const t = initConvexTest();
       const futureExpiration = Date.now() + 30 * 24 * 60 * 60 * 1000;
 
-      // User purchases
       const purchasePayload = createEventPayload({
         id: "evt_refund_purchase",
         type: "INITIAL_PURCHASE",
@@ -2367,7 +2325,6 @@ describe("handlers", () => {
         }),
       ).toBe(true);
 
-      // Refund issued, should revoke entitlement immediately
       const refundPayload = createEventPayload({
         id: "evt_refund_issued",
         type: "REFUND",
@@ -2398,7 +2355,6 @@ describe("handlers", () => {
     test("does not revoke unrelated entitlements when entitlement_ids is absent on REFUND", async () => {
       const t = initConvexTest();
 
-      // Grant two entitlements
       const purchasePayload = createEventPayload({
         id: "evt_refund_multi_purchase",
         type: "INITIAL_PURCHASE",
@@ -2417,7 +2373,6 @@ describe("handlers", () => {
         payload: purchasePayload,
       });
 
-      // Refund with no entitlement_ids (product not mapped), should not revoke anything
       const refundPayload = {
         ...createEventPayload({
           id: "evt_refund_no_ents",
@@ -2438,7 +2393,6 @@ describe("handlers", () => {
         payload: refundPayload,
       });
 
-      // Entitlement should still be active, unmapped product refund shouldn't revoke
       expect(
         await t.query(api.entitlements.check, {
           appUserId: "user_refund_multi",
@@ -2452,7 +2406,6 @@ describe("handlers", () => {
     test("webhook updates sync-created subscription by (appUserId, productId) fallback", async () => {
       const t = initConvexTest();
 
-      // Sync creates a subscription (no originalTransactionId from webhook)
       await t.mutation(api.sync.ingest, {
         appUserId: "user_reconcile",
         subscriber: {
@@ -2478,14 +2431,12 @@ describe("handlers", () => {
         },
       });
 
-      // Verify sync created 1 subscription
       const subsBefore = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_reconcile",
       });
       expect(subsBefore).toHaveLength(1);
       expect(subsBefore[0].originalTransactionId).toBe("txn_sync_123");
 
-      // Webhook arrives with the real originalTransactionId
       const payload = createEventPayload({
         id: "evt_reconcile_1",
         type: "RENEWAL",
@@ -2506,7 +2457,6 @@ describe("handlers", () => {
         payload,
       });
 
-      // Should still be 1 subscription (not 2), with the webhook's originalTransactionId
       const subsAfter = await t.query(api.subscriptions.getByUser, {
         appUserId: "user_reconcile",
       });

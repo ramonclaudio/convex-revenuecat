@@ -58,7 +58,6 @@ describe("virtualCurrency", () => {
       const t = initConvexTest();
       const userId = "user_vc_accumulate";
 
-      // First transaction: +100
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_vc_add",
@@ -82,7 +81,6 @@ describe("virtualCurrency", () => {
         },
       });
 
-      // Second transaction: -30 (refund)
       await t.mutation(api.webhooks.process, {
         event: {
           id: "evt_vc_sub",
