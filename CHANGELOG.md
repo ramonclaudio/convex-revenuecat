@@ -43,11 +43,13 @@ refreshes the dev toolchain and CI.
 - `example/` is a runnable Vite + React app (`npm run example`) with real
   RevenueCat Web SDK purchases through the Test Store and a simulator for every
   webhook. Repo-only, not shipped in the package.
-- PR CI workflow runs `test`, `lint`, and `typecheck` on every pull request.
+- PR CI workflow runs `format:check`, `test`, `lint`, and `typecheck` on every
+  pull request.
 - The example frontend is type-checked: `typecheck` now runs
   `tsc -p example/tsconfig.app.json` alongside the component and
   `example/convex`.
-- `.prettierignore`.
+- `format` and `format:check` scripts plus `.prettierignore`; the codebase is
+  Prettier-clean and `validate` enforces it.
 - Resynced the Convex AI files via `npx convex ai-files install`.
 
 ## [0.3.0] - 2026-05-09
