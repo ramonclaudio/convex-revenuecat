@@ -7,8 +7,8 @@ version, upgrade first and reproduce against the latest before reporting.
 
 | Version | Supported |
 | :------ | :-------- |
-| 0.3.1   | Yes       |
-| < 0.3.1 | No        |
+| 0.3.x   | Yes       |
+| < 0.3.0 | No        |
 
 Once 1.0 lands, this table will cover the current major plus the previous major
 for a deprecation window. Pre-1.0, treat the latest `0.x` as the only supported
