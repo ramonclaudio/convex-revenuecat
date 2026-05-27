@@ -330,13 +330,13 @@ receive:
 | `UNCANCELLATION`               | Clears cancellation status                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `PRODUCT_CHANGE`               | Updates product on subscription                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `NON_RENEWING_PURCHASE`        | Grants entitlements for one-time purchase. Stored with `kind: "consumable"` so `getActiveSubscriptions` filters them out and `getConsumables` returns them                                                                                                                                                                                                                                                                                                   |
-| `TEMPORARY_ENTITLEMENT_GRANT`  | Temp access during store outage (24h max)                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `TEMPORARY_ENTITLEMENT_GRANT`  | Grants temp access during a store outage (RC caps it at 24h)                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `REFUND_REVERSED`              | Restores entitlements                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `TEST`                         | Logged only                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `INVOICE_ISSUANCE`             | Invoice created (Web Billing)                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `VIRTUAL_CURRENCY_TRANSACTION` | Currency adjustment                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `EXPERIMENT_ENROLLMENT`        | A/B test enrollment tracked                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `PURCHASE_REDEEMED`            | Web Billing code redemption. Grants entitlements to `redeemed_by`; an `alias` outcome merges the original purchaser onto the redeemer, a `transfer` outcome defers to the companion `TRANSFER`                                                                                                                                                                                                                                                               |
+| `PURCHASE_REDEEMED`            | Web Billing code redemption. Ensures the `redeemed_by` customer exists. An `alias` outcome merges the original purchaser's entitlements onto the redeemer, a `transfer` defers to the companion `TRANSFER`                                                                                                                                                                                                                                                   |
 | `REFUND` _(legacy)_            | Revokes entitlements. As of 2026 RC emits refunds as `CANCELLATION` with `cancel_reason: "CUSTOMER_SUPPORT"`. Handler retained for legacy projects                                                                                                                                                                                                                                                                                                           |
 | `SUBSCRIBER_ALIAS` _(legacy)_  | Migrates data from anonymous to real user ID when `logIn()` is called on a previously-anonymous user. Drops the anonymous source customer row after merge. [Deprecated](https://community.revenuecat.com/sdks-51/replacement-for-subscriber-alias-event-in-webhook-1291). New projects get `TRANSFER` instead (note: `TRANSFER` also fires when `restorePurchases()` attaches an existing receipt to a new user, which is semantically different from alias) |
 
@@ -354,13 +354,13 @@ cross-check against `GET /v1/subscribers/{app_user_id}`.
 
 ### Access-check semantics
 
-`hasEntitlement` mirrors the iOS SDK's `EntitlementInfo.isActive`: pure
-`expiresAtMs > now` (with lifetime entitlements as the no-expiry case). Grace
-period is encoded into `expiresAtMs` by the `BILLING_ISSUE` handler and
-`syncSubscriber`, not signaled via a separate flag. This avoids the "indefinite
-access if EXPIRATION drops" bug where a `billingIssueDetectedAt` short-circuit
-would keep entitlements active forever after a failed grace period without
-retry.
+`hasEntitlement` mirrors the iOS SDK's `EntitlementInfo.isActive`: the
+entitlement's `isActive` flag and `expiresAtMs > now` (with lifetime
+entitlements as the no-expiry case). Grace period is encoded into `expiresAtMs`
+by the `BILLING_ISSUE` handler and `syncSubscriber`, not signaled via a separate
+flag. This avoids the "indefinite access if EXPIRATION drops" bug where a
+`billingIssueDetectedAt` short-circuit would keep entitlements active forever
+after a failed grace period without retry.
 
 ### Derived `willRenew`
 
@@ -393,9 +393,9 @@ is populated only by `syncSubscriber`. Webhooks don't carry it. Both are
 ### Family sharing
 
 `entitlements.ownershipType` is populated from the webhook `ownership_type`
-field (`PURCHASED` or `FAMILY_SHARED`) on every grant/extend, and from REST
-sync. Consumers that want to exclude family-shared access for single-seat
-products can filter:
+field (`PURCHASED`, `FAMILY_SHARED`, or `UNKNOWN`) on every grant/extend, and
+from REST sync. Consumers that want to exclude family-shared access for
+single-seat products can filter:
 
 ```typescript
 const active = await revenuecat.getActiveEntitlements(ctx, { appUserId });
