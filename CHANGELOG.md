@@ -1,5 +1,7 @@
 # Changelog
 
+## [Unreleased]
+
 ## [0.3.1] - 2026-05-27
 
 `0.3.0` shipped `webhooks.recordFailure` as an `internalMutation`, which Convex
