@@ -36,7 +36,9 @@ const KNOWN_STORES = new Set<Store>([
 const mapStore = (s: string): Store => {
   const upper = s.toUpperCase();
   const candidate = upper === "UNKNOWN" ? "UNKNOWN_STORE" : upper;
-  return KNOWN_STORES.has(candidate as Store) ? (candidate as Store) : "UNKNOWN_STORE";
+  return KNOWN_STORES.has(candidate as Store)
+    ? (candidate as Store)
+    : "UNKNOWN_STORE";
 };
 
 const mapEnvironment = (sandbox: boolean) =>
@@ -106,8 +108,10 @@ export const ingest = mutation({
     const rawAttrs = subscriber.subscriber_attributes as
       | Record<string, { value: string; updated_at_ms: number }>
       | undefined;
-    const mergedAttrs: Record<string, { value: string; updated_at_ms: number }> =
-      { ...(existingCustomer?.attributes ?? {}) };
+    const mergedAttrs: Record<
+      string,
+      { value: string; updated_at_ms: number }
+    > = { ...(existingCustomer?.attributes ?? {}) };
     if (rawAttrs) {
       for (const [key, attr] of Object.entries(rawAttrs)) {
         const a = attr as { value: string; updated_at_ms: number };
@@ -120,10 +124,10 @@ export const ingest = mutation({
 
     const customerPatch = {
       originalAppUserId: subscriber.original_app_user_id ?? appUserId,
-      attributes:
-        Object.keys(mergedAttrs).length > 0 ? mergedAttrs : undefined,
+      attributes: Object.keys(mergedAttrs).length > 0 ? mergedAttrs : undefined,
       lastSeenAt: parseDate(subscriber.last_seen) ?? now,
-      managementUrl: subscriber.management_url ?? existingCustomer?.managementUrl,
+      managementUrl:
+        subscriber.management_url ?? existingCustomer?.managementUrl,
       updatedAt: now,
     };
 
@@ -177,8 +181,7 @@ export const ingest = mutation({
           (!expiresAtMs || gracePeriodExpiresAtMs > expiresAtMs)
             ? gracePeriodExpiresAtMs
             : expiresAtMs;
-        const isActive =
-          !effectiveExpiresAtMs || effectiveExpiresAtMs > now;
+        const isActive = !effectiveExpiresAtMs || effectiveExpiresAtMs > now;
 
         entitlementState.set(entId, {
           productId,
@@ -315,9 +318,13 @@ export const ingest = mutation({
           const transactionId = p.store_transaction_id ?? p.id;
           const isSandbox = p.is_sandbox ?? false;
           // Unknown store → UNKNOWN_STORE. Never silently default to APP_STORE.
-          const store = p.store ? mapStore(p.store) : ("UNKNOWN_STORE" as const);
+          const store = p.store
+            ? mapStore(p.store)
+            : ("UNKNOWN_STORE" as const);
           const priceAmount =
-            typeof p.price?.amount === "string" ? Number(p.price.amount) : p.price?.amount;
+            typeof p.price?.amount === "string"
+              ? Number(p.price.amount)
+              : p.price?.amount;
           const priceCurrency = p.price?.currency;
 
           const existing = await ctx.db

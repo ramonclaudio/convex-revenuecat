@@ -38,7 +38,11 @@ function eventBody(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function postJson(t: ReturnType<typeof initConvexTest>, body: unknown, headers: Record<string, string> = {}) {
+function postJson(
+  t: ReturnType<typeof initConvexTest>,
+  body: unknown,
+  headers: Record<string, string> = {},
+) {
   return t.fetch(WEBHOOK_PATH, {
     method: "POST",
     headers: {
@@ -107,7 +111,11 @@ describe("httpHandler: payload validation", () => {
 
   test("rejects body missing event field", async () => {
     const t = initConvexTest();
-    const res = await postJson(t, { api_version: "1.0" }, { Authorization: TEST_SECRET });
+    const res = await postJson(
+      t,
+      { api_version: "1.0" },
+      { Authorization: TEST_SECRET },
+    );
     expect(res.status).toBe(400);
   });
 
@@ -175,7 +183,9 @@ describe("httpHandler: happy path response shape", () => {
 
   test("200 with processed=false on duplicate event.id", async () => {
     const t = initConvexTest();
-    await postJson(t, eventBody({ id: "evt_dup" }), { Authorization: TEST_SECRET });
+    await postJson(t, eventBody({ id: "evt_dup" }), {
+      Authorization: TEST_SECRET,
+    });
     const res = await postJson(t, eventBody({ id: "evt_dup" }), {
       Authorization: TEST_SECRET,
     });

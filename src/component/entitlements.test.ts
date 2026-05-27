@@ -23,7 +23,9 @@ async function grantEnt(
     const existing = await ctx.db
       .query("entitlements")
       .withIndex("by_app_user_entitlement", (q) =>
-        q.eq("appUserId", args.appUserId).eq("entitlementId", args.entitlementId),
+        q
+          .eq("appUserId", args.appUserId)
+          .eq("entitlementId", args.entitlementId),
       )
       .first();
     const now = Date.now();
@@ -59,7 +61,9 @@ async function revokeEnt(
     const ent = await ctx.db
       .query("entitlements")
       .withIndex("by_app_user_entitlement", (q) =>
-        q.eq("appUserId", args.appUserId).eq("entitlementId", args.entitlementId),
+        q
+          .eq("appUserId", args.appUserId)
+          .eq("entitlementId", args.entitlementId),
       )
       .first();
     if (ent) {

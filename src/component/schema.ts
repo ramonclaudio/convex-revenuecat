@@ -20,7 +20,10 @@ export const storeValidator = v.union(
   v.literal("UNKNOWN_STORE"),
 );
 
-export const environmentValidator = v.union(v.literal("SANDBOX"), v.literal("PRODUCTION"));
+export const environmentValidator = v.union(
+  v.literal("SANDBOX"),
+  v.literal("PRODUCTION"),
+);
 
 export const periodTypeValidator = v.union(
   v.literal("TRIAL"),
@@ -42,7 +45,10 @@ const subscriberAttributeValidator = v.object({
   updated_at_ms: v.number(),
 });
 
-export const subscriberAttributesValidator = v.record(v.string(), subscriberAttributeValidator);
+export const subscriberAttributesValidator = v.record(
+  v.string(),
+  subscriberAttributeValidator,
+);
 
 export default defineSchema({
   rateLimits: defineTable({
@@ -75,7 +81,9 @@ export default defineSchema({
     /** "consumable" = NON_RENEWING_PURCHASE one-shot. Missing values on
      * pre-0.3.0 rows are treated as "subscription" until backfilled by
      * `subscriptions.backfillKind`. */
-    kind: v.optional(v.union(v.literal("subscription"), v.literal("consumable"))),
+    kind: v.optional(
+      v.union(v.literal("subscription"), v.literal("consumable")),
+    ),
     entitlementIds: v.optional(v.array(v.string())),
     store: storeValidator,
     environment: environmentValidator,
@@ -142,7 +150,11 @@ export default defineSchema({
     store: v.optional(storeValidator),
     payload: v.any(),
     processedAt: v.number(),
-    status: v.union(v.literal("processed"), v.literal("failed"), v.literal("ignored")),
+    status: v.union(
+      v.literal("processed"),
+      v.literal("failed"),
+      v.literal("ignored"),
+    ),
     error: v.optional(v.string()),
   })
     .index("by_event_id", ["eventId"])

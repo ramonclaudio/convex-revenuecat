@@ -5,13 +5,14 @@
     "strict": true,
 
     "target": "ESNext",
-    "lib": ["ES2021", "dom", "DOM.Iterable"],
+    "lib": ["ES2023", "dom", "DOM.Iterable"],
     "jsx": "react-jsx",
     "forceConsistentCasingInFileNames": true,
     "allowSyntheticDefaultImports": true,
     "noErrorTruncation": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "types": ["node"],
 
     "composite": true,
     "isolatedModules": true,

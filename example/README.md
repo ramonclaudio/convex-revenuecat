@@ -23,16 +23,19 @@ plus a simulator for every webhook the component handles, rendered live.
 example/
 ├── index.html
 ├── vite.config.ts
+├── tsconfig.app.json
 ├── src/
 │   ├── main.tsx          # ConvexProvider + RevenueCat Web SDK config
 │   └── App.tsx           # buy buttons, webhook simulator, live state panels
 └── convex/
     ├── convex.config.ts  # registers the component
+    ├── schema.ts         # empty app schema, state lives in the component
     ├── http.ts           # mounts the webhook handler via registerRoutes
     ├── subscriptions.ts  # identity-aware queries (auth via ctx.auth)
     ├── demo.ts           # demo-only reads + reset, keyed by explicit appUserId
     ├── simulate.ts       # demo-only: fires synthetic webhooks at the component
     ├── http.test.ts      # end-to-end HTTP tests
+    ├── setup.test.ts     # convex-test harness + component registration
     └── example.test.ts   # integration tests using withIdentity
 ```
 

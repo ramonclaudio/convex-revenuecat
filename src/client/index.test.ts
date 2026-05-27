@@ -19,14 +19,16 @@ function createEventPayload(
     id: overrides.id ?? `evt_${Date.now()}`,
     app_id: "app_123",
     app_user_id: overrides.app_user_id ?? "user_123",
-    original_app_user_id: overrides.original_app_user_id ?? overrides.app_user_id ?? "user_123",
+    original_app_user_id:
+      overrides.original_app_user_id ?? overrides.app_user_id ?? "user_123",
     aliases: [],
     event_timestamp_ms: Date.now(),
     product_id: overrides.product_id ?? "premium_monthly",
     entitlement_ids: overrides.entitlement_ids ?? ["premium"],
     period_type: "NORMAL" as const,
     purchased_at_ms: Date.now(),
-    expiration_at_ms: overrides.expiration_at_ms ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
+    expiration_at_ms:
+      overrides.expiration_at_ms ?? Date.now() + 30 * 24 * 60 * 60 * 1000,
     transaction_id: `txn_${Date.now()}`,
     original_transaction_id: `txn_original_${Date.now()}`,
     store: "APP_STORE" as const,
@@ -129,7 +131,10 @@ describe("RevenueCat client", () => {
       });
 
       expect(result.length).toBe(2);
-      expect(result.map((e) => e.entitlementId).sort()).toEqual(["premium", "pro"]);
+      expect(result.map((e) => e.entitlementId).sort()).toEqual([
+        "premium",
+        "pro",
+      ]);
     });
   });
 
@@ -388,12 +393,17 @@ describe("RevenueCat client", () => {
     });
 
     test("returns false when billingIssueDetectedAt is set", () => {
-      expect(willRenew(sub({ billingIssueDetectedAt: Date.now() }))).toBe(false);
+      expect(willRenew(sub({ billingIssueDetectedAt: Date.now() }))).toBe(
+        false,
+      );
     });
   });
 
   describe("convenience helpers", () => {
-    async function setupActiveUser(t: ReturnType<typeof initConvexTest>, appUserId: string) {
+    async function setupActiveUser(
+      t: ReturnType<typeof initConvexTest>,
+      appUserId: string,
+    ) {
       await t.mutation(components.revenuecat.webhooks.process, {
         event: {
           id: `evt_setup_${appUserId}`,
@@ -472,7 +482,10 @@ describe("RevenueCat client", () => {
           environment: "SANDBOX" as const,
           store: "APP_STORE" as const,
         },
-        payload: { ...createEventPayload({ app_user_id: "user_trial" }), period_type: "TRIAL" },
+        payload: {
+          ...createEventPayload({ app_user_id: "user_trial" }),
+          period_type: "TRIAL",
+        },
       });
       const result = await t.run((ctx) =>
         revenuecat.isInTrial(ctx, { appUserId: "user_trial" }),

@@ -182,7 +182,9 @@ describe("customers", () => {
         });
       });
 
-      const result = await t.mutation(api.customers.purge, { appUserId: userId });
+      const result = await t.mutation(api.customers.purge, {
+        appUserId: userId,
+      });
 
       expect(result.customer).toBe(1);
       expect(result.subscriptions).toBe(1);
@@ -193,7 +195,9 @@ describe("customers", () => {
       expect(result.virtualCurrencyTransactions).toBe(1);
       expect(result.webhookEvents).toBe(0); // appUserId not set on the webhook event row for this handler path
 
-      expect(await t.query(api.customers.get, { appUserId: userId })).toBeNull();
+      expect(
+        await t.query(api.customers.get, { appUserId: userId }),
+      ).toBeNull();
       expect(
         await t.query(api.subscriptions.getByUser, { appUserId: userId }),
       ).toHaveLength(0);
@@ -206,7 +210,10 @@ describe("customers", () => {
       const t = initConvexTest();
 
       await t.mutation(internal.handlers.processInitialPurchase, {
-        event: makeEventPayload({ app_user_id: "user_keep", entitlement_ids: ["keep_me"] }),
+        event: makeEventPayload({
+          app_user_id: "user_keep",
+          entitlement_ids: ["keep_me"],
+        }),
       });
       await t.mutation(internal.handlers.processInitialPurchase, {
         event: makeEventPayload({

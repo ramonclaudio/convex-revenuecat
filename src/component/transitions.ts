@@ -80,7 +80,11 @@ export function affectedUserIds(payload: Record<string, unknown>): string[] {
   };
   add(payload.app_user_id);
   add(payload.original_app_user_id);
-  for (const key of ["transferred_from", "transferred_to", "aliases"] as const) {
+  for (const key of [
+    "transferred_from",
+    "transferred_to",
+    "aliases",
+  ] as const) {
     const arr = payload[key];
     if (Array.isArray(arr)) for (const v of arr) add(v);
   }
@@ -177,16 +181,18 @@ export type HooksArg = {
   onEntitlementDeactivated?: string;
 };
 
-export function resolveHooks(hooks: HooksArg | undefined): LifecycleHooks | undefined {
+export function resolveHooks(
+  hooks: HooksArg | undefined,
+): LifecycleHooks | undefined {
   if (!hooks) return undefined;
   const resolved: LifecycleHooks = {};
   if (hooks.onEntitlementActivated) {
-    resolved.onEntitlementActivated = hooks.onEntitlementActivated as
-      | EntitlementActivatedHook;
+    resolved.onEntitlementActivated =
+      hooks.onEntitlementActivated as EntitlementActivatedHook;
   }
   if (hooks.onEntitlementDeactivated) {
-    resolved.onEntitlementDeactivated = hooks.onEntitlementDeactivated as
-      | EntitlementDeactivatedHook;
+    resolved.onEntitlementDeactivated =
+      hooks.onEntitlementDeactivated as EntitlementDeactivatedHook;
   }
   if (!resolved.onEntitlementActivated && !resolved.onEntitlementDeactivated) {
     return undefined;

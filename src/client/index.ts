@@ -1,4 +1,8 @@
-import { createFunctionHandle, httpActionGeneric, queryGeneric } from "convex/server";
+import {
+  createFunctionHandle,
+  httpActionGeneric,
+  queryGeneric,
+} from "convex/server";
 import type {
   GenericActionCtx,
   GenericDataModel,
@@ -274,15 +278,21 @@ export interface RevenueCatOptions {
   hooks?: LifecycleHooks;
   /** Custom redactor run before persisting events to `webhookEvents`. Default
    * strips RC-reserved PII keys. Pass `"off"` to disable (not recommended). */
-  redactPayload?: ((payload: Record<string, unknown>) => Record<string, unknown>) | "off";
+  redactPayload?:
+    | ((payload: Record<string, unknown>) => Record<string, unknown>)
+    | "off";
   /** Resolver for `appUserId` used by `revenuecat.api()` queries. Defaults
    * to `ctx.auth.getUserIdentity().subject`. Override when your auth
    * identity and RC app-user-id are different strings. */
   getAppUserId?: (ctx: AuthCtx) => Promise<string> | string;
 }
 
-function defaultRedactPayload(payload: Record<string, unknown>): Record<string, unknown> {
-  const attrs = payload.subscriber_attributes as Record<string, unknown> | undefined;
+function defaultRedactPayload(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const attrs = payload.subscriber_attributes as
+    | Record<string, unknown>
+    | undefined;
   if (!attrs || typeof attrs !== "object") return payload;
   const redacted: Record<string, unknown> = { ...payload };
   const filteredAttrs: Record<string, unknown> = {};
@@ -371,9 +381,7 @@ function normalizeStore(store: unknown): string | undefined {
 // Resolve hooks to opaque `FunctionHandle` strings before sending them as
 // mutation args. `FunctionReference` objects lose their symbol-keyed markers
 // crossing the boundary, so the strings are the only stable form.
-async function buildHooksArg(
-  hooks: LifecycleHooks | undefined,
-): Promise<
+async function buildHooksArg(hooks: LifecycleHooks | undefined): Promise<
   | {
       onEntitlementActivated?: string;
       onEntitlementDeactivated?: string;
@@ -436,19 +444,32 @@ export class RevenueCat {
     return ctx.runQuery(this.component.entitlements.check, args);
   }
 
-  async getActiveEntitlements(ctx: QueryCtx, args: { appUserId: string }): Promise<Entitlement[]> {
-    return ctx.runQuery(this.component.entitlements.getActive, args) as Promise<Entitlement[]>;
+  async getActiveEntitlements(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Entitlement[]> {
+    return ctx.runQuery(this.component.entitlements.getActive, args) as Promise<
+      Entitlement[]
+    >;
   }
 
-  async getAllEntitlements(ctx: QueryCtx, args: { appUserId: string }): Promise<Entitlement[]> {
-    return ctx.runQuery(this.component.entitlements.list, args) as Promise<Entitlement[]>;
+  async getAllEntitlements(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Entitlement[]> {
+    return ctx.runQuery(this.component.entitlements.list, args) as Promise<
+      Entitlement[]
+    >;
   }
 
   async getActiveSubscriptions(
     ctx: QueryCtx,
     args: { appUserId: string },
   ): Promise<Subscription[]> {
-    return ctx.runQuery(this.component.subscriptions.getActive, args) as Promise<Subscription[]>;
+    return ctx.runQuery(
+      this.component.subscriptions.getActive,
+      args,
+    ) as Promise<Subscription[]>;
   }
 
   /** Every `NON_RENEWING_PURCHASE` row for the user, regardless of when it
@@ -465,12 +486,24 @@ export class RevenueCat {
     ) as Promise<Subscription[]>;
   }
 
-  async getAllSubscriptions(ctx: QueryCtx, args: { appUserId: string }): Promise<Subscription[]> {
-    return ctx.runQuery(this.component.subscriptions.getByUser, args) as Promise<Subscription[]>;
+  async getAllSubscriptions(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Subscription[]> {
+    return ctx.runQuery(
+      this.component.subscriptions.getByUser,
+      args,
+    ) as Promise<Subscription[]>;
   }
 
-  async getCustomer(ctx: QueryCtx, args: { appUserId: string }): Promise<Customer | null> {
-    return ctx.runQuery(this.component.customers.get, args) as Promise<Customer | null>;
+  async getCustomer(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Customer | null> {
+    return ctx.runQuery(
+      this.component.customers.get,
+      args,
+    ) as Promise<Customer | null>;
   }
 
   /** Purge all component-local data for a user. Returns per-table counts.
@@ -497,62 +530,107 @@ export class RevenueCat {
     ctx: QueryCtx,
     args: { appUserId: string; experimentId: string },
   ): Promise<Experiment | null> {
-    return ctx.runQuery(this.component.experiments.get, args) as Promise<Experiment | null>;
+    return ctx.runQuery(
+      this.component.experiments.get,
+      args,
+    ) as Promise<Experiment | null>;
   }
 
-  async getExperiments(ctx: QueryCtx, args: { appUserId: string }): Promise<Experiment[]> {
-    return ctx.runQuery(this.component.experiments.list, args) as Promise<Experiment[]>;
+  async getExperiments(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Experiment[]> {
+    return ctx.runQuery(this.component.experiments.list, args) as Promise<
+      Experiment[]
+    >;
   }
 
-  async getTransfer(ctx: QueryCtx, args: { eventId: string }): Promise<Transfer | null> {
-    return ctx.runQuery(this.component.transfers.getByEventId, args) as Promise<Transfer | null>;
+  async getTransfer(
+    ctx: QueryCtx,
+    args: { eventId: string },
+  ): Promise<Transfer | null> {
+    return ctx.runQuery(
+      this.component.transfers.getByEventId,
+      args,
+    ) as Promise<Transfer | null>;
   }
 
-  async getTransfers(ctx: QueryCtx, args: { limit?: number } = {}): Promise<Transfer[]> {
-    return ctx.runQuery(this.component.transfers.list, args) as Promise<Transfer[]>;
+  async getTransfers(
+    ctx: QueryCtx,
+    args: { limit?: number } = {},
+  ): Promise<Transfer[]> {
+    return ctx.runQuery(this.component.transfers.list, args) as Promise<
+      Transfer[]
+    >;
   }
 
-  async getInvoice(ctx: QueryCtx, args: { invoiceId: string }): Promise<Invoice | null> {
-    return ctx.runQuery(this.component.invoices.get, args) as Promise<Invoice | null>;
+  async getInvoice(
+    ctx: QueryCtx,
+    args: { invoiceId: string },
+  ): Promise<Invoice | null> {
+    return ctx.runQuery(
+      this.component.invoices.get,
+      args,
+    ) as Promise<Invoice | null>;
   }
 
-  async getInvoices(ctx: QueryCtx, args: { appUserId: string }): Promise<Invoice[]> {
-    return ctx.runQuery(this.component.invoices.listByUser, args) as Promise<Invoice[]>;
+  async getInvoices(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<Invoice[]> {
+    return ctx.runQuery(this.component.invoices.listByUser, args) as Promise<
+      Invoice[]
+    >;
   }
 
   async getVirtualCurrencyBalance(
     ctx: QueryCtx,
     args: { appUserId: string; currencyCode: string },
   ): Promise<VirtualCurrencyBalance | null> {
-    return ctx.runQuery(this.component.virtualCurrency.getBalance, args) as Promise<VirtualCurrencyBalance | null>;
+    return ctx.runQuery(
+      this.component.virtualCurrency.getBalance,
+      args,
+    ) as Promise<VirtualCurrencyBalance | null>;
   }
 
   async getVirtualCurrencyBalances(
     ctx: QueryCtx,
     args: { appUserId: string },
   ): Promise<VirtualCurrencyBalance[]> {
-    return ctx.runQuery(this.component.virtualCurrency.listBalances, args) as Promise<VirtualCurrencyBalance[]>;
+    return ctx.runQuery(
+      this.component.virtualCurrency.listBalances,
+      args,
+    ) as Promise<VirtualCurrencyBalance[]>;
   }
 
   async getVirtualCurrencyTransactions(
     ctx: QueryCtx,
     args: { appUserId: string; currencyCode?: string },
   ): Promise<VirtualCurrencyTransaction[]> {
-    return ctx.runQuery(this.component.virtualCurrency.listTransactions, args) as Promise<VirtualCurrencyTransaction[]>;
+    return ctx.runQuery(
+      this.component.virtualCurrency.listTransactions,
+      args,
+    ) as Promise<VirtualCurrencyTransaction[]>;
   }
 
   async isInGracePeriod(
     ctx: QueryCtx,
     args: { originalTransactionId: string },
   ): Promise<GracePeriodStatus> {
-    return ctx.runQuery(this.component.subscriptions.isInGracePeriod, args) as Promise<GracePeriodStatus>;
+    return ctx.runQuery(
+      this.component.subscriptions.isInGracePeriod,
+      args,
+    ) as Promise<GracePeriodStatus>;
   }
 
   async getSubscriptionsInGracePeriod(
     ctx: QueryCtx,
     args: { appUserId: string },
   ): Promise<Subscription[]> {
-    return ctx.runQuery(this.component.subscriptions.getInGracePeriod, args) as Promise<Subscription[]>;
+    return ctx.runQuery(
+      this.component.subscriptions.getInGracePeriod,
+      args,
+    ) as Promise<Subscription[]>;
   }
 
   /** Idempotent reconcile from `GET /v1/subscribers/{app_user_id}`. */
@@ -577,7 +655,9 @@ export class RevenueCat {
       this.component.entitlements.getActive,
       { appUserId: args.appUserId },
     )) as Entitlement[];
-    return entitlements.find((e) => e.entitlementId === args.entitlementId) ?? null;
+    return (
+      entitlements.find((e) => e.entitlementId === args.entitlementId) ?? null
+    );
   }
 
   /** True when the user has any active entitlement. */
@@ -593,7 +673,10 @@ export class RevenueCat {
   }
 
   /** True when the user has any active subscription. */
-  async isSubscriber(ctx: QueryCtx, args: { appUserId: string }): Promise<boolean> {
+  async isSubscriber(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<boolean> {
     const subs = (await ctx.runQuery(this.component.subscriptions.getActive, {
       appUserId: args.appUserId,
     })) as Subscription[];
@@ -603,21 +686,31 @@ export class RevenueCat {
   /** True when any active subscription is in a TRIAL (free) or INTRO (paid
    * introductory) period. For free-trial-only semantics, check
    * `periodType === "TRIAL"` directly. */
-  async isInTrial(ctx: QueryCtx, args: { appUserId: string }): Promise<boolean> {
+  async isInTrial(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<boolean> {
     const subs = (await ctx.runQuery(this.component.subscriptions.getActive, {
       appUserId: args.appUserId,
     })) as Subscription[];
-    return subs.some((s) => s.periodType === "TRIAL" || s.periodType === "INTRO");
+    return subs.some(
+      (s) => s.periodType === "TRIAL" || s.periodType === "INTRO",
+    );
   }
 
   /** True when the user has ever been in a TRIAL or INTRO period. */
-  async wasInTrialEver(ctx: QueryCtx, args: { appUserId: string }): Promise<boolean> {
+  async wasInTrialEver(
+    ctx: QueryCtx,
+    args: { appUserId: string },
+  ): Promise<boolean> {
     const subs = (await ctx.runQuery(this.component.subscriptions.getByUser, {
       appUserId: args.appUserId,
     })) as Subscription[];
     return subs.some(
       (s) =>
-        s.periodType === "TRIAL" || s.periodType === "INTRO" || s.isTrialConversion === true,
+        s.periodType === "TRIAL" ||
+        s.periodType === "INTRO" ||
+        s.isTrialConversion === true,
     );
   }
 
@@ -893,10 +986,13 @@ export class RevenueCat {
           "[convex-revenuecat] REVENUECAT_WEBHOOK_AUTH is not set; rejecting webhook. " +
             "Set it via `npx convex env set REVENUECAT_WEBHOOK_AUTH <secret>`.",
         );
-        return new Response(JSON.stringify({ error: "Webhook auth not configured" }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ error: "Webhook auth not configured" }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
       validateAuthSecret(expectedAuth);
       const expectedToken = extractAuthToken(expectedAuth).trim();
@@ -904,7 +1000,10 @@ export class RevenueCat {
       const authHeader = request.headers.get("Authorization") ?? "";
       const providedToken = extractAuthToken(authHeader).trim();
 
-      if (providedToken.length === 0 || !secureCompare(providedToken, expectedToken)) {
+      if (
+        providedToken.length === 0 ||
+        !secureCompare(providedToken, expectedToken)
+      ) {
         return new Response(JSON.stringify({ error: "Unauthorized" }), {
           status: 401,
           headers: { "Content-Type": "application/json" },
@@ -930,14 +1029,24 @@ export class RevenueCat {
         });
       }
 
-      const payload = body as { api_version?: string; event?: Record<string, unknown> };
+      const payload = body as {
+        api_version?: string;
+        event?: Record<string, unknown>;
+      };
       const event = payload.event;
 
-      if (!event || typeof event.id !== "string" || typeof event.type !== "string") {
-        return new Response(JSON.stringify({ error: "Invalid webhook payload" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+      if (
+        !event ||
+        typeof event.id !== "string" ||
+        typeof event.type !== "string"
+      ) {
+        return new Response(
+          JSON.stringify({ error: "Invalid webhook payload" }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
 
       // Validate the union. The mutation-side cast is type-only, so a
@@ -971,7 +1080,9 @@ export class RevenueCat {
 
       const transformed = transformPayload(event);
       let sanitizedEvent: Record<string, unknown> =
-        transformed && typeof transformed === "object" && !Array.isArray(transformed)
+        transformed &&
+        typeof transformed === "object" &&
+        !Array.isArray(transformed)
           ? (transformed as Record<string, unknown>)
           : (event as Record<string, unknown>);
       if (redactPayload) {
@@ -987,7 +1098,10 @@ export class RevenueCat {
             );
           }
         } catch (err) {
-          console.warn("[convex-revenuecat] redactPayload threw; using unredacted", err);
+          console.warn(
+            "[convex-revenuecat] redactPayload threw; using unredacted",
+            err,
+          );
         }
       }
       const normalizedStore = normalizeStore(event.store) as Store | undefined;
@@ -1019,26 +1133,39 @@ export class RevenueCat {
         if (error && typeof error === "object" && "data" in error) {
           const convexError = error as {
             message?: string;
-            data?: { code?: string; message?: string; data?: { resetAt?: number } };
+            data?: {
+              code?: string;
+              message?: string;
+              data?: { resetAt?: number };
+            };
           };
           if (convexError.data?.code === "RATE_LIMITED") {
             const resetAt = convexError.data?.data?.resetAt;
-            return new Response(JSON.stringify({ error: "Rate limit exceeded", resetAt }), {
-              status: 429,
-              headers: {
-                "Content-Type": "application/json",
-                ...(resetAt
-                  ? { "Retry-After": String(Math.ceil((resetAt - Date.now()) / 1000)) }
-                  : {}),
+            return new Response(
+              JSON.stringify({ error: "Rate limit exceeded", resetAt }),
+              {
+                status: 429,
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(resetAt
+                    ? {
+                        "Retry-After": String(
+                          Math.ceil((resetAt - Date.now()) / 1000),
+                        ),
+                      }
+                    : {}),
+                },
               },
-            });
+            );
           }
           if (convexError.data?.code === "INVALID_ARGUMENT") {
             // Record in a fresh transaction so the audit row survives the
             // rollback. Swallow recordFailure errors, losing the audit row
             // beats RC retrying a permanent 400.
             const failureMessage =
-              convexError.data?.message ?? convexError.message ?? "INVALID_ARGUMENT";
+              convexError.data?.message ??
+              convexError.message ??
+              "INVALID_ARGUMENT";
             try {
               await ctx.runMutation(component.webhooks.recordFailure, {
                 event: {
@@ -1046,7 +1173,8 @@ export class RevenueCat {
                   type: event.type as string,
                   app_id: event.app_id as string | undefined,
                   app_user_id: event.app_user_id as string | undefined,
-                  environment: (event.environment as Environment) ?? "PRODUCTION",
+                  environment:
+                    (event.environment as Environment) ?? "PRODUCTION",
                   store: normalizedStore,
                 },
                 payload: sanitizedEvent,
@@ -1060,10 +1188,13 @@ export class RevenueCat {
                 recordErr,
               );
             }
-            return new Response(JSON.stringify({ error: "Invalid webhook payload" }), {
-              status: 400,
-              headers: { "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({ error: "Invalid webhook payload" }),
+              {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
           }
         }
         throw error;

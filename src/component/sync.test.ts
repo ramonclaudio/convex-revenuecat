@@ -241,9 +241,7 @@ describe("sync.ingest", () => {
     expect(customer!.attributes!.__dollar__email.value).toBe(
       "test@example.com",
     );
-    expect(customer!.attributes!.__dollar__displayName.value).toBe(
-      "Test User",
-    );
+    expect(customer!.attributes!.__dollar__displayName.value).toBe("Test User");
     expect(customer!.attributes!.custom_field.value).toBe("custom");
   });
 
@@ -453,7 +451,9 @@ describe("sync.ingest", () => {
     expect(subs[0].ownershipType).toBe("FAMILY_SHARED");
     expect(subs[0].isFamilyShare).toBe(true);
     expect(subs[0].refundedAtMs).toBe(new Date(refundTime).getTime());
-    expect(subs[0].originalPurchasedAtMs).toBe(new Date(originalPurchase).getTime());
+    expect(subs[0].originalPurchasedAtMs).toBe(
+      new Date(originalPurchase).getTime(),
+    );
 
     const ents = await t.query(api.entitlements.list, {
       appUserId: "user_sync_ownership",

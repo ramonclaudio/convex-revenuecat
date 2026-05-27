@@ -1,0 +1,12 @@
+# Build output
+dist/
+example/dist/
+
+# Convex generated code
+example/convex/_generated/
+
+# Vendored Convex AI files, keep as upstream ships them
+.agents/skills/
+.claude/skills/
+AGENTS.md
+CLAUDE.md

@@ -25,14 +25,15 @@ with `npm run example`.
 ## Install
 
 ```bash
-npm install convex-revenuecat
+npm install convex-revenuecat convex
 # or
-pnpm add convex-revenuecat
+pnpm add convex-revenuecat convex
 # or
-bun add convex-revenuecat
+bun add convex-revenuecat convex
 ```
 
-Requires Convex `>=1.35.1`.
+`convex` is a peer dependency. Install it alongside the package. Requires Convex
+`>=1.35.1`.
 
 ## Setup
 
