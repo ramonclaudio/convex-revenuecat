@@ -1,0 +1,5 @@
+.agents/skills/
+.claude/skills/
+example/convex/_generated/
+dist/
+example/dist/
