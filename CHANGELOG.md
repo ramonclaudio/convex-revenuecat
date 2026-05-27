@@ -27,6 +27,14 @@ refreshes the dev toolchain and CI.
 - `deleteCustomer` purges `TRANSFER` audit rows, which carry no `app_user_id`.
 - Bound the rate-limit window read so a flooded key can't amplify reads.
 
+### Security
+
+- Force `ws@8.20.1` via `overrides` to clear GHSA-58qx-3vcg-4xpx (uninitialized
+  memory disclosure) in the `ws@8.18.0` that `convex` pins. Dev-tree only, never
+  shipped in the published package. The fix is on convex `main` but unreleased.
+  Drop the override once `convex` ships `> 1.39.1` with `ws >= 8.20.1`. See
+  [get-convex/convex-js#166](https://github.com/get-convex/convex-js/issues/166).
+
 ### Changed
 
 - `subscriptions.list` and `transfers.list` paginate via `convex-helpers`, now a

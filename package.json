@@ -121,5 +121,8 @@
   "module": "./dist/client/index.js",
   "dependencies": {
     "convex-helpers": "^0.1.118"
+  },
+  "overrides": {
+    "ws": "8.20.1"
   }
 }
