@@ -1,13 +1,12 @@
 # Changelog
 
-## [Unreleased]
-
-## [0.3.1] - 2026-05-26
+## [0.3.1] - 2026-05-27
 
 `0.3.0` shipped `webhooks.recordFailure` as an `internalMutation`, which Convex
 omits from the generated component API, so the client's required reference
 didn't resolve and consumers couldn't build. This restores the parent-callable
-surface and regenerates the component API from real `convex codegen`.
+surface and regenerates the component API from real `convex codegen`, and
+refreshes the dev toolchain and CI.
 
 ### Fixed
 
@@ -30,12 +29,24 @@ surface and regenerates the component API from real `convex codegen`.
 
 - `subscriptions.list` and `transfers.list` paginate via `convex-helpers`, now a
   runtime dependency.
+- Bumped Vite to 8 and `@vitejs/plugin-react` to 6. Refreshed the dev toolchain:
+  `convex` 1.39.1, `convex-test` 0.0.53, `eslint` 10.4.0 (+ `@eslint/js`),
+  `@vitest/coverage-v8` and `vitest` 4.1.7, `typescript-eslint` 8.60, plus
+  `@types/node`, `globals`, `jiti`, `pkg-pr-new`.
+- Restored the `tsconfig.json` lib to ES2023 and `types: ["node"]` to match the
+  Convex component template.
 
 ### Added
 
 - `example/` is a runnable Vite + React app (`npm run example`) with real
   RevenueCat Web SDK purchases through the Test Store and a simulator for every
   webhook. Repo-only, not shipped in the package.
+- PR CI workflow runs `test`, `lint`, and `typecheck` on every pull request.
+- The example frontend is type-checked: `typecheck` now runs
+  `tsc -p example/tsconfig.app.json` alongside the component and
+  `example/convex`.
+- `.prettierignore`.
+- Resynced the Convex AI files via `npx convex ai-files install`.
 
 ## [0.3.0] - 2026-05-09
 
