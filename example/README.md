@@ -6,16 +6,20 @@ plus a simulator for every webhook the component handles, rendered live.
 
 ## What it shows
 
-- Real purchases of every offering (Monthly, Yearly, Lifetime) through the
-  RevenueCat Web SDK and Test Store. Each fires a real webhook at your
-  deployment over the HTTP path.
-- A simulator that fires every event the component handles (renewal, product
-  change, billing issue, expiration, refund, transfer, redeem, virtual currency,
-  invoice, experiment, and the rest), for the events RevenueCat won't emit on
-  demand.
-- Live reactive panels for entitlement, subscription, grace, customer,
-  virtual-currency, invoice, and recent-webhook state, plus a reset to start
-  from a clean slate.
+Two paths into the component, side by side.
+
+Real purchases run through the RevenueCat Web SDK and Test Store. The Buy
+buttons call `Purchases.purchase()`, RevenueCat records the sandbox purchase and
+sends a real webhook to your `convex.site` endpoint. These are the only actions
+that reach RevenueCat, so they're the only ones on the RC webhook dashboard.
+
+Simulated webhooks cover everything else. The Simulate buttons post a
+RevenueCat-shaped payload straight to the component's `process` mutation,
+bypassing RevenueCat and the HTTP and auth layer. They drive the handler, dedup,
+and state logic, but never reach RevenueCat and never show on the dashboard.
+
+Live reactive panels for entitlement, subscription, grace, customer,
+virtual-currency, invoice, and recent-webhook state update on every action.
 
 ## Structure
 
@@ -74,6 +78,34 @@ npm run test
 
 Open the Vite URL, buy an offering or fire a simulated webhook, and watch the
 panels update live.
+
+## Real vs simulated
+
+RevenueCat only emits events when something real happens, and the web SDK can
+trigger only a couple of them. From this client-only demo:
+
+- Real on a buy: `INITIAL_PURCHASE` (Monthly and Yearly) and
+  `NON_RENEWING_PURCHASE` (Lifetime). The real SDK runs, so RevenueCat sends the
+  webhook and it shows on the RC dashboard.
+- Real on RevenueCat's clock: the Test Store auto-renews and expires test
+  subscriptions on a compressed schedule, so `RENEWAL` and `EXPIRATION` land on
+  their own a few minutes after a buy. Watch the recent-events panel.
+- Simulated, because the client can't trigger them: `@revenuecat/purchases-js`
+  has no product-change method (`PRODUCT_CHANGE`), virtual currency is read-only
+  (`VIRTUAL_CURRENCY_TRANSACTION`), and `changeUser` switches identity without
+  re-attributing a receipt, so it fires no `TRANSFER`. Everything else
+  (`BILLING_ISSUE`, `SUBSCRIPTION_PAUSED`, `CANCELLATION`, `UNCANCELLATION`,
+  `SUBSCRIPTION_EXTENDED`, `INVOICE_ISSUANCE`, refunds,
+  `TEMPORARY_ENTITLEMENT_GRANT`, `EXPERIMENT_ENROLLMENT`, `PURCHASE_REDEEMED`,
+  `TEST`, and the legacy pair) needs a real store condition, a dashboard action,
+  or a server call with a secret key, none of which a client-only showcase can
+  force.
+
+Simulated payloads are RevenueCat-shaped, carrying the same fields a real
+webhook does. They're tagged `environment: "PRODUCTION"` while real Test Store
+events are `SANDBOX`, so you can tell them apart in the `webhookEvents` audit
+table. Handler correctness for every event is covered by the component's own
+suite (`src/component/*.test.ts`). The simulator just shows the flows live.
 
 ## Supported webhook events
 

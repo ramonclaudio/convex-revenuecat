@@ -2466,4 +2466,181 @@ describe("handlers", () => {
       );
     });
   });
+
+  describe("multi-product entitlement", () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const fire = (
+      t: ReturnType<typeof initConvexTest>,
+      p: ReturnType<typeof createEventPayload>,
+    ) =>
+      t.mutation(api.webhooks.process, {
+        event: {
+          id: p.id,
+          type: p.type,
+          app_id: p.app_id,
+          app_user_id: p.app_user_id,
+          environment: p.environment,
+          store: p.store,
+        },
+        payload: p,
+      });
+
+    test("EXPIRATION of one product keeps an entitlement still granted by another active subscription", async () => {
+      const t = initConvexTest();
+      const now = Date.now();
+      const yearlyExp = now + 300 * DAY;
+      const monthlyExp = now + 5 * DAY;
+      const user = "user_multi_grant";
+
+      await fire(
+        t,
+        createEventPayload({
+          id: "evt_year",
+          type: "INITIAL_PURCHASE",
+          app_user_id: user,
+          product_id: "yearly",
+          entitlement_ids: ["premium"],
+          expiration_at_ms: yearlyExp,
+          original_transaction_id: "otxn_year",
+          transaction_id: "txn_year",
+        }),
+      );
+      await fire(
+        t,
+        createEventPayload({
+          id: "evt_month",
+          type: "INITIAL_PURCHASE",
+          app_user_id: user,
+          product_id: "monthly",
+          entitlement_ids: ["premium"],
+          expiration_at_ms: monthlyExp,
+          original_transaction_id: "otxn_month",
+          transaction_id: "txn_month",
+        }),
+      );
+      await fire(
+        t,
+        createEventPayload({
+          id: "evt_month_exp",
+          type: "EXPIRATION",
+          app_user_id: user,
+          product_id: "monthly",
+          entitlement_ids: ["premium"],
+          expiration_at_ms: now - 1,
+          original_transaction_id: "otxn_month",
+          transaction_id: "txn_month",
+        }),
+      );
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: user,
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
+
+      const active = await t.query(api.entitlements.getActive, {
+        appUserId: user,
+      });
+      expect(active).toHaveLength(1);
+      expect(active[0].expiresAtMs).toBe(yearlyExp);
+      expect(active[0].productId).toBe("yearly");
+    });
+
+    test("refund of one product keeps an entitlement still granted by another active subscription", async () => {
+      const t = initConvexTest();
+      const now = Date.now();
+      const yearlyExp = now + 300 * DAY;
+      const monthlyExp = now + 5 * DAY;
+      const user = "user_multi_refund";
+
+      await fire(
+        t,
+        createEventPayload({
+          id: "evt_year2",
+          type: "INITIAL_PURCHASE",
+          app_user_id: user,
+          product_id: "yearly",
+          entitlement_ids: ["premium"],
+          expiration_at_ms: yearlyExp,
+          original_transaction_id: "otxn_year2",
+          transaction_id: "txn_year2",
+        }),
+      );
+      await fire(
+        t,
+        createEventPayload({
+          id: "evt_month2",
+          type: "INITIAL_PURCHASE",
+          app_user_id: user,
+          product_id: "monthly",
+          entitlement_ids: ["premium"],
+          expiration_at_ms: monthlyExp,
+          original_transaction_id: "otxn_month2",
+          transaction_id: "txn_month2",
+        }),
+      );
+      await fire(
+        t,
+        createEventPayload({
+          id: "evt_month_refund",
+          type: "CANCELLATION",
+          app_user_id: user,
+          product_id: "monthly",
+          cancel_reason: "CUSTOMER_SUPPORT",
+          entitlement_ids: ["premium"],
+          expiration_at_ms: monthlyExp,
+          original_transaction_id: "otxn_month2",
+          transaction_id: "txn_month2",
+        }),
+      );
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: user,
+          entitlementId: "premium",
+        }),
+      ).toBe(true);
+    });
+
+    test("EXPIRATION of the only granting product still revokes", async () => {
+      const t = initConvexTest();
+      const now = Date.now();
+      const user = "user_single_grant";
+
+      await fire(
+        t,
+        createEventPayload({
+          id: "evt_only",
+          type: "INITIAL_PURCHASE",
+          app_user_id: user,
+          product_id: "monthly",
+          entitlement_ids: ["premium"],
+          expiration_at_ms: now + 5 * DAY,
+          original_transaction_id: "otxn_only",
+          transaction_id: "txn_only",
+        }),
+      );
+      await fire(
+        t,
+        createEventPayload({
+          id: "evt_only_exp",
+          type: "EXPIRATION",
+          app_user_id: user,
+          product_id: "monthly",
+          entitlement_ids: ["premium"],
+          expiration_at_ms: now - 1,
+          original_transaction_id: "otxn_only",
+          transaction_id: "txn_only",
+        }),
+      );
+
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId: user,
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+    });
+  });
 });

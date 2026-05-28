@@ -1,16 +1,23 @@
 # Changelog
 
-## [Unreleased]
-
 ## [0.3.2] - 2026-05-27
 
-A correctness and hardening release from a full line-by-line audit. Two real
-bugs fixed (a transfer could re-grant refunded access, a redemption could leave
-PII after a GDPR purge), the purge no longer caps at 500 rows, and dead surface
-trimmed.
+A correctness and hardening release from a full line-by-line audit. Three real
+bugs fixed (an expiring or refunded product could revoke an entitlement another
+active product still grants, a transfer could re-grant refunded access, a
+redemption could leave PII after a GDPR purge), the purge no longer caps at 500
+rows, and dead surface trimmed.
 
 ### Fixed
 
+- `EXPIRATION` and refund `CANCELLATION` no longer revoke an entitlement that a
+  different active subscription still grants. `revokeEntitlements` re-derives
+  each entitlement from the best surviving grantor (unrefunded, unexpired, or
+  lifetime) instead of blindly deactivating, so a user with overlapping products
+  for one entitlement (a lifetime purchase plus a monthly sub, an iOS sub plus a
+  web sub) keeps access when one expires or is refunded. Matches RevenueCat's
+  `CustomerInfo`, where an entitlement is active if any active product grants
+  it.
 - `TRANSFER` no longer reactivates a refunded or expired entitlement on the
   destination. A revoked lifetime entitlement riding a transfer came out active
   with no expiry, re-granting paid access for free. `transferEntitlements` now
@@ -47,8 +54,9 @@ trimmed.
 
 ### Added
 
-- Regression tests for both fixes and the batched purge, plus hardening tests
-  (cross-user IDOR, PII redaction, `willRenew` drift, safety caps).
+- Regression tests for each fix and the batched purge, plus hardening tests
+  (cross-user IDOR, PII redaction, `willRenew` drift, safety caps, multi-product
+  entitlement keep).
 - `publish.yml` runs the full `validate`, and PR CI runs on Node 20 and 24.
 
 ## [0.3.1] - 2026-05-27

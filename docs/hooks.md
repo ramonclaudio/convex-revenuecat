@@ -77,7 +77,9 @@ export const onDeleted = internalMutation({
 - `onEntitlementDeactivated` fires when an active entitlement transitions to
   not-active. Covers `EXPIRATION`, refund `CANCELLATION`
   (`cancel_reason: "CUSTOMER_SUPPORT"` or `price < 0`), `TRANSFER` off a user,
-  and sync reconciliation.
+  and sync reconciliation. It does not fire when one of several products
+  granting the entitlement expires or is refunded while another still grants it,
+  since the entitlement stays active.
 - `onCustomerDeleted` fires after `deleteCustomer` purges the component-local
   rows for an `appUserId`.
 

@@ -1,7 +1,7 @@
 import { v, ConvexError, type Infer } from "convex/values";
 import type { GenericMutationCtx } from "convex/server";
 import { internalMutation } from "./_generated/server.js";
-import type { DataModel } from "./_generated/dataModel.js";
+import type { DataModel, Doc } from "./_generated/dataModel.js";
 import {
   environmentValidator,
   ownershipTypeValidator,
@@ -463,14 +463,46 @@ async function grantEntitlements(
   }
 }
 
+function bestActiveGrantor(
+  subs: Doc<"subscriptions">[],
+  entitlementId: string,
+  now: number,
+  excludeOriginalTransactionId?: string,
+): Doc<"subscriptions"> | null {
+  let best: Doc<"subscriptions"> | null = null;
+  for (const sub of subs) {
+    if (sub.originalTransactionId === excludeOriginalTransactionId) continue;
+    if (sub.refundedAtMs) continue;
+    if (!sub.entitlementIds?.includes(entitlementId)) continue;
+    if (sub.expirationAtMs !== undefined && sub.expirationAtMs <= now) continue;
+    if (best === null) {
+      best = sub;
+    } else if (best.expirationAtMs !== undefined) {
+      if (
+        sub.expirationAtMs === undefined ||
+        sub.expirationAtMs > best.expirationAtMs
+      ) {
+        best = sub;
+      }
+    }
+  }
+  return best;
+}
+
 async function revokeEntitlements(
   ctx: MutationCtx,
   appUserId: string,
   entitlementIds?: string[],
+  excludeOriginalTransactionId?: string,
 ): Promise<void> {
   const now = Date.now();
 
   if (entitlementIds?.length) {
+    const subs = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_app_user", (q) => q.eq("appUserId", appUserId))
+      .take(TRANSFER_SAFETY_CAP + 1);
+    assertUnderCap(subs, "revokeEntitlements", appUserId);
     for (const entitlementId of entitlementIds) {
       const ent = await ctx.db
         .query("entitlements")
@@ -478,7 +510,24 @@ async function revokeEntitlements(
           q.eq("appUserId", appUserId).eq("entitlementId", entitlementId),
         )
         .first();
-      if (ent && ent.isActive) {
+      if (!ent || !ent.isActive) continue;
+      const grantor = bestActiveGrantor(
+        subs,
+        entitlementId,
+        now,
+        excludeOriginalTransactionId,
+      );
+      if (grantor) {
+        await ctx.db.patch(ent._id, {
+          isActive: true,
+          expiresAtMs: grantor.expirationAtMs,
+          productId: grantor.productId,
+          store: grantor.store,
+          ownershipType: grantor.ownershipType ?? ent.ownershipType,
+          billingIssueDetectedAt: undefined,
+          updatedAt: now,
+        });
+      } else {
         await ctx.db.patch(ent._id, {
           isActive: false,
           billingIssueDetectedAt: undefined,
@@ -736,7 +785,12 @@ export const processCancellation = internalMutation({
 
     const entitlementIds = getEntitlementIds(event);
     if (isRefund && event.app_user_id && entitlementIds?.length) {
-      await revokeEntitlements(ctx, event.app_user_id, entitlementIds);
+      await revokeEntitlements(
+        ctx,
+        event.app_user_id,
+        entitlementIds,
+        event.original_transaction_id,
+      );
     }
     return null;
   },
@@ -771,7 +825,12 @@ export const processExpiration = internalMutation({
     });
     const entitlementIds = getEntitlementIds(event);
     if (event.app_user_id && entitlementIds?.length) {
-      await revokeEntitlements(ctx, event.app_user_id, entitlementIds);
+      await revokeEntitlements(
+        ctx,
+        event.app_user_id,
+        entitlementIds,
+        event.original_transaction_id,
+      );
     }
     return null;
   },
@@ -1104,7 +1163,12 @@ export const processRefund = internalMutation({
     });
     const entitlementIds = getEntitlementIds(event);
     if (event.app_user_id && entitlementIds?.length) {
-      await revokeEntitlements(ctx, event.app_user_id, entitlementIds);
+      await revokeEntitlements(
+        ctx,
+        event.app_user_id,
+        entitlementIds,
+        event.original_transaction_id,
+      );
     }
     return null;
   },

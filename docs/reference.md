@@ -3,7 +3,9 @@
 [← Back to README](../README.md)
 
 All query methods return empty arrays or `null` for missing users (never throw).
-Lifetime purchases without `expirationAtMs` are always considered active.
+Lifetime purchases without `expirationAtMs` are always considered active. An
+entitlement stays active as long as any active product grants it, so one product
+expiring or being refunded won't drop access another still provides.
 
 | Method                                                              | Returns                             |
 | :------------------------------------------------------------------ | :---------------------------------- |
@@ -84,12 +86,12 @@ keys). Responses carry `RevenueCat-Rate-Limit-Current-Usage` and
   [Security](security.md#audit-log-redaction)).
 - Rate limited at 100 req/min per app. Dedup runs BEFORE the rate-limit check so
   webhook replays (same `event.id`) don't consume the rate budget.
-- Transfer and alias operations cap at 500 source records per user to stay under
-  Convex's per-transaction write budget. A pathological account (more than 500
-  entitlements or subscriptions) throws `TRANSFER_SAFETY_CAP_EXCEEDED` instead
-  of silently corrupting state. `deleteCustomer` (GDPR purge) has no such
-  ceiling: it drains in bounded batches across transactions, so call it from an
-  action.
+- Transfer, alias, and the surviving-grantor scan on `EXPIRATION` or refund cap
+  at 500 records per user to stay under Convex's per-transaction budget. A
+  pathological account (more than 500 entitlements or subscriptions) throws
+  `TRANSFER_SAFETY_CAP_EXCEEDED` instead of silently corrupting state.
+  `deleteCustomer` (GDPR purge) has no such ceiling: it drains in bounded
+  batches across transactions, so call it from an action.
 - `event.id` is capped at 128 bytes. Webhook bodies are capped at 1MB. Both
   reject at the HTTP boundary before any database touch.
 - `event.event_timestamp_ms` is clamped to `now + 5min` on insert so a
