@@ -29,7 +29,12 @@ function buildEvent(
     transaction_id: txn,
     original_transaction_id: txn,
     price: 9.99,
+    price_in_purchased_currency: 9.99,
     currency: "USD",
+    country_code: "US",
+    is_family_share: false,
+    commission_percentage: 0,
+    presented_offering_id: "default",
   };
   switch (scenario) {
     case "INITIAL_PURCHASE":

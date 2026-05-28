@@ -265,6 +265,11 @@ export function App() {
             ))}
           </div>
         )}
+        <div style={{ marginTop: 8, color: "#94a3b8", fontSize: 12 }}>
+          buys fire real INITIAL_PURCHASE and NON_RENEWING_PURCHASE. RC also
+          sends real RENEWAL, EXPIRATION, and INVOICE_ISSUANCE on the Test
+          Store's clock.
+        </div>
       </div>
 
       <div style={{ ...card, marginBottom: 20 }}>
@@ -296,6 +301,17 @@ export function App() {
               {simMsg}
             </span>
           )}
+        </div>
+        <div
+          style={{
+            color: "#94a3b8",
+            fontSize: 11,
+            marginTop: -4,
+            marginBottom: 12,
+          }}
+        >
+          posted straight to the component, bypassing RevenueCat, so they never
+          reach the RC dashboard
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
           {GROUPS.map((g) => (
