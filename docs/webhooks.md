@@ -80,6 +80,13 @@ flowchart LR
     N -->|"no"| F
 ```
 
+An entitlement id can be granted by more than one product (a lifetime purchase
+plus a monthly sub, or the same entitlement on iOS and web). The component keeps
+one entitlement row per `(appUserId, entitlementId)`, and on `EXPIRATION` or
+refund it re-derives that row from the best still-active grantor instead of
+revoking. The entitlement only goes inactive once every product that grants it
+has expired or been refunded, matching RevenueCat's `CustomerInfo`.
+
 ## Derived `willRenew`
 
 `Subscription.autoRenewStatus` is the iOS `EntitlementInfo.willRenew` / Android

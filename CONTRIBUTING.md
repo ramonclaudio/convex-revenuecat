@@ -154,6 +154,14 @@ local HTTP endpoint to exercise manually.
   `isActive && (expiresAtMs === undefined || expiresAtMs > now)`. No
   short-circuits on `billingIssueDetectedAt` or any auxiliary flag. Grace is
   folded into `expiresAtMs` by `processBillingIssue` and `syncSubscriber`.
+- `revokeEntitlements` is grantor-aware. There is one entitlement row per
+  `(appUserId, entitlementId)`, so an entitlement is active while any
+  unrefunded, unexpired (or lifetime) subscription still lists it in
+  `entitlementIds`. On `EXPIRATION` or refund it re-derives the entitlement from
+  the best surviving grantor (via `bestActiveGrantor`) rather than setting
+  `isActive: false`. Don't simplify it back to a blind deactivate: that
+  over-revokes when products overlap (e.g. a lifetime purchase plus a monthly
+  sub for the same entitlement).
 - `upsertSubscription` and `grantEntitlements` patches use `?? existing.field`
   for every field that comes from event. `patch({ field: undefined })` removes
   the field. Partial events (UNCANCELLATION, BILLING_ISSUE) would otherwise

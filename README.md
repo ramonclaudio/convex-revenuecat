@@ -6,9 +6,10 @@
 A Convex component that mirrors RevenueCat subscription state in your own
 database. It ingests every webhook RevenueCat sends and gets the edge cases
 right (cancellation keeps access until expiration, grace periods stay active,
-refunds revoke immediately), so you check entitlements server-side by querying
-it like any other Convex table, with real-time reactivity and no per-request API
-call. Use it alongside the
+refunds revoke immediately, an entitlement stays active while any active product
+still grants it), so you check entitlements server-side by querying it like any
+other Convex table, with real-time reactivity and no per-request API call. Use
+it alongside the
 [RevenueCat SDK](https://www.revenuecat.com/docs/getting-started/installation),
 which still handles purchases client-side.
 
