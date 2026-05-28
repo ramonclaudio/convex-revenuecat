@@ -54,8 +54,9 @@ rows, and dead surface trimmed.
 
 ### Added
 
-- Regression tests for both fixes and the batched purge, plus hardening tests
-  (cross-user IDOR, PII redaction, `willRenew` drift, safety caps).
+- Regression tests for each fix and the batched purge, plus hardening tests
+  (cross-user IDOR, PII redaction, `willRenew` drift, safety caps, multi-product
+  entitlement keep).
 - `publish.yml` runs the full `validate`, and PR CI runs on Node 20 and 24.
 
 ## [0.3.1] - 2026-05-27
