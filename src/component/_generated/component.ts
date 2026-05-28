@@ -46,9 +46,10 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
       purge: FunctionReference<
         "mutation",
         "internal",
-        { appUserId: string; onCustomerDeleted?: string },
+        { appUserId: string; batchSize?: number; onCustomerDeleted?: string },
         {
           customer: number;
+          done: boolean;
           entitlements: number;
           experiments: number;
           invoices: number;
