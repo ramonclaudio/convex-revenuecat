@@ -8,6 +8,8 @@ import {
 } from "./transitions.js";
 import { deriveWillRenew } from "./handlers.js";
 
+const SYNC_ENTITLEMENT_CAP = 500;
+
 const hooksValidator = v.optional(
   v.object({
     onEntitlementActivated: v.optional(v.string()),
@@ -358,6 +360,29 @@ export const ingest = mutation({
               d.ownershipType = d.ownershipType ?? "PURCHASED";
             }
           }
+        }
+      }
+    }
+
+    if (subscriber.entitlements) {
+      const existingEntitlements = await ctx.db
+        .query("entitlements")
+        .withIndex("by_app_user", (q) => q.eq("appUserId", appUserId))
+        .take(SYNC_ENTITLEMENT_CAP + 1);
+      if (existingEntitlements.length > SYNC_ENTITLEMENT_CAP) {
+        throw new Error(
+          `Cannot sync more than ${SYNC_ENTITLEMENT_CAP} entitlements for one customer`,
+        );
+      }
+      for (const entitlement of existingEntitlements) {
+        if (
+          entitlement.isActive &&
+          !entitlementState.has(entitlement.entitlementId)
+        ) {
+          await ctx.db.patch(entitlement._id, {
+            isActive: false,
+            updatedAt: now,
+          });
         }
       }
     }

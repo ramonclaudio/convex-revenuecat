@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `syncSubscriber` now deactivates stored entitlements absent from a supplied
+  entitlement snapshot, including an empty one. Previously those grants could
+  remain active after RevenueCat removed them. Retains historical metadata and
+  fires the configured deactivation hook once with `sourceEventType: "SYNC"`.
+  Omitting `subscriber.entitlements` leaves stored entitlements unchanged.
+  Reconciliation rejects more than 500 stored entitlement rows atomically.
+
 ## [0.3.2] - 2026-05-27
 
 A correctness and hardening release from a full line-by-line audit. Three real
