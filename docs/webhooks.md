@@ -157,6 +157,16 @@ current state from RevenueCat's API and reconciles it with the database. All
 writes are idempotent, no duplicates. Call it on app foreground, after
 purchases, or on a schedule.
 
+When `subscriber.entitlements` is supplied, it is treated as the complete
+entitlement snapshot for that customer. Stored entitlements absent from it are
+marked inactive, preserving their purchase history and metadata. An empty object
+deactivates all stored entitlements; omitting the field leaves them unchanged.
+Deactivations use the configured `onEntitlementDeactivated` hook with
+`sourceEventType: "SYNC"`, once per active-to-inactive transition. The returned
+`entitlements` count still counts entries in the supplied snapshot, not removed
+grants. Reconciliation rejects customers with more than 500 stored entitlement
+rows atomically rather than silently reconciling only part of their state.
+
 ```typescript
 import { action } from "./_generated/server";
 import { revenuecat } from "./revenuecat";

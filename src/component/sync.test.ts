@@ -40,6 +40,155 @@ function createSubscriber(
 }
 
 describe("sync.ingest", () => {
+  test.each([
+    ["subscription", new Date(Date.now() + 30 * 86400000).toISOString()],
+    ["lifetime", null],
+  ])(
+    "deactivates a missing %s entitlement and preserves its history",
+    async (_, expiresDate) => {
+      const t = initConvexTest();
+      const appUserId = "user_removed";
+      await t.mutation(api.sync.ingest, {
+        appUserId,
+        subscriber: createSubscriber({
+          entitlements: {
+            premium: {
+              product_identifier: "monthly_premium",
+              expires_date: expiresDate,
+              purchase_date: "2024-01-01T00:00:00Z",
+            },
+          },
+        }),
+      });
+      const [before] = await t.query(api.entitlements.list, { appUserId });
+      expect(before.isActive).toBe(true);
+
+      const result = await t.mutation(api.sync.ingest, {
+        appUserId,
+        subscriber: { entitlements: {} },
+      });
+
+      expect(result.entitlements).toBe(0);
+      expect(
+        await t.query(api.entitlements.check, {
+          appUserId,
+          entitlementId: "premium",
+        }),
+      ).toBe(false);
+      const [after] = await t.query(api.entitlements.list, { appUserId });
+      expect(after).toEqual({
+        ...before,
+        isActive: false,
+        updatedAt: after.updatedAt,
+      });
+      await t.mutation(api.sync.ingest, {
+        appUserId,
+        subscriber: { entitlements: {} },
+      });
+      expect(await t.query(api.entitlements.list, { appUserId })).toEqual([
+        after,
+      ]);
+      expect(
+        await t.run((ctx) =>
+          ctx.db.system.query("_scheduled_functions").collect(),
+        ),
+      ).toHaveLength(0);
+    },
+  );
+
+  test("preserves retained entitlements and other customers when reconciling", async () => {
+    const t = initConvexTest();
+    const subscriber = createSubscriber();
+    await t.mutation(api.sync.ingest, {
+      appUserId: "user_reconcile",
+      subscriber: {
+        ...subscriber,
+        entitlements: {
+          ...subscriber.entitlements,
+          pro_tools: { product_identifier: "pro_lifetime", expires_date: null },
+        },
+      },
+    });
+    await t.mutation(api.sync.ingest, {
+      appUserId: "other_user",
+      subscriber,
+    });
+    const otherBefore = await t.query(api.entitlements.list, {
+      appUserId: "other_user",
+    });
+
+    await t.mutation(api.sync.ingest, {
+      appUserId: "user_reconcile",
+      subscriber,
+    });
+
+    expect(
+      await t.query(api.entitlements.check, {
+        appUserId: "user_reconcile",
+        entitlementId: "premium",
+      }),
+    ).toBe(true);
+    expect(
+      await t.query(api.entitlements.check, {
+        appUserId: "user_reconcile",
+        entitlementId: "pro_tools",
+      }),
+    ).toBe(false);
+    expect(
+      await t.query(api.entitlements.list, { appUserId: "other_user" }),
+    ).toEqual(otherBefore);
+  });
+
+  test("preserves entitlements when the subscriber omits the entitlement map", async () => {
+    const t = initConvexTest();
+    const appUserId = "user_partial";
+    await t.mutation(api.sync.ingest, {
+      appUserId,
+      subscriber: createSubscriber(),
+    });
+    const before = await t.query(api.entitlements.list, { appUserId });
+
+    await t.mutation(api.sync.ingest, {
+      appUserId,
+      subscriber: { last_seen: "2024-07-01T00:00:00Z" },
+    });
+
+    expect(await t.query(api.entitlements.list, { appUserId })).toEqual(before);
+  });
+
+  test("rejects reconciliation beyond the entitlement safety cap without partial writes", async () => {
+    const t = initConvexTest();
+    const appUserId = "user_over_cap";
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 501; i++) {
+        await ctx.db.insert("entitlements", {
+          appUserId,
+          entitlementId: `entitlement_${i}`,
+          isActive: true,
+          isSandbox: false,
+          updatedAt: 0,
+        });
+      }
+    });
+
+    await expect(
+      t.mutation(api.sync.ingest, {
+        appUserId,
+        subscriber: { entitlements: {} },
+      }),
+    ).rejects.toThrow(
+      "Cannot sync more than 500 entitlements for one customer",
+    );
+    expect(await t.query(api.customers.get, { appUserId })).toBeNull();
+    const entitlements = await t.query(api.entitlements.list, { appUserId });
+    expect(entitlements).toHaveLength(501);
+    expect(
+      entitlements.every(
+        (entitlement) => entitlement.isActive && entitlement.updatedAt === 0,
+      ),
+    ).toBe(true);
+  });
+
   test("creates customer, subscription, and entitlement", async () => {
     const t = initConvexTest();
 

@@ -333,6 +333,48 @@ describe("lifecycle hooks", () => {
   });
 
   describe("sync path", () => {
+    test("fires one deactivation hook when a snapshot removes an entitlement", async () => {
+      const t = initConvexTest();
+      const handle = await handleFor(t, internal.lib.noop);
+      const appUserId = "user_sync_removed";
+      const expiresAtMs = Date.now() + 86400000;
+      await t.mutation(api.sync.ingest, {
+        appUserId,
+        subscriber: {
+          entitlements: {
+            premium: {
+              product_identifier: "monthly",
+              purchase_date: "2024-01-01T00:00:00Z",
+              expires_date: new Date(expiresAtMs).toISOString(),
+            },
+          },
+        },
+      });
+
+      for (let i = 0; i < 2; i++) {
+        await t.mutation(api.sync.ingest, {
+          appUserId,
+          subscriber: { entitlements: {} },
+          hooks: {
+            onEntitlementActivated: handle,
+            onEntitlementDeactivated: handle,
+          },
+        });
+      }
+
+      const jobs = await scheduledJobsMatching(t, "noop");
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].args).toMatchObject({
+        appUserId,
+        entitlementId: "premium",
+        productId: "monthly",
+        purchasedAtMs: Date.parse("2024-01-01T00:00:00Z"),
+        expiresAtMs,
+        isSandbox: false,
+        sourceEventType: "SYNC",
+      });
+    });
+
     test("fires hooks when sync flips an entitlement active", async () => {
       const t = initConvexTest();
       const handle = await handleFor(t, internal.lib.noop);

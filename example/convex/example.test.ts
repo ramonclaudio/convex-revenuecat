@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { initConvexTest } from "./setup.test";
 import { api, components } from "./_generated/api";
+import { RevenueCat } from "convex-revenuecat";
 
 function createEventPayload(
   overrides: Partial<{
@@ -59,6 +60,35 @@ function asUser(t: ReturnType<typeof initConvexTest>, subject: string) {
 }
 
 describe("subscriptions", () => {
+  test("syncSubscriber removes access absent from the REST snapshot", async () => {
+    const t = initConvexTest();
+    const subject = "user_sync_removed";
+    const revenuecat = new RevenueCat(components.revenuecat);
+    await processEvent(t, createEventPayload({ app_user_id: subject }));
+    const user = asUser(t, subject);
+    expect(await user.query(api.subscriptions.checkPremium, {})).toBe(true);
+
+    const result = await t.run((ctx) =>
+      revenuecat.syncSubscriber(ctx, {
+        appUserId: subject,
+        subscriber: {
+          entitlements: {},
+          subscriptions: {},
+          non_subscriptions: {},
+        },
+      }),
+    );
+
+    expect(result.entitlements).toBe(0);
+    expect(await user.query(api.subscriptions.checkPremium, {})).toBe(false);
+    expect(
+      await user.query(api.subscriptions.getActiveEntitlements, {}),
+    ).toEqual([]);
+    expect(
+      await user.query(api.subscriptions.getAllEntitlements, {}),
+    ).toMatchObject([{ entitlementId: "premium", isActive: false }]);
+  });
+
   describe("checkPremium", () => {
     test("rejects unauthenticated callers", async () => {
       const t = initConvexTest();
